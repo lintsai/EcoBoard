@@ -1,0 +1,545 @@
+﻿import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import api from '../services/api';
+
+interface WorkItemsProps {
+  user: any;
+  teamId: number;
+  onLogout: () => void;
+}
+
+interface ChatMessage {
+  role: 'user' | 'ai';
+  content: string;
+  timestamp: string;
+}
+
+interface WorkItem {
+  id: number;
+  content: string;
+  item_type: string;
+  created_at: string;
+  session_id?: string;
+  ai_summary?: string;
+  ai_title?: string;
+}
+
+function WorkItems({ user, teamId }: WorkItemsProps) {
+  const navigate = useNavigate();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState('');
+  const [checkinId, setCheckinId] = useState<number | null>(null);
+  const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [currentItemAiSummary, setCurrentItemAiSummary] = useState<string>('');
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    loadTodayCheckin();
+    loadWorkItems();
+    setMessages([{
+      role: 'ai',
+      content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
+      timestamp: new Date().toISOString()
+    }]);
+  }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const loadTodayCheckin = async () => {
+    try {
+      const checkins = await api.getTodayTeamCheckins(teamId);
+      const userCheckin = checkins.find((c: any) => c.user_id === user.id);
+      if (userCheckin) {
+        setCheckinId(userCheckin.id);
+      }
+    } catch (error) {
+      console.error('Failed to load checkin:', error);
+    }
+  };
+
+  const loadWorkItems = async () => {
+    try {
+      const items = await api.getTodayWorkItems(teamId);
+      setWorkItems(items);
+    } catch (error) {
+      console.error('Failed to load work items:', error);
+    }
+  };
+
+  const loadChatHistory = async (itemSessionId: string) => {
+    try {
+      const history = await api.getChatHistory(itemSessionId);
+      const formattedMessages: ChatMessage[] = [];
+      
+      history.forEach((msg: any) => {
+        formattedMessages.push({
+          role: 'user',
+          content: msg.content,
+          timestamp: msg.created_at
+        });
+        if (msg.ai_response) {
+          formattedMessages.push({
+            role: 'ai',
+            content: msg.ai_response,
+            timestamp: msg.created_at
+          });
+        }
+      });
+
+      setMessages(formattedMessages);
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+    }
+  };
+
+  const handleDeleteWorkItem = async (itemId: number) => {
+    if (!confirm('確定要刪除此工作項目嗎？')) return;
+
+    try {
+      await api.deleteWorkItem(itemId);
+      await loadWorkItems();
+      
+      if (selectedItemId === itemId) {
+        setSelectedItemId(null);
+        setCurrentItemAiSummary('');
+        setSessionId('');
+        setMessages([{
+          role: 'ai',
+          content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
+          timestamp: new Date().toISOString()
+        }]);
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.error || '刪除失敗');
+    }
+  };
+
+  const handleEditWorkItem = async (item: WorkItem) => {
+    setSelectedItemId(item.id);
+    setCurrentItemAiSummary(item.ai_summary || '');
+    
+    if (item.session_id) {
+      setSessionId(item.session_id);
+      await loadChatHistory(item.session_id);
+    } else {
+      setMessages([{
+        role: 'ai',
+        content: `正在編輯工作項目：「${item.ai_title || item.content}」\n\n您可以繼續與我討論這個項目的細節。`,
+        timestamp: new Date().toISOString()
+      }]);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!inputMessage.trim()) return;
+
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: inputMessage,
+      timestamp: new Date().toISOString()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputMessage;
+    setInputMessage('');
+    setLoading(true);
+
+    try {
+      const response = await api.chat(currentInput, sessionId, { teamId, userId: user.id });
+      setSessionId(response.sessionId);
+
+      const aiMessage: ChatMessage = {
+        role: 'ai',
+        content: response.response,
+        timestamp: response.timestamp
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      setMessages(prev => [...prev, {
+        role: 'ai',
+        content: '抱歉，發生錯誤。請稍後再試。',
+        timestamp: new Date().toISOString()
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveAsNewWorkItem = async () => {
+    if (!checkinId) {
+      alert('請先完成打卡');
+      return;
+    }
+
+    if (!sessionId) {
+      alert('請先與 AI 進行對話');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const summary = await api.generateWorkSummary(sessionId);
+
+      await api.createWorkItem(
+        checkinId,
+        summary.summary,
+        'task',
+        sessionId,
+        summary.summary,
+        summary.title
+      );
+
+      alert('工作項目已儲存！');
+      
+      await loadWorkItems();
+      setSessionId('');
+      setSelectedItemId(null);
+      setCurrentItemAiSummary('');
+      setMessages([{
+        role: 'ai',
+        content: '✅ 工作項目已成功儲存！\n\n您可以繼續新增其他工作項目。',
+        timestamp: new Date().toISOString()
+      }]);
+    } catch (error) {
+      console.error('Failed to save work item:', error);
+      alert('儲存失敗');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateWorkItem = async () => {
+    if (!selectedItemId) return;
+
+    try {
+      setLoading(true);
+      const summary = await api.generateWorkSummary(sessionId);
+
+      await api.updateWorkItem(selectedItemId, {
+        content: summary.summary,
+        aiSummary: summary.summary,
+        aiTitle: summary.title
+      });
+
+      alert('工作項目已更新！');
+      
+      await loadWorkItems();
+      setSessionId('');
+      setSelectedItemId(null);
+      setCurrentItemAiSummary('');
+      setMessages([{
+        role: 'ai',
+        content: '✅ 工作項目已更新！\n\n您可以繼續新增或編輯其他工作項目。',
+        timestamp: new Date().toISOString()
+      }]);
+    } catch (error) {
+      console.error('Failed to update work item:', error);
+      alert('更新失敗');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setSelectedItemId(null);
+    setSessionId('');
+    setCurrentItemAiSummary('');
+    setMessages([{
+      role: 'ai',
+      content: '已取消編輯。您可以新增其他工作項目或編輯現有項目。',
+      timestamp: new Date().toISOString()
+    }]);
+  };
+
+  return (
+    <div className="app-container">
+      <div className="main-content">
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
+              <ArrowLeft size={18} />
+              返回
+            </button>
+            <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <MessageSquare size={28} />
+              AI 工作項目規劃
+            </h1>
+          </div>
+          <div style={{ fontSize: '14px', color: '#666' }}>
+            {user.display_name || user.username}
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div style={{ display: 'grid', gridTemplateColumns: '60% 38%', gap: '20px', minHeight: 'calc(100vh - 250px)', alignItems: 'start' }}>
+          {/* Left: Chat Dialog - 60% */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 250px)', position: 'sticky', top: '20px' }}>
+            {/* Chat Header */}
+            <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <Sparkles size={20} style={{ color: '#667eea' }} />
+                AI 助手對話
+                {selectedItemId && (
+                  <span style={{ marginLeft: '10px', fontSize: '14px', color: '#667eea' }}>(編輯模式)</span>
+                )}
+              </h3>
+              {selectedItemId && (
+                <p style={{ fontSize: '13px', color: '#666', marginTop: '5px', marginBottom: 0 }}>
+                  正在編輯工作項目 #{selectedItemId}
+                </p>
+              )}
+            </div>
+
+            {/* Chat Messages */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+              {messages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    marginBottom: '15px'
+                  }}
+                >
+                  <div
+                    style={{
+                      maxWidth: '80%',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      backgroundColor: msg.role === 'user' ? '#667eea' : '#f3f4f6',
+                      color: msg.role === 'user' ? 'white' : '#374151'
+                    }}
+                  >
+                    {msg.role === 'ai' ? (
+                      <div className="markdown-content" style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: '14px', whiteSpace: 'pre-wrap', margin: 0 }}>{msg.content}</p>
+                    )}
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        marginTop: '8px',
+                        opacity: 0.7
+                      }}
+                    >
+                      {new Date(msg.timestamp).toLocaleTimeString('zh-TW')}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Chat Input */}
+            <div style={{ padding: '15px', borderTop: '1px solid #e5e7eb' }}>
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  className="input"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && !loading && handleSend()}
+                  placeholder="描述您的工作項目..."
+                  disabled={loading}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={loading || !inputMessage.trim()}
+                  className="btn btn-primary"
+                >
+                  <Send size={18} />
+                  {loading ? '處理中...' : '發送'}
+                </button>
+              </div>
+              
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                {selectedItemId ? (
+                  <>
+                    <button
+                      onClick={handleUpdateWorkItem}
+                      disabled={loading || !sessionId}
+                      className="btn btn-success"
+                      style={{ flex: 1 }}
+                    >
+                      <Save size={18} />
+                      更新工作項目
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={loading}
+                      className="btn btn-secondary"
+                    >
+                      <X size={18} />
+                      取消
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleSaveAsNewWorkItem}
+                    disabled={loading || !sessionId}
+                    className="btn btn-success"
+                    style={{ flex: 1 }}
+                  >
+                    <Sparkles size={18} />
+                    儲存為新工作項目
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: AI Summary + Work Items List - 40% */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {/* AI Summary Section */}
+            {currentItemAiSummary && (
+              <div className="card" style={{ padding: '15px' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
+                  <Sparkles size={20} style={{ color: '#667eea' }} />
+                  AI 摘要
+                </h3>
+                <div className="markdown-content" style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentItemAiSummary}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+
+            {/* Work Items List */}
+            <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb' }}>
+                <h3 style={{ margin: 0 }}>
+                  今日工作項目 ({workItems.length})
+                </h3>
+              </div>
+              
+              <div style={{ padding: '15px' }}>
+                {workItems.length === 0 ? (
+                  <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
+                    還沒有工作項目，開始與 AI 對話來建立吧！
+                  </p>
+                ) : (
+                  workItems.map((item) => {
+                    const isExpanded = expandedItems.has(item.id);
+                    
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          marginBottom: '10px',
+                          border: selectedItemId === item.id ? '2px solid #667eea' : '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          backgroundColor: selectedItemId === item.id ? '#f0f4ff' : '#fff',
+                          transition: 'all 0.2s',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {/* Header - Always Visible */}
+                        <div
+                          style={{
+                            padding: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer',
+                            backgroundColor: isExpanded ? '#f9fafb' : 'transparent'
+                          }}
+                          onClick={() => {
+                            const newExpanded = new Set(expandedItems);
+                            if (isExpanded) {
+                              newExpanded.delete(item.id);
+                            } else {
+                              newExpanded.add(item.id);
+                            }
+                            setExpandedItems(newExpanded);
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                            <h4 style={{ fontWeight: '600', fontSize: '14px', margin: 0, flex: 1 }}>
+                              {item.ai_title || item.content}
+                            </h4>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '12px', color: '#999' }}>
+                              {new Date(item.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteWorkItem(item.id);
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#dc2626',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center'
+                              }}
+                              title="刪除"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Expanded Content */}
+                        {isExpanded && (
+                          <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #e5e7eb' }}>
+                            {item.ai_summary && (
+                              <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: '12px' }}>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                              </div>
+                            )}
+                            
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditWorkItem(item);
+                                }}
+                                className="btn btn-primary"
+                                style={{
+                                  padding: '6px 12px',
+                                  fontSize: '13px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                <Edit2 size={14} />
+                                編輯
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default WorkItems;

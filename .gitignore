@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.production
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+coverage/
+.nyc_output/
+
+# Build outputs
+client/build/
+deploy-package/
+
+# Test results
+test-results-*.log
+TEST_REPORT_*.md
+
+# Temporary files
+*.tmp
+*.temp

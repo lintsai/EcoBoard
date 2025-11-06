@@ -1,0 +1,553 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Calendar, Sparkles, RefreshCw, FileText, Loader2, History, Save, X } from 'lucide-react';
+import api from '../services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+
+interface DailySummaryData {
+  summary: string;
+  date: string;
+  teamId: number;
+  cached?: boolean;
+  createdAt?: string;
+}
+
+interface HistoryItem {
+  id: number;
+  team_id: number;
+  summary_date: string;
+  summary_content: string;
+  created_at: string;
+  generated_by_name?: string;
+}
+
+function DailySummary({ user, teamId }: any) {
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState<DailySummaryData | null>(null);
+  const [previewSummary, setPreviewSummary] = useState<string | null>(null); // 預覽的總結內容
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (teamId) {
+      fetchDailySummary();
+    }
+  }, [teamId]);
+
+  const fetchDailySummary = async (date?: string) => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const summaryDate = date || selectedDate;
+      const data = await api.generateDailySummary(teamId, summaryDate);
+      setSummary(data);
+    } catch (err: any) {
+      setError(err.response?.data?.error || '載入每日總結失敗');
+      console.error('載入總結失敗:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const response = await api.getDailySummaryHistory(teamId, 30);
+      setHistory(response);
+    } catch (err: any) {
+      console.error('載入歷史總結失敗:', err);
+      setError('載入歷史總結失敗');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    setGenerating(true);
+    setError('');
+    setPreviewSummary(null); // 清除舊的預覽
+    
+    try {
+      const summaryDate = selectedDate;
+      // 強制重新生成（不使用快取）
+      const data = await api.generateDailySummary(teamId, summaryDate, true);
+      
+      // 總是設定為預覽模式，讓使用者決定是否儲存
+      setPreviewSummary(data.summary);
+    } catch (err: any) {
+      setError(err.response?.data?.error || '生成總結失敗');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleSaveSummary = async () => {
+    if (!previewSummary) return;
+    
+    setSaving(true);
+    setError('');
+    
+    try {
+      // 呼叫 API 儲存總結
+      const response = await api.saveDailySummary(teamId, selectedDate, previewSummary);
+      
+      // 儲存成功後，設定為正式的 summary
+      setSummary({
+        summary: previewSummary,
+        date: selectedDate,
+        teamId: teamId,
+        cached: true,
+        createdAt: new Date().toISOString()
+      });
+      
+      setPreviewSummary(null);
+      
+      // 重新載入歷史記錄
+      if (showHistory) {
+        fetchHistory();
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || '儲存總結失敗');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelPreview = () => {
+    setPreviewSummary(null);
+  };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDate = e.target.value;
+    setSelectedDate(newDate);
+  };
+
+  const handleRefresh = () => {
+    fetchDailySummary(selectedDate);
+  };
+
+  const handleShowHistory = () => {
+    setShowHistory(!showHistory);
+    if (!showHistory && history.length === 0) {
+      fetchHistory();
+    }
+  };
+
+  const handleSelectHistoryItem = (item: HistoryItem) => {
+    setSelectedDate(item.summary_date);
+    setSummary({
+      summary: item.summary_content,
+      date: item.summary_date,
+      teamId: item.team_id,
+      cached: true,
+      createdAt: item.created_at
+    });
+    setShowHistory(false);
+  };
+
+  return (
+    <div className="app-container">
+      <div className="main-content">
+        <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
+          <ArrowLeft size={18} />
+          返回
+        </button>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div>
+            <h1>每日總結</h1>
+            <p className="subtitle">
+              <Sparkles size={16} style={{ display: 'inline', marginRight: '5px' }} />
+              AI 自動分析團隊當日工作進展並生成總結報告
+            </p>
+          </div>
+        </div>
+
+        {/* 日期選擇和操作按鈕 */}
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: '0 0 auto' }}>
+              <label htmlFor="summary-date" style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 500 }}>
+                選擇日期
+              </label>
+              <input
+                type="date"
+                id="summary-date"
+                className="form-control"
+                value={selectedDate}
+                onChange={handleDateChange}
+                max={new Date().toISOString().split('T')[0]}
+                style={{ width: '200px' }}
+              />
+            </div>
+
+            <div style={{ flex: '0 0 auto', marginTop: '24px' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleGenerateSummary}
+                disabled={generating || loading || saving}
+                style={{ marginRight: '10px' }}
+              >
+                {generating ? (
+                  <>
+                    <Loader2 size={18} className="spinner" />
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={18} />
+                    {previewSummary ? '重新生成' : '生成總結'}
+                  </>
+                )}
+              </button>
+
+              <button
+                className="btn btn-secondary"
+                onClick={handleRefresh}
+                disabled={loading || generating || saving || !!previewSummary}
+                style={{ marginRight: '10px' }}
+              >
+                <RefreshCw size={18} />
+                重新載入
+              </button>
+
+              <button
+                className="btn btn-secondary"
+                onClick={handleShowHistory}
+                disabled={loading || generating || saving || !!previewSummary}
+              >
+                <History size={18} />
+                {showHistory ? '隱藏歷史' : '查看歷史'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 歷史記錄列表 */}
+        {showHistory && (
+          <div className="card" style={{ marginBottom: '20px', maxHeight: '400px', overflowY: 'auto' }}>
+            <h3 style={{ fontSize: '18px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <History size={20} />
+              歷史總結記錄
+            </h3>
+            
+            {loadingHistory ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                <Loader2 size={32} className="spinner" style={{ margin: '0 auto' }} />
+              </div>
+            ) : history.length === 0 ? (
+              <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>暫無歷史記錄</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {history.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleSelectHistoryItem(item)}
+                    style={{
+                      padding: '12px 15px',
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      backgroundColor: selectedDate === item.summary_date ? '#e6f2ff' : '#fff',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedDate !== item.summary_date) {
+                        e.currentTarget.style.backgroundColor = '#f5f5f5';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedDate !== item.summary_date) {
+                        e.currentTarget.style.backgroundColor = '#fff';
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <Calendar size={16} style={{ color: '#0066cc' }} />
+                        <span style={{ fontWeight: 500, fontSize: '15px' }}>
+                          {new Date(item.summary_date).toLocaleDateString('zh-TW', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            weekday: 'short'
+                          })}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#999' }}>
+                        {item.generated_by_name && `由 ${item.generated_by_name} 生成`}
+                        {' · '}
+                        {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div className="alert alert-error">
+            <FileText size={18} />
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="card" style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <Loader2 size={48} className="spinner" style={{ margin: '0 auto 20px' }} />
+            <p style={{ color: '#666', fontSize: '16px' }}>正在載入總結...</p>
+          </div>
+        ) : previewSummary ? (
+          // 預覽模式：顯示生成的內容和儲存/取消按鈕
+          <div className="card" style={{ border: '2px solid #ffa500' }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              paddingBottom: '15px',
+              borderBottom: '2px solid #ffa500',
+              marginBottom: '20px',
+              backgroundColor: '#fff8e6',
+              margin: '-20px -20px 20px -20px',
+              padding: '15px 20px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Sparkles size={20} style={{ color: '#ffa500' }} />
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#ff8c00' }}>
+                  預覽：AI 生成的總結（尚未儲存）
+                </h2>
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  className="btn btn-success"
+                  onClick={handleSaveSummary}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 size={16} className="spinner" />
+                      儲存中...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      儲存總結
+                    </>
+                  )}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleCancelPreview}
+                  disabled={saving}
+                >
+                  <X size={16} />
+                  取消
+                </button>
+              </div>
+            </div>
+
+            <div 
+              className="markdown-content prose-sm"
+              style={{
+                fontSize: '15px',
+                lineHeight: '1.8',
+                color: '#333'
+              }}
+            >
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+              >
+                {previewSummary}
+              </ReactMarkdown>
+            </div>
+          </div>
+        ) : summary ? (
+          <div className="card">
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              paddingBottom: '15px',
+              borderBottom: '2px solid #e0e0e0',
+              marginBottom: '20px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Calendar size={20} style={{ color: '#0066cc' }} />
+                <h2 style={{ margin: 0, fontSize: '20px' }}>
+                  {new Date(summary.date).toLocaleDateString('zh-TW', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    weekday: 'long'
+                  })}
+                </h2>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {summary.cached && (
+                  <span className="badge" style={{ backgroundColor: '#28a745' }}>
+                    已儲存
+                  </span>
+                )}
+                <span className="badge badge-primary">
+                  <Sparkles size={14} />
+                  AI 生成
+                </span>
+              </div>
+            </div>
+
+            <div 
+              className="markdown-content prose-sm"
+              style={{
+                fontSize: '15px',
+                lineHeight: '1.8',
+                color: '#333'
+              }}
+            >
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+              >
+                {summary.summary}
+              </ReactMarkdown>
+            </div>
+          </div>
+        ) : (
+          <div className="card" style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <FileText size={48} style={{ color: '#ccc', margin: '0 auto 20px' }} />
+            <p style={{ color: '#666', fontSize: '16px', marginBottom: '20px' }}>
+              尚未生成總結，請選擇日期並點擊「生成總結」按鈕
+            </p>
+            <p style={{ color: '#999', fontSize: '14px' }}>
+              AI 將分析該日期的工作項目、打卡記錄和進度更新，<br />
+              自動生成詳細的工作總結報告
+            </p>
+          </div>
+        )}
+
+        {/* 使用說明 */}
+        <div className="card" style={{ marginTop: '20px', backgroundColor: '#f8f9fa' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>💡 總結報告包含內容</h3>
+          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#666' }}>
+            <li>今日完成項目總覽</li>
+            <li>進度評估（是否按計劃完成）</li>
+            <li>遇到的問題和挑戰</li>
+            <li>明日建議和待辦事項</li>
+            <li>工作分析與優先級建議</li>
+          </ul>
+        </div>
+      </div>
+
+      <style>{`
+        .markdown-content h1 {
+          font-size: 24px;
+          margin: 20px 0 15px;
+          color: #0066cc;
+        }
+        .markdown-content h2 {
+          font-size: 20px;
+          margin: 18px 0 12px;
+          color: #0066cc;
+        }
+        .markdown-content h3 {
+          font-size: 18px;
+          margin: 16px 0 10px;
+          color: #333;
+        }
+        .markdown-content h4 {
+          font-size: 16px;
+          margin: 14px 0 8px;
+          color: #333;
+        }
+        .markdown-content p {
+          margin: 10px 0;
+          line-height: 1.8;
+        }
+        .markdown-content ul, .markdown-content ol {
+          margin: 10px 0;
+          padding-left: 25px;
+        }
+        .markdown-content li {
+          margin: 5px 0;
+        }
+        .markdown-content table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 15px 0;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .markdown-content th {
+          background-color: #0066cc;
+          color: #ffffff;
+          padding: 12px 10px;
+          text-align: left;
+          border: 1px solid #0052a3;
+          font-weight: 600;
+          font-size: 14px;
+        }
+        .markdown-content td {
+          padding: 10px;
+          border: 1px solid #d0d0d0;
+          line-height: 1.6;
+        }
+        .markdown-content td br {
+          display: block;
+          content: "";
+          margin: 4px 0;
+        }
+        .markdown-content tr:nth-child(even) {
+          background-color: #f8f9fa;
+        }
+        .markdown-content tr:hover {
+          background-color: #f0f8ff;
+        }
+        .markdown-content blockquote {
+          border-left: 4px solid #0066cc;
+          padding-left: 15px;
+          margin: 15px 0;
+          color: #666;
+          font-style: italic;
+        }
+        .markdown-content code {
+          background-color: #f5f5f5;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-family: 'Consolas', 'Monaco', monospace;
+          font-size: 14px;
+        }
+        .markdown-content pre {
+          background-color: #f5f5f5;
+          padding: 15px;
+          border-radius: 5px;
+          overflow-x: auto;
+        }
+        .markdown-content pre code {
+          background: none;
+          padding: 0;
+        }
+        .markdown-content hr {
+          border: none;
+          border-top: 2px solid #e0e0e0;
+          margin: 20px 0;
+        }
+        .markdown-content strong {
+          font-weight: 600;
+          color: #000;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+export default DailySummary;
