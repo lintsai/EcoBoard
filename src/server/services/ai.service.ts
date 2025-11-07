@@ -1,12 +1,12 @@
 import axios from 'axios';
 import { query } from '../database/pool';
-import dotenv from 'dotenv';
 
-dotenv.config();
-
-const VLLM_API_URL = process.env.VLLM_API_URL || 'http://localhost:8000/v1';
-const VLLM_API_KEY = process.env.VLLM_API_KEY || '';
-const VLLM_MODEL_NAME = process.env.VLLM_MODEL_NAME || 'gpt-3.5-turbo';
+// 使用函數來延遲讀取環境變數，確保 .env 已經載入
+const getVLLMConfig = () => ({
+  apiUrl: process.env.VLLM_API_URL || 'http://localhost:8000/v1',
+  apiKey: process.env.VLLM_API_KEY || '',
+  modelName: process.env.VLLM_MODEL_NAME || 'gpt-3.5-turbo'
+});
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -20,6 +20,7 @@ export const chat = async (
   sessionId?: string,
   context?: any
 ) => {
+  const config = getVLLMConfig();
   const newSessionId = sessionId || `session_${Date.now()}_${userId}`;
   
   // Save user message
@@ -66,9 +67,9 @@ export const chat = async (
   // Call vLLM API
   try {
     const response = await axios.post(
-      `${VLLM_API_URL}/chat/completions`,
+      `${config.apiUrl}/chat/completions`,
       {
-        model: VLLM_MODEL_NAME,
+        model: config.modelName,
         messages: messages,
         temperature: 0.7,
         max_tokens: 500
@@ -76,7 +77,7 @@ export const chat = async (
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${VLLM_API_KEY}`
+          'Authorization': `Bearer ${config.apiKey}`
         }
       }
     );
@@ -104,6 +105,7 @@ export const chat = async (
 
 // 生成工作項目標題和摘要
 export const generateWorkItemSummary = async (sessionId: string, userId: number) => {
+  const config = getVLLMConfig();
   // Get all conversation from this session
   const history = await query(
     `SELECT content, ai_response FROM chat_messages
@@ -143,9 +145,9 @@ ${conversation}
 
   try {
     const response = await axios.post(
-      `${VLLM_API_URL}/chat/completions`,
+      `${config.apiUrl}/chat/completions`,
       {
-        model: VLLM_MODEL_NAME,
+        model: config.modelName,
         messages: [
           { role: 'system', content: '你是一個專業的項目管理 AI 助手，擅長整理和總結工作項目。' },
           { role: 'user', content: prompt }
@@ -156,7 +158,7 @@ ${conversation}
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${VLLM_API_KEY}`
+          'Authorization': `Bearer ${config.apiKey}`
         }
       }
     );
@@ -194,6 +196,7 @@ ${conversation}
 
 // AI 分析工作項目
 export const analyzeWorkItems = async (workItems: any[], teamId: number) => {
+  const config = getVLLMConfig();
   // 統計每個成員的工作量
   const memberWorkload = workItems.reduce((acc: any, item) => {
     const key = item.user_id;
@@ -236,9 +239,9 @@ ${JSON.stringify(workloadSummary, null, 2)}
 
   try {
     const response = await axios.post(
-      `${VLLM_API_URL}/chat/completions`,
+      `${config.apiUrl}/chat/completions`,
       {
-        model: VLLM_MODEL_NAME,
+        model: config.modelName,
         messages: [
           { role: 'system', content: '你是一個專業的項目管理 AI 助手，擅長分析團隊工作分配並提供優化建議。' },
           { role: 'user', content: prompt }
@@ -249,7 +252,7 @@ ${JSON.stringify(workloadSummary, null, 2)}
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${VLLM_API_KEY}`
+          'Authorization': `Bearer ${config.apiKey}`
         }
       }
     );
@@ -360,6 +363,7 @@ export const distributeTasksToTeam = async (
   teamMembers: any[],
   teamId: number
 ) => {
+  const config = getVLLMConfig();
   const prompt = `請根據以下工作項目和團隊成員，智能分配任務並提供執行順序建議。
 
 工作項目：
@@ -397,9 +401,9 @@ ${JSON.stringify(teamMembers.map(m => ({ id: m.id, name: m.display_name, role: m
 
   try {
     const response = await axios.post(
-      `${VLLM_API_URL}/chat/completions`,
+      `${config.apiUrl}/chat/completions`,
       {
-        model: VLLM_MODEL_NAME,
+        model: config.modelName,
         messages: [
           { role: 'system', content: '你是一個專業的項目管理 AI 助手，擅長任務分配和規劃。' },
           { role: 'user', content: prompt }
@@ -410,7 +414,7 @@ ${JSON.stringify(teamMembers.map(m => ({ id: m.id, name: m.display_name, role: m
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${VLLM_API_KEY}`
+          'Authorization': `Bearer ${config.apiKey}`
         }
       }
     );
@@ -445,6 +449,7 @@ export const generateDailySummary = async (
   userId: number,
   forceRegenerate: boolean = false
 ) => {
+  const config = getVLLMConfig();
   // Check if summary already exists (unless force regenerate)
   if (!forceRegenerate) {
     const existing = await query(
@@ -550,9 +555,9 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
 
   try {
     const response = await axios.post(
-      `${VLLM_API_URL}/chat/completions`,
+      `${config.apiUrl}/chat/completions`,
       {
-        model: VLLM_MODEL_NAME,
+        model: config.modelName,
         messages: [
           { role: 'system', content: '你是一個專業的敏捷開發團隊管理 AI 助手，擅長撰寫清晰、有洞察力的工作總結報告。你會分析工作狀態、進度變化，並提供有建設性的建議。' },
           { role: 'user', content: prompt }
@@ -563,7 +568,7 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${VLLM_API_KEY}`
+          'Authorization': `Bearer ${config.apiKey}`
         }
       }
     );
