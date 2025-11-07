@@ -75,6 +75,8 @@ export const updateWorkItem = async (
   aiSummary?: string,
   aiTitle?: string
 ) => {
+  console.log('[updateWorkItem] Called with:', { itemId, userId, content, aiSummary, aiTitle });
+  
   const updates: string[] = [];
   const values: any[] = [];
   let paramCount = 1;
@@ -99,15 +101,21 @@ export const updateWorkItem = async (
   }
 
   updates.push('updated_at = CURRENT_TIMESTAMP');
+  
+  // Add WHERE clause parameters
+  const itemIdParam = paramCount++;
+  const userIdParam = paramCount++;
   values.push(itemId, userId);
 
-  const result = await query(
-    `UPDATE work_items 
+  const sql = `UPDATE work_items 
      SET ${updates.join(', ')}
-     WHERE id = $${paramCount++} AND user_id = $${paramCount++}
-     RETURNING *`,
-    values
-  );
+     WHERE id = $${itemIdParam} AND user_id = $${userIdParam}
+     RETURNING *`;
+  
+  console.log('[updateWorkItem] SQL:', sql);
+  console.log('[updateWorkItem] Values:', values);
+
+  const result = await query(sql, values);
 
   if (result.rows.length === 0) {
     throw new Error('工作項目不存在或無權限修改');
@@ -122,6 +130,8 @@ export const reassignWorkItem = async (
   newUserId: number,
   operatorUserId: number
 ) => {
+  console.log('[reassignWorkItem] Called with:', { itemId, newUserId, operatorUserId });
+  
   // Check if operator has permission (must be manager or owner)
   const permissionCheck = await query(
     `SELECT wi.*, c.team_id, tm.role
@@ -132,14 +142,16 @@ export const reassignWorkItem = async (
     [itemId, operatorUserId]
   );
 
+  console.log('[reassignWorkItem] Permission check result:', permissionCheck.rows.length);
+
   if (permissionCheck.rows.length === 0) {
     throw new Error('工作項目不存在');
   }
 
   const item = permissionCheck.rows[0];
   
-  // Only owner or manager can reassign
-  if (item.user_id !== operatorUserId && item.role !== 'manager') {
+  // Only owner or admin can reassign
+  if (item.user_id !== operatorUserId && item.role !== 'admin') {
     throw new Error('無權限重新分配此工作項目');
   }
 
@@ -172,6 +184,8 @@ export const reassignWorkItem = async (
 
   const newCheckinId = checkinResult.rows[0].id;
 
+  console.log('[reassignWorkItem] Updating work item:', { itemId, newUserId, newCheckinId });
+
   // Update work item
   const result = await query(
     `UPDATE work_items 
@@ -180,6 +194,8 @@ export const reassignWorkItem = async (
      RETURNING *`,
     [newUserId, newCheckinId, itemId]
   );
+
+  console.log('[reassignWorkItem] Update result:', result.rows.length);
 
   return result.rows[0];
 };

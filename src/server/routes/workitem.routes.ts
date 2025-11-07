@@ -85,9 +85,12 @@ router.put(
       );
 
       res.json(workItem);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Update work item error:', error);
-      res.status(500).json({ error: '更新工作項目失敗' });
+      res.status(500).json({ 
+        error: error.message || '更新工作項目失敗',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   }
 );
@@ -119,7 +122,8 @@ router.put(
     } catch (error: any) {
       console.error('Reassign work item error:', error);
       res.status(error.message.includes('無權限') ? 403 : 500).json({ 
-        error: error.message || '重新分配工作項目失敗' 
+        error: error.message || '重新分配工作項目失敗',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   }

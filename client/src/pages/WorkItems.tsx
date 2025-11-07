@@ -191,13 +191,21 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setLoading(true);
       const summary = await api.generateWorkSummary(sessionId);
 
+      // 確保 summary 是字串
+      const summaryText = typeof summary.summary === 'string' 
+        ? summary.summary 
+        : JSON.stringify(summary.summary);
+      const titleText = typeof summary.title === 'string'
+        ? summary.title
+        : JSON.stringify(summary.title);
+
       await api.createWorkItem(
         checkinId,
-        summary.summary,
+        summaryText,
         'task',
         sessionId,
-        summary.summary,
-        summary.title
+        summaryText,
+        titleText
       );
 
       alert('工作項目已儲存！');

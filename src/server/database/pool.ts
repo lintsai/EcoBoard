@@ -75,10 +75,26 @@ const getPool = (): Pool => {
 
 export const query = async (text: string, params?: any[]) => {
   const start = Date.now();
-  const res = await getPool().query(text, params);
-  const duration = Date.now() - start;
-  console.log('Executed query', { text, duration, rows: res.rowCount });
-  return res;
+  try {
+    console.log('[QUERY] Executing:', { text: text.substring(0, 100), paramCount: params?.length });
+    const res = await getPool().query(text, params);
+    const duration = Date.now() - start;
+    console.log('[QUERY] Success:', { duration, rows: res.rowCount });
+    return res;
+  } catch (error: any) {
+    const duration = Date.now() - start;
+    console.error('[QUERY] Error:', {
+      duration,
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
+      position: error.position,
+      sql: text.substring(0, 200),
+      paramCount: params?.length
+    });
+    throw error;
+  }
 };
 
 export const getClient = async (): Promise<PoolClient> => {
