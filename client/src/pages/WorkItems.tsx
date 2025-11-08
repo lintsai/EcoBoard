@@ -27,6 +27,33 @@ interface WorkItem {
   ai_title?: string;
 }
 
+// Helper function to safely parse AI fields that might contain JSON
+const parseAIField = (field: string | undefined, fieldName: 'title' | 'summary'): string | undefined => {
+  if (!field) return undefined;
+  
+  // Try to parse as JSON if it looks like JSON
+  if (field.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(field);
+      // If parsed successfully, extract the appropriate field
+      if (fieldName === 'title' && parsed.title) {
+        return parsed.title;
+      }
+      if (fieldName === 'summary' && parsed.summary) {
+        return parsed.summary;
+      }
+      // If the field doesn't exist in parsed JSON, return the original
+      return field;
+    } catch (e) {
+      // If parsing fails, return the original string
+      return field;
+    }
+  }
+  
+  // Return as-is if not JSON
+  return field;
+};
+
 function WorkItems({ user, teamId }: WorkItemsProps) {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -131,9 +158,10 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setSessionId(item.session_id);
       await loadChatHistory(item.session_id);
     } else {
+      const parsedTitle = parseAIField(item.ai_title, 'title');
       setMessages([{
         role: 'ai',
-        content: `正在編輯工作項目：「${item.ai_title || item.content}」\n\n您可以繼續與我討論這個項目的細節。`,
+        content: `正在編輯工作項目：「${parsedTitle || item.content}」\n\n您可以繼續與我討論這個項目的細節。`,
         timestamp: new Date().toISOString()
       }]);
     }
@@ -479,7 +507,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
                             {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                             <h4 style={{ fontWeight: '600', fontSize: '14px', margin: 0, flex: 1 }}>
-                              {item.ai_title || item.content}
+                              {parseAIField(item.ai_title, 'title') || item.content}
                             </h4>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -512,7 +540,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #e5e7eb' }}>
                             {item.ai_summary && (
                               <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: '12px' }}>
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{parseAIField(item.ai_summary, 'summary') || item.ai_summary}</ReactMarkdown>
                               </div>
                             )}
                             

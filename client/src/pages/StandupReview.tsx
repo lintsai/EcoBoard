@@ -34,6 +34,33 @@ interface WorkItem {
   ai_title?: string;
 }
 
+// Helper function to safely parse AI fields that might contain JSON
+const parseAIField = (field: string | undefined, fieldName: 'title' | 'summary'): string | undefined => {
+  if (!field) return undefined;
+  
+  // Try to parse as JSON if it looks like JSON
+  if (field.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(field);
+      // If parsed successfully, extract the appropriate field
+      if (fieldName === 'title' && parsed.title) {
+        return parsed.title;
+      }
+      if (fieldName === 'summary' && parsed.summary) {
+        return parsed.summary;
+      }
+      // If the field doesn't exist in parsed JSON, return the original
+      return field;
+    } catch (e) {
+      // If parsing fails, return the original string
+      return field;
+    }
+  }
+  
+  // Return as-is if not JSON
+  return field;
+};
+
 function StandupReview({ user, teamId }: any) {
   const navigate = useNavigate();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -466,7 +493,7 @@ function StandupReview({ user, teamId }: any) {
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>
-                              {item.ai_title || item.content}
+                              {parseAIField(item.ai_title, 'title') || item.content}
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#999', marginBottom: '6px' }}>
                               <span>
@@ -518,7 +545,7 @@ function StandupReview({ user, teamId }: any) {
                                 <span style={{ fontSize: '11px', fontWeight: '600', color: '#667eea' }}>AI 摘要</span>
                               </div>
                               <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{parseAIField(item.ai_summary, 'summary') || item.ai_summary}</ReactMarkdown>
                               </div>
                             </div>
                           </div>
@@ -679,7 +706,7 @@ function StandupReview({ user, teamId }: any) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                       {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                       <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                                        {item.ai_title || item.content}
+                                        {parseAIField(item.ai_title, 'title') || item.content}
                                       </div>
                                     </div>
                                     <div style={{ fontSize: '11px', color: '#999' }}>
@@ -701,7 +728,7 @@ function StandupReview({ user, teamId }: any) {
                                           <span style={{ fontSize: '11px', fontWeight: '600', color: '#7c3aed' }}>AI 摘要</span>
                                         </div>
                                         <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{parseAIField(item.ai_summary, 'summary') || item.ai_summary}</ReactMarkdown>
                                         </div>
                                       </div>
                                     </div>
