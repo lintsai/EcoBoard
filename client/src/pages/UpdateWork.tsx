@@ -34,6 +34,33 @@ interface WorkUpdate {
   display_name: string;
 }
 
+// Helper function to safely parse AI fields that might contain JSON
+const parseAIField = (field: string | undefined, fieldName: 'title' | 'summary'): string | undefined => {
+  if (!field) return undefined;
+  
+  // Try to parse as JSON if it looks like JSON
+  if (field.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(field);
+      // If parsed successfully, extract the appropriate field
+      if (fieldName === 'title' && parsed.title) {
+        return parsed.title;
+      }
+      if (fieldName === 'summary' && parsed.summary) {
+        return parsed.summary;
+      }
+      // If the field doesn't exist in parsed JSON, return the original
+      return field;
+    } catch (e) {
+      // If parsing fails, return the original string
+      return field;
+    }
+  }
+  
+  // Return as-is if not JSON
+  return field;
+};
+
 function UpdateWork({ user, teamId }: any) {
   const navigate = useNavigate();
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
@@ -249,7 +276,8 @@ function UpdateWork({ user, teamId }: any) {
                 {workItems.map((item) => {
                   const isSelected = selectedItem === item.id;
                   const assignee = item.display_name || item.username || (item.user_id === user.id ? user.username || user.display_name : '未指定');
-                  const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
+                  const parsedTitle = parseAIField(item.ai_title, 'title');
+                  const title = parsedTitle || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
                   
                   return (
                     <div
@@ -354,7 +382,7 @@ function UpdateWork({ user, teamId }: any) {
                               <span style={{ fontSize: '13px', fontWeight: '600', color: '#7c3aed' }}>AI 摘要</span>
                             </div>
                             <div className="prose-sm markdown-content" style={{ fontSize: '13px', lineHeight: '1.6', color: '#555' }}>
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{parseAIField(item.ai_summary, 'summary') || item.ai_summary}</ReactMarkdown>
                             </div>
                           </div>
                         )}
