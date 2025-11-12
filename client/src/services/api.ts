@@ -127,8 +127,20 @@ class ApiService {
     return response.data;
   }
 
+  async getIncompleteWorkItems(teamId?: number) {
+    const response = await this.api.get('/workitems/incomplete', {
+      params: { teamId },
+    });
+    return response.data;
+  }
+
   async getTodayTeamWorkItems(teamId: number) {
     const response = await this.api.get(`/workitems/team/${teamId}/today`);
+    return response.data;
+  }
+
+  async getIncompleteTeamWorkItems(teamId: number) {
+    const response = await this.api.get(`/workitems/team/${teamId}/incomplete`);
     return response.data;
   }
 
@@ -149,6 +161,11 @@ class ApiService {
 
   async reassignWorkItem(itemId: number, userId: number) {
     const response = await this.api.put(`/workitems/${itemId}/assign`, { userId });
+    return response.data;
+  }
+
+  async moveWorkItemToToday(itemId: number) {
+    const response = await this.api.put(`/workitems/${itemId}/move-to-today`);
     return response.data;
   }
 

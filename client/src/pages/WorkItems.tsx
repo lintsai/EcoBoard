@@ -35,14 +35,17 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [sessionId, setSessionId] = useState('');
   const [checkinId, setCheckinId] = useState<number | null>(null);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [incompleteItems, setIncompleteItems] = useState<WorkItem[]>([]);
   const [currentItemAiSummary, setCurrentItemAiSummary] = useState<string>('');
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const [showIncomplete, setShowIncomplete] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadTodayCheckin();
     loadWorkItems();
+    loadIncompleteItems();
     setMessages([{
       role: 'ai',
       content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
@@ -72,6 +75,16 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setWorkItems(items);
     } catch (error) {
       console.error('Failed to load work items:', error);
+    }
+  };
+
+  const loadIncompleteItems = async () => {
+    try {
+      const items = await api.getIncompleteWorkItems(teamId);
+      // Backend now filters out today's items automatically
+      setIncompleteItems(items);
+    } catch (error) {
+      console.error('Failed to load incomplete items:', error);
     }
   };
 
@@ -268,6 +281,32 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       content: '已取消編輯。您可以新增其他工作項目或編輯現有項目。',
       timestamp: new Date().toISOString()
     }]);
+  };
+
+  const handleMoveIncompleteToToday = async (item: any) => {
+    if (!checkinId) {
+      alert('請先完成打卡');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // 呼叫移動 API（不是複製，是移動）
+      await api.moveWorkItemToToday(item.id);
+
+      alert('已移動到今日工作項目！');
+      
+      // 重新載入列表
+      await loadWorkItems();
+      await loadIncompleteItems();
+    } catch (error: any) {
+      console.error('Failed to move item to today:', error);
+      const errorMsg = error.response?.data?.error || '移動失敗';
+      alert(errorMsg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -543,6 +582,125 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                 )}
               </div>
             </div>
+            
+            {/* Incomplete Items List */}
+            {incompleteItems.length > 0 && (
+              <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb', backgroundColor: '#fffbeb' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <h3 style={{ margin: 0, color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      ⚠️ 未完成項目 ({incompleteItems.length})
+                    </h3>
+                    <button
+                      onClick={() => setShowIncomplete(!showIncomplete)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#666',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}
+                    >
+                      {showIncomplete ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '12px', color: '#92400e', margin: '5px 0 0 0' }}>
+                    這些是之前建立但尚未完成的項目，您可以繼續進行或標記為已完成/已取消
+                  </p>
+                </div>
+                
+                {showIncomplete && (
+                  <div style={{ padding: '15px' }}>
+                    {incompleteItems.map((item: any) => {
+                      const isExpanded = expandedItems.has(item.id);
+                      const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
+                      
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            marginBottom: '10px',
+                            border: '1px solid #fef3c7',
+                            borderRadius: '8px',
+                            backgroundColor: '#fefce8',
+                            transition: 'all 0.2s',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          {/* Header */}
+                          <div
+                            style={{
+                              padding: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              cursor: 'pointer',
+                              backgroundColor: isExpanded ? '#fef3c7' : 'transparent'
+                            }}
+                            onClick={() => {
+                              const newExpanded = new Set(expandedItems);
+                              if (isExpanded) {
+                                newExpanded.delete(item.id);
+                              } else {
+                                newExpanded.add(item.id);
+                              }
+                              setExpandedItems(newExpanded);
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                              <div style={{ flex: 1 }}>
+                                <h4 style={{ fontWeight: '600', fontSize: '14px', margin: 0 }}>
+                                  {item.ai_title || item.content.substring(0, 50) + '...'}
+                                </h4>
+                                <span style={{ fontSize: '11px', color: '#92400e' }}>
+                                  📅 建立於 {itemDate}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Expanded Content */}
+                          {isExpanded && (
+                            <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #fef3c7' }}>
+                              {item.ai_summary && (
+                                <div className="markdown-content" style={{ fontSize: '13px', color: '#92400e', marginTop: '12px', marginBottom: '12px' }}>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                </div>
+                              )}
+                              
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveIncompleteToToday(item);
+                                  }}
+                                  className="btn btn-warning"
+                                  style={{
+                                    padding: '6px 12px',
+                                    fontSize: '13px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    flex: 1
+                                  }}
+                                  disabled={loading}
+                                >
+                                  <Send size={14} />
+                                  移動到今日
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

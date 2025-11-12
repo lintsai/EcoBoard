@@ -474,10 +474,15 @@ export const generateDailySummary = async (
   }
 
   // Get work items with current status
+  // 包含：1) 今日建立的項目 2) 今日有更新記錄的所有項目（不論何時建立）
   const workItems = await query(
-    `SELECT wi.*, u.display_name, u.username, c.checkin_date,
+    `SELECT DISTINCT wi.*, u.display_name, u.username, c.checkin_date,
             COALESCE(latest_update.progress_status, 'in_progress') as current_status,
-            latest_update.updated_at as last_update_time
+            latest_update.updated_at as last_update_time,
+            CASE 
+              WHEN c.checkin_date = $2 THEN true 
+              ELSE false 
+            END as created_today
      FROM work_items wi
      INNER JOIN checkins c ON wi.checkin_id = c.id
      INNER JOIN users u ON wi.user_id = u.id
@@ -488,21 +493,31 @@ export const generateDailySummary = async (
        ORDER BY updated_at DESC
        LIMIT 1
      ) latest_update ON true
-     WHERE c.team_id = $1 AND c.checkin_date = $2
-     ORDER BY u.display_name, wi.created_at`,
+     WHERE c.team_id = $1 
+       AND (
+         c.checkin_date = $2  -- 今日建立的項目
+         OR EXISTS (  -- 或今日有更新記錄的項目
+           SELECT 1 FROM work_updates wu
+           WHERE wu.work_item_id = wi.id
+             AND DATE(wu.updated_at) = $2
+         )
+       )
+     ORDER BY u.display_name, c.checkin_date DESC, wi.created_at`,
     [teamId, summaryDate]
   );
 
   // Get all work updates with status progression
+  // 只查詢今日的更新記錄（但項目可能是之前建立的）
   const updates = await query(
     `SELECT wu.*, wi.content as work_item_content, 
             wi.ai_title as work_item_title,
-            u.display_name, u.username
+            u.display_name, u.username,
+            c.checkin_date as item_created_date
      FROM work_updates wu
      INNER JOIN work_items wi ON wu.work_item_id = wi.id
      INNER JOIN users u ON wu.user_id = u.id
      INNER JOIN checkins c ON wi.checkin_id = c.id
-     WHERE c.team_id = $1 AND c.checkin_date = $2
+     WHERE c.team_id = $1 AND DATE(wu.updated_at) = $2
      ORDER BY wu.updated_at ASC`,
     [teamId, summaryDate]
   );
@@ -528,18 +543,21 @@ export const generateDailySummary = async (
 - 工作項目總數：${stats.total_work_items}
 - 更新記錄數：${stats.total_updates}
 
-## 早上計劃的工作項目（含當前狀態）
+## 工作項目及狀態
 ${JSON.stringify(workItems.rows.map((item: any) => ({
   成員: item.display_name || item.username,
   項目: item.ai_title || item.content.substring(0, 100),
+  建立日期: item.checkin_date,
+  是否今日新建: item.created_today ? '是' : '否（跨日期追蹤）',
   當前狀態: item.current_status,
   最後更新時間: item.last_update_time
 })), null, 2)}
 
-## 下班前的工作更新記錄（時間順序）
+## 今日工作更新記錄（時間順序）
 ${JSON.stringify(updates.rows.map((update: any) => ({
   成員: update.display_name || update.username,
   工作項目: update.work_item_title || update.work_item_content.substring(0, 50),
+  項目建立日期: update.item_created_date,
   更新時間: update.updated_at,
   進度狀態: update.progress_status,
   更新內容: update.update_content
@@ -548,11 +566,12 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
 請提供專業的工作總結報告，包含：
 
 1. **每日概況** - 簡述今日整體工作情況和團隊參與度
-2. **完成項目總覽** - 列出已完成（completed）的工作項目，按成員分組
+2. **完成項目總覽** - 列出已完成（completed）的工作項目，按成員分組。特別標註跨日期完成的項目
 3. **進行中項目** - 列出進行中（in_progress）的項目及進度說明
-4. **遇到的問題** - 分析受阻（blocked）或未開始（not_started）的項目，並說明原因
-5. **進度評估** - 評估整體進度是否符合預期，有哪些亮點和需要關注的地方
-6. **明日建議** - 根據今日狀況，提出明天的工作重點和待辦事項
+4. **遇到的問題** - 分析受阻（blocked）、已取消（cancelled）或未開始（not_started）的項目，並說明原因
+5. **跨日期項目追蹤** - 特別關注並總結那些非今日建立但今日有更新的項目（表示持續追蹤中）
+6. **進度評估** - 評估整體進度是否符合預期，有哪些亮點和需要關注的地方
+7. **明日建議** - 根據今日狀況，提出明天的工作重點和待辦事項
 
 請使用 Markdown 格式撰寫，可以使用表格整理數據，文字專業且易讀，適合在團隊站立會議中分享。`;
 

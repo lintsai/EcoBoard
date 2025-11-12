@@ -167,19 +167,14 @@ export const reassignWorkItem = async (
 
   // Get new user's checkin for today
   const today = getTodayDate();
-  let checkinResult = await query(
+  const checkinResult = await query(
     `SELECT * FROM checkins WHERE user_id = $1 AND team_id = $2 AND checkin_date = $3`,
     [newUserId, item.team_id, today]
   );
 
-  // Create checkin if not exists
+  // Check if new user has checked in today
   if (checkinResult.rows.length === 0) {
-    checkinResult = await query(
-      `INSERT INTO checkins (user_id, team_id, checkin_date, status)
-       VALUES ($1, $2, $3, 'pending')
-       RETURNING *`,
-      [newUserId, item.team_id, today]
-    );
+    throw new Error('目標用戶今日尚未打卡，無法分配工作項目');
   }
 
   const newCheckinId = checkinResult.rows[0].id;
@@ -249,6 +244,143 @@ export const getWorkItemById = async (itemId: number) => {
   );
 
   return result.rows[0] || null;
+};
+
+// 移動未完成的工作項目到今日
+export const moveWorkItemToToday = async (
+  itemId: number,
+  userId: number
+) => {
+  console.log('[moveWorkItemToToday] Called with:', { itemId, userId });
+  
+  // Check if user owns the work item
+  const itemCheck = await query(
+    `SELECT wi.*, c.team_id, c.checkin_date
+     FROM work_items wi
+     INNER JOIN checkins c ON wi.checkin_id = c.id
+     WHERE wi.id = $1 AND wi.user_id = $2`,
+    [itemId, userId]
+  );
+
+  if (itemCheck.rows.length === 0) {
+    throw new Error('工作項目不存在或無權限移動');
+  }
+
+  const item = itemCheck.rows[0];
+  const today = getTodayDate();
+  
+  // Check if already today's item
+  if (item.checkin_date === today) {
+    throw new Error('此項目已經是今日的工作項目');
+  }
+
+  // Get or create today's checkin
+  let checkinResult = await query(
+    `SELECT * FROM checkins WHERE user_id = $1 AND team_id = $2 AND checkin_date = $3`,
+    [userId, item.team_id, today]
+  );
+
+  if (checkinResult.rows.length === 0) {
+    checkinResult = await query(
+      `INSERT INTO checkins (user_id, team_id, checkin_date, status)
+       VALUES ($1, $2, $3, 'pending')
+       RETURNING *`,
+      [userId, item.team_id, today]
+    );
+  }
+
+  const todayCheckinId = checkinResult.rows[0].id;
+
+  console.log('[moveWorkItemToToday] Moving to checkin:', todayCheckinId);
+
+  // Update work item to today's checkin
+  const result = await query(
+    `UPDATE work_items 
+     SET checkin_id = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2
+     RETURNING *`,
+    [todayCheckinId, itemId]
+  );
+
+  console.log('[moveWorkItemToToday] Moved successfully');
+
+  return result.rows[0];
+};
+
+// 獲取用戶的未完成工作項目（不限日期，但排除已完成的和今日的項目）
+export const getIncompleteUserWorkItems = async (
+  userId: number,
+  teamId?: number
+) => {
+  const today = getTodayDate();
+  
+  // 子查詢：獲取每個工作項目的最新狀態
+  let queryText = `
+    WITH latest_statuses AS (
+      SELECT DISTINCT ON (work_item_id)
+        work_item_id,
+        progress_status
+      FROM work_updates
+      ORDER BY work_item_id, updated_at DESC
+    )
+    SELECT 
+      wi.*,
+      c.team_id,
+      c.checkin_date,
+      COALESCE(ls.progress_status, 'not_started') as progress_status
+    FROM work_items wi
+    INNER JOIN checkins c ON wi.checkin_id = c.id
+    LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
+    WHERE wi.user_id = $1
+      AND COALESCE(ls.progress_status, 'not_started') NOT IN ('completed', 'cancelled')
+      AND c.checkin_date < $2
+  `;
+
+  const params: any[] = [userId, today];
+  let paramCount = 3;
+
+  if (teamId) {
+    queryText += ` AND c.team_id = $${paramCount}`;
+    params.push(teamId);
+    paramCount++;
+  }
+
+  queryText += ` ORDER BY c.checkin_date DESC, wi.created_at DESC`;
+
+  const result = await query(queryText, params);
+  return result.rows;
+};
+
+// 獲取團隊的未完成工作項目（供管理員查看，排除今日項目）
+export const getIncompleteTeamWorkItems = async (teamId: number) => {
+  const today = getTodayDate();
+  
+  const queryText = `
+    WITH latest_statuses AS (
+      SELECT DISTINCT ON (work_item_id)
+        work_item_id,
+        progress_status
+      FROM work_updates
+      ORDER BY work_item_id, updated_at DESC
+    )
+    SELECT 
+      wi.*,
+      u.username,
+      u.display_name,
+      c.checkin_date,
+      COALESCE(ls.progress_status, 'not_started') as progress_status
+    FROM work_items wi
+    INNER JOIN checkins c ON wi.checkin_id = c.id
+    INNER JOIN users u ON wi.user_id = u.id
+    LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
+    WHERE c.team_id = $1
+      AND COALESCE(ls.progress_status, 'not_started') NOT IN ('completed', 'cancelled')
+      AND c.checkin_date < $2
+    ORDER BY u.display_name, c.checkin_date DESC, wi.created_at DESC
+  `;
+
+  const result = await query(queryText, [teamId, today]);
+  return result.rows;
 };
 
 export const deleteWorkItem = async (itemId: number, userId: number) => {

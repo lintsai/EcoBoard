@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, CheckCircle, AlertCircle, Loader2, Send, Sparkles, ChevronDown, ChevronRight, User } from 'lucide-react';
+import { ArrowLeft, Clock, CheckCircle, AlertCircle, Loader2, Send, Sparkles, ChevronDown, ChevronRight, ChevronUp, User, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -37,6 +37,7 @@ interface WorkUpdate {
 function UpdateWork({ user, teamId }: any) {
   const navigate = useNavigate();
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [incompleteItems, setIncompleteItems] = useState<WorkItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [updateContent, setUpdateContent] = useState('');
   const [progressStatus, setProgressStatus] = useState('in_progress');
@@ -47,10 +48,12 @@ function UpdateWork({ user, teamId }: any) {
   const [success, setSuccess] = useState('');
   const [isManager, setIsManager] = useState(false);
   const [viewAllMembers, setViewAllMembers] = useState(false);
+  const [showIncomplete, setShowIncomplete] = useState(true);
 
   useEffect(() => {
     checkManagerRole();
     fetchTodayWorkItems();
+    fetchIncompleteWorkItems();
   }, [teamId, viewAllMembers]);
 
   useEffect(() => {
@@ -90,6 +93,22 @@ function UpdateWork({ user, teamId }: any) {
     }
   };
 
+  const fetchIncompleteWorkItems = async () => {
+    try {
+      // 如果是 Manager 且選擇查看所有成員
+      const data = (isManager && viewAllMembers) 
+        ? await api.getIncompleteTeamWorkItems(teamId)
+        : await api.getIncompleteWorkItems(teamId);
+      
+      console.log('🔄 載入的未完成項目:', data); // Debug log
+      
+      // Backend now filters out today's items automatically
+      setIncompleteItems(data);
+    } catch (err: any) {
+      console.error('載入未完成項目失敗:', err);
+    }
+  };
+
   const fetchWorkUpdates = async (itemId: number) => {
     try {
       const data = await api.getWorkItemUpdates(itemId);
@@ -98,7 +117,14 @@ function UpdateWork({ user, teamId }: any) {
       // 如果有更新記錄，用最新的狀態更新工作項目
       if (data.length > 0) {
         const latestStatus = data[0].progress_status;
+        
+        // 更新今日項目狀態
         setWorkItems(prev => prev.map(item => 
+          item.id === itemId ? { ...item, progress_status: latestStatus } : item
+        ));
+        
+        // 更新未完成項目狀態
+        setIncompleteItems(prev => prev.map(item => 
           item.id === itemId ? { ...item, progress_status: latestStatus } : item
         ));
       }
@@ -132,6 +158,7 @@ function UpdateWork({ user, teamId }: any) {
       
       // 重新載入工作項目以獲取最新狀態
       await fetchTodayWorkItems();
+      await fetchIncompleteWorkItems();
 
       // 3 秒後清除成功訊息
       setTimeout(() => setSuccess(''), 3000);
@@ -147,7 +174,8 @@ function UpdateWork({ user, teamId }: any) {
       not_started: { label: '未開始', class: 'badge-secondary', icon: Clock },
       in_progress: { label: '進行中', class: 'badge-warning', icon: Loader2 },
       completed: { label: '已完成', class: 'badge-success', icon: CheckCircle },
-      blocked: { label: '受阻', class: 'badge-danger', icon: AlertCircle }
+      blocked: { label: '受阻', class: 'badge-danger', icon: AlertCircle },
+      cancelled: { label: '已取消', class: 'badge-dark', icon: X }
     };
 
     const config = statusConfig[status] || statusConfig.in_progress;
@@ -226,7 +254,7 @@ function UpdateWork({ user, teamId }: any) {
           </div>
         )}
 
-        {workItems.length === 0 ? (
+        {workItems.length === 0 && incompleteItems.length === 0 ? (
           <div className="card">
             <p style={{ textAlign: 'center', color: '#666' }}>
               今日尚無工作項目，請先到「工作項目輸入」頁面新增工作。
@@ -244,55 +272,124 @@ function UpdateWork({ user, teamId }: any) {
           <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px' }}>
             {/* 左側：工作項目列表 */}
             <div className="card" style={{ position: 'sticky', top: '20px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
-              <h3>今日工作項目</h3>
-              <div style={{ marginTop: '15px' }}>
-                {workItems.map((item) => {
-                  const isSelected = selectedItem === item.id;
-                  const assignee = item.display_name || item.username || (item.user_id === user.id ? user.username || user.display_name : '未指定');
-                  const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
-                  
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => setSelectedItem(item.id)}
+              <h3>工作項目</h3>
+              
+              {/* 今日工作項目 */}
+              {workItems.length > 0 && (
+                <div style={{ marginTop: '15px' }}>
+                  <h4 style={{ fontSize: '14px', color: '#0066cc', marginBottom: '10px' }}>今日項目 ({workItems.length})</h4>
+                  {workItems.map((item) => {
+                    const isSelected = selectedItem === item.id;
+                    const assignee = item.display_name || item.username || (item.user_id === user.id ? user.username || user.display_name : '未指定');
+                    const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
+                    
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => setSelectedItem(item.id)}
+                        style={{
+                          padding: '12px',
+                          marginBottom: '8px',
+                          border: isSelected ? '2px solid #0066cc' : '1px solid #e0e0e0',
+                          borderRadius: '8px',
+                          backgroundColor: isSelected ? '#f0f8ff' : '#fff',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px', lineHeight: '1.4' }}>
+                          {title}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <User size={12} />
+                            <span>{assignee}</span>
+                          </div>
+                          {item.progress_status && (
+                            <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
+                              {getStatusBadge(item.progress_status)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              
+              {/* 未完成的過往項目 */}
+              {incompleteItems.length > 0 && (
+                <div style={{ marginTop: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <h4 style={{ fontSize: '14px', color: '#f59e0b', margin: 0 }}>
+                      未完成項目 ({incompleteItems.length})
+                    </h4>
+                    <button
+                      onClick={() => setShowIncomplete(!showIncomplete)}
                       style={{
-                        padding: '12px',
-                        marginBottom: '8px',
-                        border: isSelected ? '2px solid #0066cc' : '1px solid #e0e0e0',
-                        borderRadius: '8px',
-                        backgroundColor: isSelected ? '#f0f8ff' : '#fff',
+                        background: 'none',
+                        border: 'none',
+                        color: '#666',
                         cursor: 'pointer',
-                        transition: 'all 0.2s'
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center'
                       }}
                     >
-                      <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px', lineHeight: '1.4' }}>
-                        {title}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <User size={12} />
-                          <span>{assignee}</span>
+                      {showIncomplete ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
+                  </div>
+                  
+                  {showIncomplete && incompleteItems.map((item) => {
+                    const isSelected = selectedItem === item.id;
+                    const assignee = item.display_name || item.username || (item.user_id === user.id ? user.username || user.display_name : '未指定');
+                    const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
+                    const itemDate = new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+                    
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => setSelectedItem(item.id)}
+                        style={{
+                          padding: '12px',
+                          marginBottom: '8px',
+                          border: isSelected ? '2px solid #f59e0b' : '1px solid #fef3c7',
+                          borderRadius: '8px',
+                          backgroundColor: isSelected ? '#fffbeb' : '#fefce8',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px', lineHeight: '1.4' }}>
+                          {title}
                         </div>
-                        {item.progress_status && (
-                          <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
-                            {getStatusBadge(item.progress_status)}
+                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <User size={12} />
+                            <span>{assignee}</span>
                           </div>
-                        )}
+                          <span style={{ color: '#f59e0b' }}>📅 {itemDate}</span>
+                          {item.progress_status && (
+                            <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
+                              {getStatusBadge(item.progress_status)}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* 右側：更新表單和歷史記錄 */}
             <div>
               {/* 工作項目詳細內容 */}
-              {selectedItem && workItems.find(item => item.id === selectedItem) && (
+              {selectedItem && [...workItems, ...incompleteItems].find(item => item.id === selectedItem) && (
                 <div className="card" style={{ marginBottom: '20px' }}>
                   <h3>工作項目詳情</h3>
                   {(() => {
-                    const item = workItems.find(i => i.id === selectedItem);
+                    const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
                     if (!item) return null;
                     
                     // Debug: 檢查項目資料
@@ -306,8 +403,27 @@ function UpdateWork({ user, teamId }: any) {
                     // 取得狀態 - 如果沒有狀態就顯示預設
                     const status = item.progress_status || 'in_progress';
                     
+                    // 判斷是否為未完成的過往項目
+                    const itemDate = new Date(item.checkin_date).toISOString().split('T')[0];
+                    const today = new Date().toISOString().split('T')[0];
+                    const isIncompleteItem = itemDate !== today;
+                    
                     return (
                       <div style={{ marginTop: '15px' }}>
+                        {isIncompleteItem && (
+                          <div style={{
+                            padding: '10px 14px',
+                            backgroundColor: '#fef3c7',
+                            borderLeft: '4px solid #f59e0b',
+                            borderRadius: '6px',
+                            marginBottom: '15px',
+                            fontSize: '13px',
+                            color: '#92400e'
+                          }}>
+                            <strong>⚠️ 未完成項目</strong> - 建立於 {new Date(item.checkin_date).toLocaleDateString('zh-TW')}
+                          </div>
+                        )}
+                        
                         {/* 項目資訊標題列 */}
                         <div style={{ 
                           display: 'flex', 
@@ -380,6 +496,7 @@ function UpdateWork({ user, teamId }: any) {
                       <option value="in_progress">進行中</option>
                       <option value="completed">已完成</option>
                       <option value="blocked">受阻</option>
+                      <option value="cancelled">已取消</option>
                     </select>
                   </div>
 

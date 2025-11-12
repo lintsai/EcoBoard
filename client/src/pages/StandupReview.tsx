@@ -39,6 +39,7 @@ function StandupReview({ user, teamId }: any) {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [checkins, setCheckins] = useState<CheckinRecord[]>([]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [incompleteItems, setIncompleteItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<string>('');
@@ -46,6 +47,7 @@ function StandupReview({ user, teamId }: any) {
   const [error, setError] = useState('');
   const [expandedMembers, setExpandedMembers] = useState<Set<number>>(new Set());
   const [showAllWorkItems, setShowAllWorkItems] = useState(true);
+  const [showIncompleteItems, setShowIncompleteItems] = useState(true);
   const [assigningItem, setAssigningItem] = useState<number | null>(null);
   const [expandedWorkItems, setExpandedWorkItems] = useState<Set<number>>(new Set());
 
@@ -67,26 +69,30 @@ function StandupReview({ user, teamId }: any) {
     setError('');
     
     try {
-      const [membersData, checkinsData, workItemsData] = await Promise.all([
+      const [membersData, checkinsData, workItemsData, incompleteItemsData] = await Promise.all([
         api.getTeamMembers(teamId),
         api.getTodayTeamCheckins(teamId),
-        api.getTodayTeamWorkItems(teamId)
+        api.getTodayTeamWorkItems(teamId),
+        api.getIncompleteTeamWorkItems(teamId)
       ]);
 
       console.log('=== Standup Review Debug ===');
       console.log('Team members:', membersData);
       console.log('Today checkins:', checkinsData);
-      console.log('Work items:', workItemsData);
+      console.log('Today work items:', workItemsData);
+      console.log('Incomplete items:', incompleteItemsData);
       console.log('Today date (client):', new Date().toISOString().split('T')[0]);
       
       // 檢查數據匹配
       membersData.forEach((member: any) => {
         const hasCheckin = checkinsData.find((c: any) => c.user_id === member.user_id);
-        const workItemCount = workItemsData.filter((item: any) => item.user_id === member.user_id).length;
+        const todayWorkItemCount = workItemsData.filter((item: any) => item.user_id === member.user_id).length;
+        const incompleteCount = incompleteItemsData.filter((item: any) => item.user_id === member.user_id).length;
         console.log(`${member.display_name || member.username} (ID: ${member.user_id}):`, {
           hasCheckin: !!hasCheckin,
           checkinTime: hasCheckin?.checkin_time,
-          workItems: workItemCount
+          todayWorkItems: todayWorkItemCount,
+          incompleteItems: incompleteCount
         });
       });
       console.log('===========================');
@@ -94,6 +100,7 @@ function StandupReview({ user, teamId }: any) {
       setTeamMembers(membersData);
       setCheckins(checkinsData);
       setWorkItems(workItemsData);
+      setIncompleteItems(incompleteItemsData);
     } catch (err: any) {
       setError(err.message || '載入站立會議資料失敗');
     } finally {
@@ -102,7 +109,10 @@ function StandupReview({ user, teamId }: any) {
   };
 
   const handleAnalyzeWorkItems = async () => {
-    if (workItems.length === 0) {
+    // 合併今日項目和未完成項目進行分析
+    const allItems = [...workItems, ...incompleteItems];
+    
+    if (allItems.length === 0) {
       setError('目前沒有工作項目可以分析');
       return;
     }
@@ -111,7 +121,7 @@ function StandupReview({ user, teamId }: any) {
     setError('');
     
     try {
-      const result = await api.analyzeWorkItems(teamId, workItems);
+      const result = await api.analyzeWorkItems(teamId, allItems);
       
       // 確保有分析內容
       if (result.analysis) {
@@ -148,6 +158,12 @@ function StandupReview({ user, teamId }: any) {
 
   const getUserWorkItems = (userId: number) => {
     return workItems
+      .filter(item => item.user_id === userId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  };
+
+  const getUserIncompleteItems = (userId: number) => {
+    return incompleteItems
       .filter(item => item.user_id === userId)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
@@ -315,10 +331,22 @@ function StandupReview({ user, teamId }: any) {
               <TrendingUp size={24} style={{ color: '#9c27b0' }} />
             </div>
             <div className="stat-content">
-              <div className="stat-label">工作項目</div>
+              <div className="stat-label">今日項目</div>
               <div className="stat-value">{workItems.length}</div>
             </div>
           </div>
+          
+          {incompleteItems.length > 0 && (
+            <div className="stat-card">
+              <div className="stat-icon" style={{ backgroundColor: '#fff3e0' }}>
+                <AlertCircle size={24} style={{ color: '#f59e0b' }} />
+              </div>
+              <div className="stat-content">
+                <div className="stat-label">未完成項目</div>
+                <div className="stat-value">{incompleteItems.length}</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AI 分析結果 */}
@@ -392,137 +420,6 @@ function StandupReview({ user, teamId }: any) {
                         >
                           執行分配
                         </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 所有工作項目總覽 */}
-        {workItems.length > 0 && (
-          <div className="card" style={{ marginBottom: '20px' }}>
-            <div 
-              style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                cursor: 'pointer',
-                padding: '15px',
-                borderBottom: showAllWorkItems ? '1px solid #e0e0e0' : 'none'
-              }}
-              onClick={toggleAllWorkItems}
-            >
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <TrendingUp size={20} />
-                所有工作項目總覽 ({workItems.length})
-              </h3>
-              {showAllWorkItems ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-            </div>
-            
-            {showAllWorkItems && (
-              <div style={{ padding: '15px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '15px' }}>
-                  {[...workItems]
-                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                    .map((item) => {
-                    const isItemExpanded = expandedWorkItems.has(item.id);
-                    
-                    return (
-                      <div 
-                        key={item.id}
-                        className="card"
-                        style={{ 
-                          padding: '0',
-                          borderLeft: '3px solid #667eea',
-                          backgroundColor: '#f8f9fa',
-                          overflow: 'hidden'
-                        }}
-                      >
-                        {/* Header - Always Visible */}
-                        <div
-                          style={{
-                            padding: '12px',
-                            display: 'flex',
-                            alignItems: 'start',
-                            gap: '8px',
-                            cursor: 'pointer',
-                            backgroundColor: isItemExpanded ? '#fff' : 'transparent'
-                          }}
-                          onClick={() => {
-                            const newExpanded = new Set(expandedWorkItems);
-                            if (isItemExpanded) {
-                              newExpanded.delete(item.id);
-                            } else {
-                              newExpanded.add(item.id);
-                            }
-                            setExpandedWorkItems(newExpanded);
-                          }}
-                        >
-                          <div style={{ paddingTop: '2px' }}>
-                            {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '8px' }}>
-                              {item.ai_title || item.content}
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#999', marginBottom: '6px' }}>
-                              <span>
-                                👤 <strong style={{ color: '#667eea' }}>{item.display_name || item.username}</strong>
-                              </span>
-                              <span>{formatTime(item.created_at).split(' ')[1]}</span>
-                            </div>
-                          </div>
-                          <div onClick={(e) => e.stopPropagation()}>
-                            {assigningItem === item.id ? (
-                              <select 
-                                className="input"
-                                style={{ fontSize: '12px', padding: '4px', width: 'auto' }}
-                                onChange={(e) => handleAssignWorkItem(item.id, parseInt(e.target.value))}
-                                onBlur={() => setAssigningItem(null)}
-                                autoFocus
-                              >
-                                <option value="">選擇成員</option>
-                                {teamMembers.map(member => (
-                                  <option key={member.user_id} value={member.user_id}>
-                                    {member.display_name || member.username}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <button
-                                className="btn btn-secondary"
-                                style={{ fontSize: '11px', padding: '4px 8px' }}
-                                onClick={() => setAssigningItem(item.id)}
-                                title="重新分配"
-                              >
-                                <UserPlus size={12} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Expanded Content */}
-                        {isItemExpanded && item.ai_summary && (
-                          <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #e5e7eb' }}>
-                            <div style={{
-                              padding: '8px',
-                              backgroundColor: '#fff',
-                              borderRadius: '4px',
-                              marginTop: '8px'
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                                <Sparkles size={12} style={{ color: '#667eea', marginRight: '4px' }} />
-                                <span style={{ fontSize: '11px', fontWeight: '600', color: '#667eea' }}>AI 摘要</span>
-                              </div>
-                              <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
-                              </div>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     );
                   })}
@@ -619,6 +516,7 @@ function StandupReview({ user, teamId }: any) {
 
                     {/* 工作項目區域 - 始終顯示 */}
                     <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e0e0e0' }}>
+                      {/* 今日工作項目 */}
                       {memberWorkItems.length > 0 ? (
                         <>
                           <div
@@ -666,7 +564,11 @@ function StandupReview({ user, teamId }: any) {
                                       cursor: 'pointer',
                                       backgroundColor: isItemExpanded ? '#f8f9fa' : '#fff'
                                     }}
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      // Don't toggle if clicking on reassign button area
+                                      if ((e.target as HTMLElement).closest('.reassign-area')) {
+                                        return;
+                                      }
                                       const newExpanded = new Set(expandedWorkItems);
                                       if (isItemExpanded) {
                                         newExpanded.delete(item.id);
@@ -682,8 +584,47 @@ function StandupReview({ user, teamId }: any) {
                                         {item.ai_title || item.content}
                                       </div>
                                     </div>
-                                    <div style={{ fontSize: '11px', color: '#999' }}>
-                                      {formatTime(item.created_at).split(' ')[1]}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <div style={{ fontSize: '11px', color: '#999' }}>
+                                        {formatTime(item.created_at).split(' ')[1]}
+                                      </div>
+                                      <div className="reassign-area">
+                                        {assigningItem === item.id ? (
+                                          <select 
+                                            className="input"
+                                            style={{ fontSize: '12px', padding: '4px', width: 'auto', minWidth: '120px' }}
+                                            onChange={(e) => {
+                                              const newUserId = parseInt(e.target.value);
+                                              if (newUserId) {
+                                                handleAssignWorkItem(item.id, newUserId);
+                                              } else {
+                                                setAssigningItem(null);
+                                              }
+                                            }}
+                                            onBlur={() => setAssigningItem(null)}
+                                            autoFocus
+                                          >
+                                            <option value="">選擇成員</option>
+                                            {teamMembers.filter(m => m.user_id !== member.user_id).map(m => (
+                                              <option key={m.user_id} value={m.user_id}>
+                                                {m.display_name || m.username}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setAssigningItem(item.id);
+                                            }}
+                                            title="重新分配給其他成員"
+                                          >
+                                            <UserPlus size={12} />
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                   
@@ -714,9 +655,155 @@ function StandupReview({ user, teamId }: any) {
                         </>
                       ) : (
                         <div style={{ fontSize: '13px', color: '#999', padding: '10px 0' }}>
-                          尚未分配工作項目
+                          尚未分配今日工作項目
                         </div>
                       )}
+                      
+                      {/* 未完成項目區塊 - 獨立顯示，不受今日工作項目影響 */}
+                      {(() => {
+                        const memberIncompleteItems = getUserIncompleteItems(member.user_id);
+                        if (memberIncompleteItems.length === 0) return null;
+                        
+                        return (
+                          <>
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                marginTop: '12px',
+                                marginBottom: '8px',
+                                padding: '8px',
+                                backgroundColor: '#fffbeb',
+                                borderRadius: '4px'
+                              }}
+                              onClick={() => setShowIncompleteItems(!showIncompleteItems)}
+                            >
+                                  <div style={{ fontSize: '13px', fontWeight: 500, color: '#92400e' }}>
+                                    ⚠️ 未完成項目 ({memberIncompleteItems.length})
+                                  </div>
+                                  {showIncompleteItems ? (
+                                    <ChevronUp size={16} style={{ color: '#92400e' }} />
+                                  ) : (
+                                    <ChevronDown size={16} style={{ color: '#92400e' }} />
+                                  )}
+                                </div>
+                                {showIncompleteItems && (
+                                  <div style={{ marginTop: '8px' }}>
+                                    {memberIncompleteItems.map((item: any) => {
+                                      const isItemExpanded = expandedWorkItems.has(item.id);
+                                      const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
+                                      
+                                      return (
+                                        <div 
+                                          key={item.id} 
+                                          style={{ 
+                                            marginBottom: '8px',
+                                            backgroundColor: '#fefce8',
+                                            borderRadius: '6px',
+                                            borderLeft: '3px solid #f59e0b',
+                                            overflow: 'hidden'
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              padding: '10px',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'space-between',
+                                              cursor: 'pointer'
+                                            }}
+                                            onClick={(e) => {
+                                              // Don't toggle if clicking on reassign button area
+                                              if ((e.target as HTMLElement).closest('.reassign-area')) {
+                                                return;
+                                              }
+                                              const newExpanded = new Set(expandedWorkItems);
+                                              if (isItemExpanded) {
+                                                newExpanded.delete(item.id);
+                                              } else {
+                                                newExpanded.add(item.id);
+                                              }
+                                              setExpandedWorkItems(newExpanded);
+                                            }}
+                                          >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                              {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                              <div style={{ fontWeight: '600', fontSize: '14px' }}>
+                                                {item.ai_title || item.content}
+                                              </div>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                              <div style={{ fontSize: '11px', color: '#92400e' }}>
+                                                📅 {itemDate}
+                                              </div>
+                                              <div className="reassign-area">
+                                                {assigningItem === item.id ? (
+                                                  <select 
+                                                    className="input"
+                                                    style={{ fontSize: '12px', padding: '4px', width: 'auto', minWidth: '120px' }}
+                                                    onChange={(e) => {
+                                                      const newUserId = parseInt(e.target.value);
+                                                      if (newUserId) {
+                                                        handleAssignWorkItem(item.id, newUserId);
+                                                      } else {
+                                                        setAssigningItem(null);
+                                                      }
+                                                    }}
+                                                    onBlur={() => setAssigningItem(null)}
+                                                    autoFocus
+                                                  >
+                                                    <option value="">選擇成員</option>
+                                                    {teamMembers.filter(m => m.user_id !== member.user_id).map(m => (
+                                                      <option key={m.user_id} value={m.user_id}>
+                                                        {m.display_name || m.username}
+                                                      </option>
+                                                    ))}
+                                                  </select>
+                                                ) : (
+                                                  <button
+                                                    className="btn btn-secondary"
+                                                    style={{ fontSize: '11px', padding: '4px 8px' }}
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setAssigningItem(item.id);
+                                                    }}
+                                                    title="重新分配給其他成員"
+                                                  >
+                                                    <UserPlus size={12} />
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          
+                                          {isItemExpanded && item.ai_summary && (
+                                            <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #fef3c7' }}>
+                                              <div style={{
+                                                padding: '8px',
+                                                backgroundColor: '#fffbeb',
+                                                borderRadius: '4px',
+                                                marginTop: '8px'
+                                              }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                                  <Sparkles size={12} style={{ color: '#f59e0b', marginRight: '4px' }} />
+                                                  <span style={{ fontSize: '11px', fontWeight: '600', color: '#f59e0b' }}>AI 摘要</span>
+                                                </div>
+                                                <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5', color: '#92400e' }}>
+                                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                     </div>
                   </div>
                 );

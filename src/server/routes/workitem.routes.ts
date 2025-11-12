@@ -62,6 +62,25 @@ router.get(
   }
 );
 
+// 取得使用者的未完成工作項目（不限日期）
+router.get(
+  '/incomplete',
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { teamId } = req.query;
+      const workItems = await workItemService.getIncompleteUserWorkItems(
+        req.user!.id,
+        teamId ? parseInt(teamId as string) : undefined
+      );
+      res.json(workItems);
+    } catch (error) {
+      console.error('Get incomplete work items error:', error);
+      res.status(500).json({ error: '取得未完成工作項目失敗' });
+    }
+  }
+);
+
 // 更新工作項目
 router.put(
   '/:itemId',
@@ -190,6 +209,46 @@ router.get(
     } catch (error) {
       console.error('Get team work items error:', error);
       res.status(500).json({ error: '取得團隊工作項目失敗' });
+    }
+  }
+);
+
+// 取得團隊所有未完成工作項目
+router.get(
+  '/team/:teamId/incomplete',
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const teamId = parseInt(req.params.teamId);
+      const workItems = await workItemService.getIncompleteTeamWorkItems(teamId);
+      res.json(workItems);
+    } catch (error) {
+      console.error('Get team incomplete work items error:', error);
+      res.status(500).json({ error: '取得團隊未完成工作項目失敗' });
+    }
+  }
+);
+
+// 移動未完成項目到今日
+router.put(
+  '/:itemId/move-to-today',
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      
+      const workItem = await workItemService.moveWorkItemToToday(
+        itemId,
+        req.user!.id
+      );
+
+      res.json(workItem);
+    } catch (error: any) {
+      console.error('Move work item to today error:', error);
+      res.status(error.message.includes('無權限') || error.message.includes('已經是今日') ? 400 : 500).json({ 
+        error: error.message || '移動工作項目失敗',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   }
 );
