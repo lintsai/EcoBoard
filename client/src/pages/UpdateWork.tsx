@@ -505,14 +505,15 @@ function UpdateWork({ user, teamId }: any) {
                     <textarea
                       id="update-content"
                       className="form-control"
-                      rows={4}
-                      placeholder="描述您的工作進展、遇到的問題、下一步計劃等..."
+                      rows={6}
+                      placeholder="描述您的工作進展、遇到的問題、下一步計劃等...（Enter 換行，點擊送出按鈕提交）"
                       value={updateContent}
                       onChange={(e) => setUpdateContent(e.target.value)}
                       required
+                      style={{ resize: 'vertical', minHeight: '120px' }}
                     />
                     <div className="form-hint">
-                      提示：詳細描述您的進展，包括完成了什麼、遇到什麼問題、需要什麼協助
+                      提示：詳細描述您的進展，包括完成了什麼、遇到什麼問題、需要什麼協助。按 Enter 可換行。
                     </div>
                   </div>
 

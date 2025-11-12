@@ -394,20 +394,20 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
             {/* Chat Input */}
             <div style={{ padding: '15px', borderTop: '1px solid #e5e7eb' }}>
               <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                <input
-                  type="text"
+                <textarea
                   className="input"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && !loading && handleSend()}
-                  placeholder="描述您的工作項目..."
+                  placeholder="描述您的工作項目...（Enter 換行）"
                   disabled={loading}
-                  style={{ flex: 1 }}
+                  rows={3}
+                  style={{ flex: 1, resize: 'vertical', minHeight: '60px' }}
                 />
                 <button
                   onClick={handleSend}
                   disabled={loading || !inputMessage.trim()}
                   className="btn btn-primary"
+                  style={{ alignSelf: 'flex-end' }}
                 >
                   <Send size={18} />
                   {loading ? '處理中...' : '發送'}
