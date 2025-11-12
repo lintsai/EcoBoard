@@ -170,19 +170,45 @@ ${conversation}
       const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const result = JSON.parse(jsonMatch[0]);
+        // Ensure we extract strings, not store the raw JSON
+        const title = typeof result.title === 'string' ? result.title : '未命名工作項目';
+        const summary = typeof result.summary === 'string' ? result.summary : conversation.substring(0, 500);
+        
         return {
-          title: result.title || '未命名工作項目',
-          summary: result.summary || conversation.substring(0, 500)
+          title: title.substring(0, 200), // Limit to prevent truncation
+          summary: summary // TEXT field can handle longer content
         };
       }
     } catch (e) {
       console.error('Failed to parse AI summary response as JSON:', e);
+      console.error('AI Response:', aiResponse);
     }
 
-    // Fallback: use first user message as title
+    // Fallback: extract meaningful content, never store raw JSON
+    // If the response looks like JSON but failed to parse, extract what we can
+    let fallbackTitle = '未命名工作項目';
+    let fallbackSummary = conversation.substring(0, 500);
+    
+    // Try to extract title from partial JSON
+    const titleMatch = aiResponse.match(/"title"\s*:\s*"([^"]+)"/);
+    if (titleMatch) {
+      fallbackTitle = titleMatch[1].substring(0, 200);
+    } else if (history.rows[0]?.content) {
+      fallbackTitle = history.rows[0].content.substring(0, 200);
+    }
+    
+    // Try to extract summary from partial JSON
+    const summaryMatch = aiResponse.match(/"summary"\s*:\s*"([^"]+)"/);
+    if (summaryMatch) {
+      fallbackSummary = summaryMatch[1];
+    } else if (aiResponse && !aiResponse.startsWith('{')) {
+      // Use AI response if it's not JSON
+      fallbackSummary = aiResponse;
+    }
+    
     return {
-      title: history.rows[0]?.content.substring(0, 50) || '未命名工作項目',
-      summary: aiResponse || conversation.substring(0, 500)
+      title: fallbackTitle,
+      summary: fallbackSummary
     };
   } catch (error) {
     console.error('AI work item summary generation error:', error);

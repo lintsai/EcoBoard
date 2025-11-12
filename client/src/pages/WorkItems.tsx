@@ -219,21 +219,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setLoading(true);
       const summary = await api.generateWorkSummary(sessionId);
 
-      // 確保 summary 是字串
-      const summaryText = typeof summary.summary === 'string' 
-        ? summary.summary 
-        : JSON.stringify(summary.summary);
-      const titleText = typeof summary.title === 'string'
-        ? summary.title
-        : JSON.stringify(summary.title);
-
+      // Backend now guarantees these are strings, never JSON
       await api.createWorkItem(
         checkinId,
-        summaryText,
+        summary.summary,
         'task',
         sessionId,
-        summaryText,
-        titleText
+        summary.summary,
+        summary.title
       );
 
       alert('工作項目已儲存！');

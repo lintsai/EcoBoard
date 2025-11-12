@@ -66,7 +66,7 @@ export const initDatabase = async () => {
         item_type VARCHAR(50) DEFAULT 'task',
         session_id VARCHAR(255),
         ai_summary TEXT,
-        ai_title VARCHAR(500),
+        ai_title TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
@@ -76,6 +76,18 @@ export const initDatabase = async () => {
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS session_id VARCHAR(255)`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ai_summary TEXT`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ai_title VARCHAR(500)`);
+    
+    // Increase ai_title size to prevent truncation (migration)
+    await client.query(`
+      DO $$ 
+      BEGIN
+        ALTER TABLE work_items ALTER COLUMN ai_title TYPE TEXT;
+      EXCEPTION
+        WHEN others THEN
+          -- Column might not exist or already be TEXT
+          NULL;
+      END $$;
+    `);
 
     // Daily standup meetings table
     await client.query(`
