@@ -34,6 +34,22 @@ router.post(
   }
 );
 
+// 取得使用者今日打卡狀態
+router.get(
+  '/today',
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const teamId = parseInt(req.query.teamId as string);
+      const checkin = await checkinService.getUserTodayCheckin(req.user!.id, teamId);
+      res.json(checkin);
+    } catch (error) {
+      console.error('Get user today checkin error:', error);
+      res.status(500).json({ error: '取得打卡記錄失敗' });
+    }
+  }
+);
+
 // 取得今日團隊打卡狀態
 router.get(
   '/team/:teamId/today',

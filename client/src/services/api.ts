@@ -102,6 +102,11 @@ class ApiService {
     return response.data;
   }
 
+  async getTodayUserCheckin(teamId: number) {
+    const response = await this.api.get(`/checkin/today?teamId=${teamId}`);
+    return response.data;
+  }
+
   // Work Items
   async createWorkItem(checkinId: number, content: string, itemType?: string, sessionId?: string, aiSummary?: string, aiTitle?: string) {
     const response = await this.api.post('/workitems', { 
