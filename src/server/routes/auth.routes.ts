@@ -22,7 +22,7 @@ router.post(
 
       const { username, password } = req.body;
 
-      // Authenticate with LDAP
+      // Authenticate with LDAP (username will be normalized inside authenticateLDAP)
       const ldapUser = await authenticateLDAP(username, password);
       
       if (!ldapUser) {

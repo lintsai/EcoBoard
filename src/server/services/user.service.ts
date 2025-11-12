@@ -16,10 +16,13 @@ interface CreateUserData {
 }
 
 export const createOrGetUser = async (userData: CreateUserData): Promise<User> => {
-  // Try to find existing user
+  // Normalize username to lowercase
+  const normalizedUsername = userData.username.toLowerCase();
+  
+  // Try to find existing user (case-insensitive)
   const existingUser = await query(
-    'SELECT * FROM users WHERE username = $1',
-    [userData.username]
+    'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
+    [normalizedUsername]
   );
 
   if (existingUser.rows.length > 0) {
@@ -27,19 +30,19 @@ export const createOrGetUser = async (userData: CreateUserData): Promise<User> =
     const updated = await query(
       `UPDATE users 
        SET display_name = $1, email = $2, ldap_dn = $3, updated_at = CURRENT_TIMESTAMP
-       WHERE username = $4
+       WHERE LOWER(username) = LOWER($4)
        RETURNING *`,
-      [userData.displayName, userData.email, userData.ldapDn, userData.username]
+      [userData.displayName, userData.email, userData.ldapDn, normalizedUsername]
     );
     return updated.rows[0];
   }
 
-  // Create new user
+  // Create new user with normalized username
   const result = await query(
     `INSERT INTO users (username, display_name, email, ldap_dn)
      VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [userData.username, userData.displayName, userData.email, userData.ldapDn]
+    [normalizedUsername, userData.displayName, userData.email, userData.ldapDn]
   );
 
   return result.rows[0];
@@ -56,7 +59,7 @@ export const getUserById = async (userId: number): Promise<User | null> => {
 
 export const getUserByUsername = async (username: string): Promise<User | null> => {
   const result = await query(
-    'SELECT * FROM users WHERE username = $1',
+    'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
     [username]
   );
 

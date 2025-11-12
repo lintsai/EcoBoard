@@ -1,4 +1,8 @@
+import dotenv from 'dotenv';
 import pool from './pool';
+
+// Load environment variables (safe to call multiple times)
+dotenv.config();
 
 export const initDatabase = async () => {
   const client = await pool.connect();
