@@ -72,7 +72,7 @@ export const chat = async (
         model: config.modelName,
         messages: messages,
         temperature: 0.7,
-        max_tokens: 500
+        max_tokens: 1000  // 增加到 1000，避免回應被截斷
       },
       {
         headers: {
@@ -153,7 +153,7 @@ ${conversation}
           { role: 'user', content: prompt }
         ],
         temperature: 0.5,
-        max_tokens: 800
+        max_tokens: 1500  // 增加到 1500，確保 JSON 完整
       },
       {
         headers: {
@@ -177,6 +177,7 @@ ${conversation}
       }
     } catch (e) {
       console.error('Failed to parse AI summary response as JSON:', e);
+      console.error('AI Response:', aiResponse);
     }
 
     // Fallback: use first user message as title
@@ -247,7 +248,7 @@ ${JSON.stringify(workloadSummary, null, 2)}
           { role: 'user', content: prompt }
         ],
         temperature: 0.5,
-        max_tokens: 1000
+        max_tokens: 2000  // 增加到 2000，確保複雜 JSON 完整
       },
       {
         headers: {
@@ -338,6 +339,7 @@ ${JSON.stringify(workloadSummary, null, 2)}
       }
     } catch (e) {
       console.error('Failed to parse AI response as JSON:', e);
+      console.error('AI Response:', aiResponse);
     }
 
     return {
@@ -409,7 +411,7 @@ ${JSON.stringify(teamMembers.map(m => ({ id: m.id, name: m.display_name, role: m
           { role: 'user', content: prompt }
         ],
         temperature: 0.5,
-        max_tokens: 1500
+        max_tokens: 2500  // 增加到 2500，確保複雜分配 JSON 完整
       },
       {
         headers: {
@@ -429,6 +431,7 @@ ${JSON.stringify(teamMembers.map(m => ({ id: m.id, name: m.display_name, role: m
       }
     } catch (e) {
       console.error('Failed to parse AI response as JSON:', e);
+      console.error('AI Response:', aiResponse);
     }
 
     return {
@@ -563,7 +566,7 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
           { role: 'user', content: prompt }
         ],
         temperature: 0.7,
-        max_tokens: 2000
+        max_tokens: 3000  // 增加到 3000，確保完整的每日總結
       },
       {
         headers: {
