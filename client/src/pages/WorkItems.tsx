@@ -165,10 +165,17 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     setSelectedItemId(item.id);
     setCurrentItemAiSummary(item.ai_summary || '');
     
+    console.log('[WorkItems] Editing item:', item.id, 'existing session_id:', item.session_id);
+    
     if (item.session_id) {
       setSessionId(item.session_id);
+      console.log('[WorkItems] Using existing session:', item.session_id);
       await loadChatHistory(item.session_id);
     } else {
+      // Create a new session ID for items without one
+      const newSessionId = `session_${Date.now()}_${user.id}`;
+      setSessionId(newSessionId);
+      console.log('[WorkItems] Created new session:', newSessionId);
       setMessages([{
         role: 'ai',
         content: `正在編輯工作項目：「${item.ai_title || item.content}」\n\n您可以繼續與我討論這個項目的細節。`,
@@ -192,7 +199,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     setLoading(true);
 
     try {
+      console.log('[WorkItems] Sending message with sessionId:', sessionId);
       const response = await api.chat(currentInput, sessionId, { teamId, userId: user.id });
+      console.log('[WorkItems] Chat response sessionId:', response.sessionId);
       setSessionId(response.sessionId);
 
       const aiMessage: ChatMessage = {
@@ -268,9 +277,35 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const handleUpdateWorkItem = async () => {
     if (!selectedItemId) return;
 
+    if (!sessionId) {
+      alert('請先與 AI 進行對話以更新項目內容');
+      return;
+    }
+
+    // Check if user has sent at least one message
+    const hasUserMessages = messages.some(msg => msg.role === 'user');
+    if (!hasUserMessages) {
+      alert('請先與 AI 討論項目內容後再更新');
+      return;
+    }
+
     try {
       setLoading(true);
+      console.log('[WorkItems] Generating summary with sessionId:', sessionId);
       const summary = await api.generateWorkSummary(sessionId);
+      console.log('[WorkItems] Generated summary:', summary);
+
+      // Validate that summary was generated successfully
+      if (!summary || !summary.summary) {
+        throw new Error('生成摘要失敗：摘要內容為空');
+      }
+
+      // Check if it's the default error message
+      if (summary.summary === '無對話記錄') {
+        console.error('[WorkItems] No chat history found for session:', sessionId);
+        console.error('[WorkItems] Current messages:', messages);
+        throw new Error('無法找到對話記錄，請確保已與 AI 進行對話。如果問題持續，請重新整理頁面後再試。');
+      }
 
       await api.updateWorkItem(selectedItemId, {
         content: summary.summary,
@@ -278,20 +313,26 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         aiTitle: summary.title
       });
 
-      alert('工作項目已更新！');
-      
+      // Reload work items list
       await loadWorkItems();
+      
+      // Clear edit mode states
       setSessionId('');
       setSelectedItemId(null);
-      setCurrentItemAiSummary('');
+      
+      // Keep the summary visible so user can see what was saved
+      setCurrentItemAiSummary(summary.summary);
+      
       setMessages([{
         role: 'ai',
         content: '✅ 工作項目已更新！\n\n您可以繼續新增或編輯其他工作項目。',
         timestamp: new Date().toISOString()
       }]);
-    } catch (error) {
+      
+      alert('工作項目已更新！');
+    } catch (error: any) {
       console.error('Failed to update work item:', error);
-      alert('更新失敗');
+      alert(error.message || '更新失敗');
     } finally {
       setLoading(false);
     }

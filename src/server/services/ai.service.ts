@@ -106,15 +106,22 @@ export const chat = async (
 // 生成工作項目標題和摘要
 export const generateWorkItemSummary = async (sessionId: string, userId: number) => {
   const config = getVLLMConfig();
+  console.log('[AI Service] Generating summary for session:', sessionId, 'user:', userId);
+  
   // Get all conversation from this session
+  // Note: Only filter by session_id, not user_id, to allow loading conversation history
+  // even if the work item is being edited by a different user or reassigned
   const history = await query(
     `SELECT content, ai_response FROM chat_messages
-     WHERE session_id = $1 AND user_id = $2
+     WHERE session_id = $1
      ORDER BY created_at ASC`,
-    [sessionId, userId]
+    [sessionId]
   );
 
+  console.log('[AI Service] Found', history.rows.length, 'chat messages for session');
+
   if (history.rows.length === 0) {
+    console.warn('[AI Service] No chat history found for session:', sessionId);
     return {
       title: '未命名工作項目',
       summary: '無對話記錄'
@@ -153,7 +160,7 @@ ${conversation}
           { role: 'user', content: prompt }
         ],
         temperature: 0.5,
-        max_tokens: 1500  // 增加到 1500，確保 JSON 完整
+        max_tokens: 4000  // 增加到 4000，確保複雜項目的完整摘要不被截斷
       },
       {
         headers: {
