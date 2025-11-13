@@ -25,9 +25,19 @@ interface HistoryItem {
 
 function DailySummary({ user, teamId }: any) {
   const navigate = useNavigate();
+  
+  // 獲取當地時區的今日日期（避免 UTC 時區問題）
+  const getTodayDate = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [summary, setSummary] = useState<DailySummaryData | null>(null);
   const [previewSummary, setPreviewSummary] = useState<string | null>(null); // 預覽的總結內容
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -46,11 +56,11 @@ function DailySummary({ user, teamId }: any) {
   useEffect(() => {
     // Add table click handler
     const handleTableClick = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
       const target = e.target as HTMLElement;
       const table = target.closest('.markdown-content table');
       if (table && !target.closest('.table-modal-content')) {
+        e.preventDefault();
+        e.stopPropagation();
         const tableHTML = (table as HTMLElement).outerHTML;
         setEnlargedTable(tableHTML);
       }
@@ -157,10 +167,25 @@ function DailySummary({ user, teamId }: any) {
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newDate = e.target.value;
-    setSelectedDate(newDate);
+    
+    // 只有當日期真正改變時才處理
+    if (newDate && newDate !== selectedDate) {
+      setSelectedDate(newDate);
+      // 清除預覽狀態
+      setPreviewSummary(null);
+      // 清除當前顯示的總結
+      setSummary(null);
+      // 自動載入新日期的總結
+      fetchDailySummary(newDate);
+    } else if (newDate) {
+      // 日期沒變，只更新 state（讓日曆可以正常彈出）
+      setSelectedDate(newDate);
+    }
   };
 
   const handleRefresh = () => {
+    // 清除預覽狀態
+    setPreviewSummary(null);
     fetchDailySummary(selectedDate);
   };
 
@@ -172,10 +197,14 @@ function DailySummary({ user, teamId }: any) {
   };
 
   const handleSelectHistoryItem = (item: HistoryItem) => {
-    setSelectedDate(item.summary_date);
+    // 清除預覽狀態
+    setPreviewSummary(null);
+    // 設定選擇的日期（確保格式正確）
+    const formattedDate = item.summary_date.split('T')[0]; // 確保只取日期部分
+    setSelectedDate(formattedDate);
     setSummary({
       summary: item.summary_content,
-      date: item.summary_date,
+      date: formattedDate,
       teamId: item.team_id,
       cached: true,
       createdAt: item.created_at
@@ -219,18 +248,26 @@ function DailySummary({ user, teamId }: any) {
         {/* 日期選擇和操作按鈕 */}
         <div className="card" style={{ marginBottom: '20px' }}>
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ flex: '0 0 auto' }}>
+            <div style={{ flex: '0 0 auto', position: 'relative' }}>
               <label htmlFor="summary-date" style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 500 }}>
                 選擇日期
               </label>
               <input
                 type="date"
                 id="summary-date"
-                className="form-control"
                 value={selectedDate}
                 onChange={handleDateChange}
-                max={new Date().toISOString().split('T')[0]}
-                style={{ width: '200px' }}
+                max={getTodayDate()}
+                disabled={generating || saving}
+                style={{ 
+                  width: '200px',
+                  padding: '10px 12px',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontFamily: 'inherit',
+                  cursor: 'pointer'
+                }}
               />
             </div>
 
@@ -292,49 +329,52 @@ function DailySummary({ user, teamId }: any) {
               <p style={{ textAlign: 'center', color: '#999', padding: '20px' }}>暫無歷史記錄</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {history.map((item) => (
-                  <div
-                    key={item.id}
-                    onClick={() => handleSelectHistoryItem(item)}
-                    style={{
-                      padding: '12px 15px',
-                      border: '1px solid #e0e0e0',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      backgroundColor: selectedDate === item.summary_date ? '#f0f8ff' : '#fff',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (selectedDate !== item.summary_date) {
-                        e.currentTarget.style.backgroundColor = '#f9fafb';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedDate !== item.summary_date) {
-                        e.currentTarget.style.backgroundColor = '#fff';
-                      }
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <Calendar size={16} style={{ color: '#667eea' }} />
-                        <span style={{ fontWeight: 500, fontSize: '15px', color: '#1f2937' }}>
-                          {new Date(item.summary_date).toLocaleDateString('zh-TW', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                            weekday: 'short'
-                          })}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                        {item.generated_by_name && `由 ${item.generated_by_name} 生成`}
-                        {' · '}
-                        {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                {history.map((item) => {
+                  const itemDate = item.summary_date.split('T')[0]; // 確保格式一致
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => handleSelectHistoryItem(item)}
+                      style={{
+                        padding: '12px 15px',
+                        border: '1px solid #e0e0e0',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        backgroundColor: selectedDate === itemDate ? '#f0f8ff' : '#fff',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (selectedDate !== itemDate) {
+                          e.currentTarget.style.backgroundColor = '#f9fafb';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (selectedDate !== itemDate) {
+                          e.currentTarget.style.backgroundColor = '#fff';
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <Calendar size={16} style={{ color: '#667eea' }} />
+                          <span style={{ fontWeight: 500, fontSize: '15px', color: '#1f2937' }}>
+                            {new Date(item.summary_date).toLocaleDateString('zh-TW', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                              weekday: 'short'
+                            })}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                          {item.generated_by_name && `由 ${item.generated_by_name} 生成`}
+                          {' · '}
+                          {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

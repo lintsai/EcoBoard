@@ -12,8 +12,11 @@ scripts/
 │   ├── test-api.ps1              # API 測試腳本（互動式）
 │   ├── test-api-safe.ps1         # API 測試腳本（安全版，輸出到日誌）
 │   └── run-full-test.ps1         # 完整測試腳本（使用預設帳號）
+├── check-users.ts                 # 檢查用戶資料
 ├── inspect_daily_summaries.ts     # 檢查每日總結
-└── run_gen_summary.ts             # 生成總結腳本
+├── run_gen_summary.ts             # 生成總結腳本
+├── test-username-normalization.ts # 測試用戶名正規化
+└── test-leave-tracking.ts         # ⭐ 測試休假成員標記功能（Issue #13）
 ```
 
 ## 🔧 PowerShell 腳本
@@ -97,6 +100,14 @@ IIS 自動部署腳本，用於在 Windows Server 上部署 EcoBoard。
 
 ## 📜 TypeScript 腳本
 
+### check-users.ts
+檢查資料庫中的用戶資料和正規化狀態。
+
+**使用方法：**
+```bash
+npx ts-node scripts/check-users.ts
+```
+
 ### inspect_daily_summaries.ts
 檢查資料庫中的每日總結記錄。
 
@@ -104,7 +115,7 @@ IIS 自動部署腳本，用於在 Windows Server 上部署 EcoBoard。
 ```bash
 npm run script:inspect
 # 或
-ts-node scripts/inspect_daily_summaries.ts
+npx ts-node scripts/inspect_daily_summaries.ts
 ```
 
 ### run_gen_summary.ts
@@ -114,8 +125,38 @@ ts-node scripts/inspect_daily_summaries.ts
 ```bash
 npm run script:summary
 # 或
-ts-node scripts/run_gen_summary.ts
+npx ts-node scripts/run_gen_summary.ts
 ```
+
+### test-username-normalization.ts
+測試用戶名正規化功能。
+
+**使用方法：**
+```bash
+npx ts-node scripts/test-username-normalization.ts
+```
+
+### test-leave-tracking.ts ⭐ NEW
+測試休假成員標記功能（Issue #13）。
+
+**使用方法：**
+```bash
+# 測試特定團隊和日期
+npx ts-node scripts/test-leave-tracking.ts <teamId> [date]
+
+# 範例：測試團隊 1 在 2025-11-13 的休假情況
+npx ts-node scripts/test-leave-tracking.ts 1 2025-11-13
+
+# 範例：測試團隊 1 今天的休假情況
+npx ts-node scripts/test-leave-tracking.ts 1
+```
+
+**輸出內容：**
+- 團隊所有成員列表
+- 當日已打卡成員及打卡時間
+- 未打卡成員（標記為休假）
+- 出勤率統計
+- 當日工作項目統計
 
 ## 🚀 快速開始
 
