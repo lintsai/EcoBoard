@@ -60,11 +60,11 @@ function UpdateWork({ user, teamId }: any) {
   useEffect(() => {
     // Add table click handler
     const handleTableClick = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
       const target = e.target as HTMLElement;
       const table = target.closest('.markdown-content table');
       if (table && !target.closest('.table-modal-content')) {
+        e.preventDefault();
+        e.stopPropagation();
         const tableHTML = (table as HTMLElement).outerHTML;
         setEnlargedTable(tableHTML);
       }
@@ -88,6 +88,14 @@ function UpdateWork({ user, teamId }: any) {
   useEffect(() => {
     if (selectedItem) {
       fetchWorkUpdates(selectedItem);
+      
+      // 自動設置進度狀態為當前項目的狀態
+      const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
+      if (item?.progress_status) {
+        setProgressStatus(item.progress_status);
+      } else {
+        setProgressStatus('in_progress'); // 預設為進行中
+      }
     }
   }, [selectedItem]);
 
@@ -149,45 +157,70 @@ function UpdateWork({ user, teamId }: any) {
 
   const handleSubmitUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('🚀 handleSubmitUpdate 被調用');
+    console.log('📋 selectedItem:', selectedItem);
+    console.log('📝 updateContent:', updateContent);
+    console.log('📊 progressStatus:', progressStatus);
+    
     if (!selectedItem || !updateContent.trim()) {
+      console.log('❌ 驗證失敗：缺少必要資訊');
       setError('請選擇工作項目並填寫更新內容');
       return;
     }
 
+    console.log('✅ 開始提交更新...');
     setSubmitting(true);
     setError('');
     setSuccess('');
 
     try {
+      // 提交更新
+      console.log('📤 發送 API 請求...');
       await api.createWorkUpdate(selectedItem, {
         updateContent: updateContent.trim(),
         progressStatus
       });
+      console.log('✅ API 請求成功');
+      console.log('✅ API 請求成功');
 
       setSuccess('工作更新已提交！');
       setUpdateContent('');
       
-      // 立即更新本地狀態，避免狀態消失
+      // 先立即更新本地狀態，給用戶即時反饋
+      console.log('🔄 更新本地狀態...');
       const updateLocalStatus = (items: WorkItem[]) => 
         items.map(item => 
           item.id === selectedItem ? { ...item, progress_status: progressStatus } : item
         );
       
-      setWorkItems(updateLocalStatus);
-      setIncompleteItems(updateLocalStatus);
+      setWorkItems(prev => updateLocalStatus(prev));
+      setIncompleteItems(prev => updateLocalStatus(prev));
       
-      // 重新載入更新記錄
-      await fetchWorkUpdates(selectedItem);
+      // 重新載入更新記錄 - 確保顯示最新的更新
+      console.log('📥 重新載入更新記錄...');
+      fetchWorkUpdates(selectedItem);
       
-      // 重新載入工作項目以獲取最新狀態（確保與後端同步）
-      await fetchTodayWorkItems();
-      await fetchIncompleteWorkItems();
+      // 延遲重新載入以確保資料庫已更新
+      setTimeout(async () => {
+        try {
+          console.log('📥 重新載入工作項目...');
+          await Promise.all([
+            fetchTodayWorkItems(),
+            fetchIncompleteWorkItems()
+          ]);
+          console.log('✅ 工作項目重新載入完成');
+        } catch (err) {
+          console.error('❌ 重新載入工作項目失敗:', err);
+        }
+      }, 500);
 
       // 3 秒後清除成功訊息
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
+      console.error('❌ 提交更新失敗:', err);
       setError(err.message || '提交更新失敗');
     } finally {
+      console.log('🏁 提交流程結束');
       setSubmitting(false);
     }
   };
@@ -532,7 +565,13 @@ function UpdateWork({ user, teamId }: any) {
               {/* 更新表單 */}
               <div className="card">
                 <h3>新增進度更新</h3>
-                <form onSubmit={handleSubmitUpdate} style={{ marginTop: '15px' }}>
+                <form 
+                  onSubmit={(e) => {
+                    console.log('📝 表單 onSubmit 事件觸發');
+                    handleSubmitUpdate(e);
+                  }} 
+                  style={{ marginTop: '15px' }}
+                >
                   <div className="form-group">
                     <label htmlFor="progress-status">進度狀態</label>
                     <select
