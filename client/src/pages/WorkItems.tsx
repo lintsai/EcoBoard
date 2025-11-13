@@ -40,6 +40,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const [showIncomplete, setShowIncomplete] = useState(true);
+  const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,7 +52,31 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
       timestamp: new Date().toISOString()
     }]);
-  }, []);
+
+    // Add table click handler
+    const handleTableClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const table = target.closest('.markdown-content table');
+      if (table && !target.closest('.table-modal-content')) {
+        const tableHTML = (table as HTMLElement).outerHTML;
+        setEnlargedTable(tableHTML);
+      }
+    };
+
+    // Add ESC key handler
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && enlargedTable) {
+        setEnlargedTable(null);
+      }
+    };
+
+    document.addEventListener('click', handleTableClick);
+    document.addEventListener('keydown', handleEscKey);
+    return () => {
+      document.removeEventListener('click', handleTableClick);
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, [enlargedTable]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -329,6 +354,21 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
           </div>
         </div>
 
+        {/* Table Modal */}
+        {enlargedTable && (
+          <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
+            <div className="table-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="table-modal-close" onClick={() => setEnlargedTable(null)}>
+                ×
+              </button>
+              <div dangerouslySetInnerHTML={{ __html: enlargedTable }} />
+              <div className="table-modal-hint">
+                💡 點擊外部區域、按 ESC 鍵或 × 按鈕關閉
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Main Content */}
         <div style={{ display: 'grid', gridTemplateColumns: '60% 38%', gap: '20px', minHeight: 'calc(100vh - 250px)', alignItems: 'start' }}>
           {/* Left: Chat Dialog - 60% */}
@@ -517,7 +557,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
                             {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                            <h4 style={{ fontWeight: '600', fontSize: '14px', margin: 0, flex: 1 }}>
+                            <h4 style={{ 
+                              fontWeight: '600', 
+                              fontSize: '14px', 
+                              margin: 0, 
+                              flex: 1,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}>
                               {item.ai_title || item.content}
                             </h4>
                           </div>
@@ -550,7 +598,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                         {isExpanded && (
                           <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #e5e7eb' }}>
                             {item.ai_summary && (
-                              <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '12px', marginBottom: '12px' }}>
+                              <div className="markdown-content" style={{ 
+                                fontSize: '13px', 
+                                color: '#666', 
+                                marginTop: '12px', 
+                                marginBottom: '12px',
+                                overflowX: 'auto',
+                                wordWrap: 'break-word',
+                                wordBreak: 'break-word'
+                              }}>
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
                               </div>
                             )}
@@ -651,8 +707,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
                               {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                              <div style={{ flex: 1 }}>
-                                <h4 style={{ fontWeight: '600', fontSize: '14px', margin: 0 }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <h4 style={{ 
+                                  fontWeight: '600', 
+                                  fontSize: '14px', 
+                                  margin: 0,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: isExpanded ? 'normal' : 'nowrap'
+                                }}>
                                   {item.ai_title || item.content.substring(0, 50) + '...'}
                                 </h4>
                                 <span style={{ fontSize: '11px', color: '#92400e' }}>
@@ -666,7 +729,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           {isExpanded && (
                             <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #fef3c7' }}>
                               {item.ai_summary && (
-                                <div className="markdown-content" style={{ fontSize: '13px', color: '#92400e', marginTop: '12px', marginBottom: '12px' }}>
+                                <div className="markdown-content" style={{ 
+                                  fontSize: '13px', 
+                                  color: '#92400e', 
+                                  marginTop: '12px', 
+                                  marginBottom: '12px',
+                                  overflowX: 'auto',
+                                  wordWrap: 'break-word',
+                                  wordBreak: 'break-word'
+                                }}>
                                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
                                 </div>
                               )}

@@ -49,12 +49,37 @@ function UpdateWork({ user, teamId }: any) {
   const [isManager, setIsManager] = useState(false);
   const [viewAllMembers, setViewAllMembers] = useState(false);
   const [showIncomplete, setShowIncomplete] = useState(true);
+  const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
 
   useEffect(() => {
     checkManagerRole();
     fetchTodayWorkItems();
     fetchIncompleteWorkItems();
-  }, [teamId, viewAllMembers]);
+
+    // Add table click handler
+    const handleTableClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const table = target.closest('.markdown-content table');
+      if (table && !target.closest('.table-modal-content')) {
+        const tableHTML = (table as HTMLElement).outerHTML;
+        setEnlargedTable(tableHTML);
+      }
+    };
+
+    // Add ESC key handler
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && enlargedTable) {
+        setEnlargedTable(null);
+      }
+    };
+
+    document.addEventListener('click', handleTableClick);
+    document.addEventListener('keydown', handleEscKey);
+    return () => {
+      document.removeEventListener('click', handleTableClick);
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, [teamId, viewAllMembers, enlargedTable]);
 
   useEffect(() => {
     if (selectedItem) {
@@ -213,6 +238,21 @@ function UpdateWork({ user, teamId }: any) {
           <ArrowLeft size={18} />
           返回
         </button>
+
+        {/* Table Modal */}
+        {enlargedTable && (
+          <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
+            <div className="table-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="table-modal-close" onClick={() => setEnlargedTable(null)}>
+                ×
+              </button>
+              <div dangerouslySetInnerHTML={{ __html: enlargedTable }} />
+              <div className="table-modal-hint">
+                💡 點擊外部區域、按 ESC 鍵或 × 按鈕關閉
+              </div>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
@@ -444,9 +484,15 @@ function UpdateWork({ user, teamId }: any) {
                           backgroundColor: '#fafafa',
                           borderRadius: '6px',
                           marginBottom: '12px',
-                          border: '1px solid #f0f0f0'
+                          border: '1px solid #f0f0f0',
+                          overflowX: 'auto'
                         }}>
-                          <div className="prose-sm markdown-content" style={{ fontSize: '14px', lineHeight: '1.7' }}>
+                          <div className="prose-sm markdown-content" style={{ 
+                            fontSize: '14px', 
+                            lineHeight: '1.7',
+                            wordWrap: 'break-word',
+                            wordBreak: 'break-word'
+                          }}>
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
                           </div>
                         </div>
@@ -457,13 +503,20 @@ function UpdateWork({ user, teamId }: any) {
                             padding: '14px',
                             backgroundColor: '#f8f5ff',
                             borderRadius: '6px',
-                            borderLeft: '3px solid #7c3aed'
+                            borderLeft: '3px solid #7c3aed',
+                            overflowX: 'auto'
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
                               <Sparkles size={14} style={{ color: '#7c3aed', marginRight: '6px' }} />
                               <span style={{ fontSize: '13px', fontWeight: '600', color: '#7c3aed' }}>AI 摘要</span>
                             </div>
-                            <div className="prose-sm markdown-content" style={{ fontSize: '13px', lineHeight: '1.6', color: '#555' }}>
+                            <div className="prose-sm markdown-content" style={{ 
+                              fontSize: '13px', 
+                              lineHeight: '1.6', 
+                              color: '#555',
+                              wordWrap: 'break-word',
+                              wordBreak: 'break-word'
+                            }}>
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
                             </div>
                           </div>

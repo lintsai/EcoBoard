@@ -35,12 +35,37 @@ function DailySummary({ user, teamId }: any) {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
 
   useEffect(() => {
     if (teamId) {
       fetchDailySummary();
     }
-  }, [teamId]);
+
+    // Add table click handler
+    const handleTableClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const table = target.closest('.markdown-content table');
+      if (table && !target.closest('.table-modal-content')) {
+        const tableHTML = (table as HTMLElement).outerHTML;
+        setEnlargedTable(tableHTML);
+      }
+    };
+
+    // Add ESC key handler
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && enlargedTable) {
+        setEnlargedTable(null);
+      }
+    };
+
+    document.addEventListener('click', handleTableClick);
+    document.addEventListener('keydown', handleEscKey);
+    return () => {
+      document.removeEventListener('click', handleTableClick);
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, [teamId, enlargedTable]);
 
   const fetchDailySummary = async (date?: string) => {
     setLoading(true);
@@ -161,6 +186,21 @@ function DailySummary({ user, teamId }: any) {
           <ArrowLeft size={18} />
           返回
         </button>
+
+        {/* Table Modal */}
+        {enlargedTable && (
+          <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
+            <div className="table-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="table-modal-close" onClick={() => setEnlargedTable(null)}>
+                ×
+              </button>
+              <div dangerouslySetInnerHTML={{ __html: enlargedTable }} />
+              <div className="table-modal-hint">
+                💡 點擊外部區域、按 ESC 鍵或 × 按鈕關閉
+              </div>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
