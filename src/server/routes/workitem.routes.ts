@@ -271,4 +271,64 @@ router.delete(
   }
 );
 
+// 添加共同處理人
+router.post(
+  '/:itemId/co-handlers',
+  authenticate,
+  [
+    body('userId').isInt().withMessage('用戶 ID 為必填')
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const itemId = parseInt(req.params.itemId);
+      const { userId } = req.body;
+      
+      const handler = await workItemService.addCoHandler(
+        itemId,
+        userId,
+        req.user!.id
+      );
+
+      res.status(201).json(handler);
+    } catch (error: any) {
+      console.error('Add co-handler error:', error);
+      res.status(error.message.includes('無權限') || error.message.includes('已經是') ? 400 : 500).json({ 
+        error: error.message || '添加共同處理人失敗',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
+);
+
+// 移除共同處理人
+router.delete(
+  '/:itemId/co-handlers/:userId',
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      const userId = parseInt(req.params.userId);
+      
+      await workItemService.removeCoHandler(
+        itemId,
+        userId,
+        req.user!.id
+      );
+
+      res.json({ message: '共同處理人已移除' });
+    } catch (error: any) {
+      console.error('Remove co-handler error:', error);
+      res.status(error.message.includes('無權限') || error.message.includes('不能移除') ? 403 : 500).json({ 
+        error: error.message || '移除共同處理人失敗',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
+);
+
 export default router;

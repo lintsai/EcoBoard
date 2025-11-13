@@ -21,6 +21,18 @@ interface WorkItem {
   username?: string;
   display_name?: string;
   progress_status?: string;
+  handlers?: {
+    primary: {
+      user_id: number;
+      username: string;
+      display_name: string;
+    } | null;
+    co_handlers: Array<{
+      user_id: number;
+      username: string;
+      display_name: string;
+    }>;
+  };
 }
 
 interface WorkUpdate {
@@ -165,6 +177,27 @@ function UpdateWork({ user, teamId }: any) {
     if (!selectedItem || !updateContent.trim()) {
       console.log('❌ 驗證失敗：缺少必要資訊');
       setError('請選擇工作項目並填寫更新內容');
+      return;
+    }
+
+    // 檢查用戶權限
+    const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
+    if (!item) {
+      setError('找不到該工作項目');
+      return;
+    }
+
+    const isPrimary = item.handlers?.primary?.user_id === user.id;
+    const isCoHandler = item.handlers?.co_handlers?.some(h => h.user_id === user.id);
+    
+    if (!isPrimary && !isCoHandler) {
+      setError('您不是此工作項目的處理人，無法更新');
+      return;
+    }
+
+    // 共同處理人不能將工作標記為完成或取消
+    if (!isPrimary && (progressStatus === 'completed' || progressStatus === 'cancelled')) {
+      setError('只有主要處理人可以將工作標記為完成或取消');
       return;
     }
 
@@ -351,7 +384,8 @@ function UpdateWork({ user, teamId }: any) {
                   <h4 style={{ fontSize: '14px', color: '#0066cc', marginBottom: '10px' }}>今日項目 ({workItems.length})</h4>
                   {workItems.map((item) => {
                     const isSelected = selectedItem === item.id;
-                    const assignee = item.display_name || item.username || (item.user_id === user.id ? user.username || user.display_name : '未指定');
+                    const primaryHandler = item.handlers?.primary;
+                    const coHandlers = item.handlers?.co_handlers || [];
                     const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
                     
                     return (
@@ -374,8 +408,18 @@ function UpdateWork({ user, teamId }: any) {
                         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <User size={12} />
-                            <span>{assignee}</span>
+                            <span style={{ fontWeight: '600', color: '#667eea' }}>
+                              {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
+                            </span>
                           </div>
+                          {coHandlers.length > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ color: '#999' }}>+</span>
+                              <span style={{ color: '#6b7280' }}>
+                                {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                              </span>
+                            </div>
+                          )}
                           {item.progress_status && (
                             <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
                               {getStatusBadge(item.progress_status)}
@@ -413,7 +457,8 @@ function UpdateWork({ user, teamId }: any) {
                   
                   {showIncomplete && incompleteItems.map((item) => {
                     const isSelected = selectedItem === item.id;
-                    const assignee = item.display_name || item.username || (item.user_id === user.id ? user.username || user.display_name : '未指定');
+                    const primaryHandler = item.handlers?.primary;
+                    const coHandlers = item.handlers?.co_handlers || [];
                     const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
                     const itemDate = new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
                     
@@ -437,8 +482,18 @@ function UpdateWork({ user, teamId }: any) {
                         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <User size={12} />
-                            <span>{assignee}</span>
+                            <span style={{ fontWeight: '600', color: '#f59e0b' }}>
+                              {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
+                            </span>
                           </div>
+                          {coHandlers.length > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ color: '#999' }}>+</span>
+                              <span style={{ color: '#92400e' }}>
+                                {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                              </span>
+                            </div>
+                          )}
                           <span style={{ color: '#f59e0b' }}>📅 {itemDate}</span>
                           {item.progress_status && (
                             <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
@@ -499,6 +554,34 @@ function UpdateWork({ user, teamId }: any) {
                           <span style={{ fontSize: '12px', color: '#999', marginLeft: 'auto' }}>
                             建立於 {formatTime(item.created_at)}
                           </span>
+                        </div>
+
+                        {/* 處理人資訊 */}
+                        <div style={{ 
+                          marginBottom: '15px',
+                          padding: '10px',
+                          backgroundColor: '#f0f9ff',
+                          borderRadius: '6px',
+                          border: '1px solid #bfdbfe'
+                        }}>
+                          <div style={{ marginBottom: '6px', fontSize: '13px' }}>
+                            <strong style={{ color: '#0066cc' }}>主要處理人：</strong>
+                            {item.handlers?.primary ? (
+                              <span style={{ marginLeft: '6px', color: '#333' }}>
+                                {item.handlers.primary.display_name || item.handlers.primary.username}
+                              </span>
+                            ) : (
+                              <span style={{ marginLeft: '6px', color: '#999' }}>未指定</span>
+                            )}
+                          </div>
+                          {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
+                            <div style={{ fontSize: '13px' }}>
+                              <strong style={{ color: '#0066cc' }}>共同處理人：</strong>
+                              <span style={{ marginLeft: '6px', color: '#333' }}>
+                                {item.handlers.co_handlers.map(h => h.display_name || h.username).join(', ')}
+                              </span>
+                            </div>
+                          )}
                         </div>
                           
                         {/* 工作項目內容 */}
@@ -568,10 +651,35 @@ function UpdateWork({ user, teamId }: any) {
                     >
                       <option value="not_started">未開始</option>
                       <option value="in_progress">進行中</option>
-                      <option value="completed">已完成</option>
-                      <option value="blocked">受阻</option>
-                      <option value="cancelled">已取消</option>
+                      {/* 只有主要處理人可以選擇完成或取消 */}
+                      {(() => {
+                        const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
+                        const isPrimary = item?.handlers?.primary?.user_id === user.id;
+                        return (
+                          <>
+                            <option value="completed" disabled={!isPrimary}>
+                              已完成{!isPrimary ? ' (僅主要處理人)' : ''}
+                            </option>
+                            <option value="blocked">受阻</option>
+                            <option value="cancelled" disabled={!isPrimary}>
+                              已取消{!isPrimary ? ' (僅主要處理人)' : ''}
+                            </option>
+                          </>
+                        );
+                      })()}
                     </select>
+                    {(() => {
+                      const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
+                      const isPrimary = item?.handlers?.primary?.user_id === user.id;
+                      if (!isPrimary) {
+                        return (
+                          <div style={{ fontSize: '12px', color: '#f59e0b', marginTop: '4px' }}>
+                            提示：共同處理人只能更新進度，不能標記為完成或取消
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
 
                   <div className="form-group">

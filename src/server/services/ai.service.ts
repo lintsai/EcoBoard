@@ -205,20 +205,45 @@ ${conversation}
 // AI 分析工作項目
 export const analyzeWorkItems = async (workItems: any[], teamId: number) => {
   const config = getVLLMConfig();
-  // 統計每個成員的工作量
+  // 統計每個成員的工作量（包含主要處理人和共同處理人）
   const memberWorkload = workItems.reduce((acc: any, item) => {
-    const key = item.user_id;
-    if (!acc[key]) {
-      acc[key] = {
-        userId: item.user_id,
-        username: item.username,
-        displayName: item.display_name,
-        count: 0,
-        items: []
+    // 主要處理人
+    const primaryUserId = item.handlers?.primary?.user_id || item.user_id;
+    const primaryKey = primaryUserId;
+    if (!acc[primaryKey]) {
+      acc[primaryKey] = {
+        userId: primaryUserId,
+        username: item.handlers?.primary?.username || item.username,
+        displayName: item.handlers?.primary?.display_name || item.display_name,
+        primaryCount: 0,
+        coHandlerCount: 0,
+        primaryItems: [],
+        coHandlerItems: []
       };
     }
-    acc[key].count++;
-    acc[key].items.push(item.ai_title || item.content);
+    acc[primaryKey].primaryCount++;
+    acc[primaryKey].primaryItems.push(item.ai_title || item.content);
+    
+    // 共同處理人
+    if (item.handlers?.co_handlers && item.handlers.co_handlers.length > 0) {
+      item.handlers.co_handlers.forEach((coHandler: any) => {
+        const coKey = coHandler.user_id;
+        if (!acc[coKey]) {
+          acc[coKey] = {
+            userId: coHandler.user_id,
+            username: coHandler.username,
+            displayName: coHandler.display_name,
+            primaryCount: 0,
+            coHandlerCount: 0,
+            primaryItems: [],
+            coHandlerItems: []
+          };
+        }
+        acc[coKey].coHandlerCount++;
+        acc[coKey].coHandlerItems.push(item.ai_title || item.content);
+      });
+    }
+    
     return acc;
   }, {});
 
@@ -226,14 +251,19 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number) => {
 
   const prompt = `請分析以下團隊的工作分配狀況，提供工作負載分析和建議：
 
-團隊工作分配：
+團隊工作分配（包含主要處理人和共同處理人）：
 ${JSON.stringify(workloadSummary, null, 2)}
 
+註：
+- primaryCount: 作為主要處理人的項目數
+- coHandlerCount: 作為共同處理人的項目數
+- 共同處理人雖然責任較輕，但也需要投入時間協作
+
 請分析以下方面：
-1. **工作負載均衡度**：評估團隊成員的工作量是否均衡
+1. **工作負載均衡度**：評估團隊成員的工作量是否均衡（考慮主要處理和共同處理）
 2. **潛在風險**：識別工作量過重或過輕的成員
 3. **分配建議**：提供具體的工作重新分配建議
-4. **團隊協作**：建議哪些工作可以協同完成
+4. **團隊協作**：評估共同處理的協作模式，建議哪些工作可以協同完成
 
 請用繁體中文回答，並以 JSON 格式返回結果，包含以下欄位：
 {
@@ -278,16 +308,21 @@ ${JSON.stringify(workloadSummary, null, 2)}
         
         // 工作負載統計
         analysisText += `### 📈 當前工作負載\n\n`;
-        analysisText += `| 成員 | 工作項目數 | 負載狀態 |\n`;
-        analysisText += `|------|-----------|----------|\n`;
+        analysisText += `| 成員 | 主要處理 | 共同處理 | 總計 | 負載狀態 |\n`;
+        analysisText += `|------|----------|----------|------|----------|\n`;
         
-        const avgWorkload = workItems.length / Object.keys(memberWorkload).length;
+        const totalWorkItems = workItems.length;
+        const memberCount = Object.keys(memberWorkload).length;
+        const avgWorkload = totalWorkItems / memberCount;
+        
         Object.values(memberWorkload as any).forEach((member: any) => {
-          const loadStatus = member.count > avgWorkload * 1.3 ? '🔴 偏重' : 
-                           member.count < avgWorkload * 0.7 ? '🟢 偏輕' : '🟡 適中';
-          analysisText += `| ${member.displayName || member.username} | ${member.count} 項 | ${loadStatus} |\n`;
+          // 計算總負載（主要處理權重為1，共同處理權重為0.5）
+          const totalLoad = member.primaryCount + (member.coHandlerCount * 0.5);
+          const loadStatus = totalLoad > avgWorkload * 1.3 ? '🔴 偏重' : 
+                           totalLoad < avgWorkload * 0.7 ? '🟢 偏輕' : '🟡 適中';
+          analysisText += `| ${member.displayName || member.username} | ${member.primaryCount} 項 | ${member.coHandlerCount} 項 | ${totalLoad.toFixed(1)} | ${loadStatus} |\n`;
         });
-        analysisText += `\n平均工作量：${avgWorkload.toFixed(1)} 項/人\n\n`;
+        analysisText += `\n平均負載：${avgWorkload.toFixed(1)} 項/人（共同處理以0.5權重計算）\n\n`;
         
         // 負載均衡評估
         if (parsedResult.workloadBalance) {
@@ -513,6 +548,47 @@ export const generateDailySummary = async (
     [teamId, summaryDate]
   );
 
+  // 獲取所有工作項目的處理人資訊
+  const workItemIds = workItems.rows.map((item: any) => item.id);
+  const handlersMap: any = {};
+  
+  if (workItemIds.length > 0) {
+    const handlers = await query(
+      `SELECT wih.work_item_id, wih.handler_type, wih.user_id,
+              u.username, u.display_name
+       FROM work_item_handlers wih
+       INNER JOIN users u ON wih.user_id = u.id
+       WHERE wih.work_item_id = ANY($1)
+       ORDER BY wih.work_item_id, 
+                CASE wih.handler_type WHEN 'primary' THEN 1 ELSE 2 END`,
+      [workItemIds]
+    );
+    
+    handlers.rows.forEach((h: any) => {
+      if (!handlersMap[h.work_item_id]) {
+        handlersMap[h.work_item_id] = { primary: null, co_handlers: [] };
+      }
+      if (h.handler_type === 'primary') {
+        handlersMap[h.work_item_id].primary = {
+          user_id: h.user_id,
+          username: h.username,
+          display_name: h.display_name
+        };
+      } else {
+        handlersMap[h.work_item_id].co_handlers.push({
+          user_id: h.user_id,
+          username: h.username,
+          display_name: h.display_name
+        });
+      }
+    });
+  }
+  
+  // 附加處理人資訊到工作項目
+  workItems.rows.forEach((item: any) => {
+    item.handlers = handlersMap[item.id] || { primary: null, co_handlers: [] };
+  });
+
   // Get all work updates with status progression
   // 只查詢今日的更新記錄（但項目可能是之前建立的）
   const updates = await query(
@@ -552,7 +628,13 @@ export const generateDailySummary = async (
 
 ## 工作項目及狀態
 ${JSON.stringify(workItems.rows.map((item: any) => ({
-  成員: item.display_name || item.username,
+  建立者: item.display_name || item.username,
+  主要處理人: item.handlers?.primary ? 
+    (item.handlers.primary.display_name || item.handlers.primary.username) : 
+    '未指定',
+  共同處理人: item.handlers?.co_handlers?.length > 0 ? 
+    item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ') : 
+    '無',
   項目: item.ai_title || item.content.substring(0, 100),
   建立日期: item.checkin_date,
   是否今日新建: item.created_today ? '是' : '否（跨日期追蹤）',
@@ -573,14 +655,16 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
 請提供專業的工作總結報告，包含：
 
 1. **每日概況** - 簡述今日整體工作情況和團隊參與度
-2. **完成項目總覽** - 列出已完成（completed）的工作項目，按成員分組。特別標註跨日期完成的項目
-3. **進行中項目** - 列出進行中（in_progress）的項目及進度說明
+2. **完成項目總覽** - 列出已完成（completed）的工作項目，按主要處理人分組。如有共同處理人，也要列出。特別標註跨日期完成的項目
+3. **進行中項目** - 列出進行中（in_progress）的項目及進度說明，包含主要處理人和共同處理人
 4. **遇到的問題** - 分析受阻（blocked）、已取消（cancelled）或未開始（not_started）的項目，並說明原因
 5. **跨日期項目追蹤** - 特別關注並總結那些非今日建立但今日有更新的項目（表示持續追蹤中）
-6. **進度評估** - 評估整體進度是否符合預期，有哪些亮點和需要關注的地方
-7. **明日建議** - 根據今日狀況，提出明天的工作重點和待辦事項
+6. **團隊協作情況** - 評估有共同處理人的項目執行情況，協作是否順暢
+7. **進度評估** - 評估整體進度是否符合預期，有哪些亮點和需要關注的地方
+8. **明日建議** - 根據今日狀況，提出明天的工作重點和待辦事項
 
-請使用 Markdown 格式撰寫，可以使用表格整理數據，文字專業且易讀，適合在團隊站立會議中分享。`;
+請使用 Markdown 格式撰寫，可以使用表格整理數據，文字專業且易讀，適合在團隊站立會議中分享。
+注意：當分析工作項目時，請同時考慮主要處理人和共同處理人的貢獻。`;
 
   try {
     const response = await axios.post(

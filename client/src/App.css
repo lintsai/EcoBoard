@@ -291,6 +291,11 @@ body {
   color: #374151;
 }
 
+.badge-dark {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+
 /* Form Styles */
 .form-group {
   margin-bottom: 20px;

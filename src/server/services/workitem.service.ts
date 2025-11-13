@@ -7,6 +7,52 @@ const getTodayDate = () => {
   return taiwanTime.toISOString().split('T')[0];
 };
 
+// 獲取工作項目的所有處理人
+const getWorkItemHandlers = async (workItemIds: number[]) => {
+  if (workItemIds.length === 0) return {};
+
+  const result = await query(
+    `SELECT 
+      wih.work_item_id,
+      wih.handler_type,
+      u.id as user_id,
+      u.username,
+      u.display_name
+     FROM work_item_handlers wih
+     INNER JOIN users u ON wih.user_id = u.id
+     WHERE wih.work_item_id = ANY($1)
+     ORDER BY wih.work_item_id, 
+              CASE wih.handler_type WHEN 'primary' THEN 0 ELSE 1 END,
+              u.display_name`,
+    [workItemIds]
+  );
+
+  const handlersMap: Record<number, any> = {};
+  
+  result.rows.forEach(row => {
+    if (!handlersMap[row.work_item_id]) {
+      handlersMap[row.work_item_id] = {
+        primary: null,
+        co_handlers: []
+      };
+    }
+    
+    const handler = {
+      user_id: row.user_id,
+      username: row.username,
+      display_name: row.display_name
+    };
+    
+    if (row.handler_type === 'primary') {
+      handlersMap[row.work_item_id].primary = handler;
+    } else {
+      handlersMap[row.work_item_id].co_handlers.push(handler);
+    }
+  });
+
+  return handlersMap;
+};
+
 export const createWorkItem = async (
   checkinId: number,
   userId: number,
@@ -23,7 +69,17 @@ export const createWorkItem = async (
     [checkinId, userId, content, itemType, sessionId, aiSummary, aiTitle]
   );
 
-  return result.rows[0];
+  const workItem = result.rows[0];
+
+  // 將創建者添加為主要處理人
+  await query(
+    `INSERT INTO work_item_handlers (work_item_id, user_id, handler_type)
+     VALUES ($1, $2, 'primary')
+     ON CONFLICT (work_item_id, user_id) DO NOTHING`,
+    [workItem.id, userId]
+  );
+
+  return workItem;
 };
 
 export const getTodayUserWorkItems = async (
@@ -48,7 +104,8 @@ export const getTodayUserWorkItems = async (
     FROM work_items wi
     INNER JOIN checkins c ON wi.checkin_id = c.id
     LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
-    WHERE wi.user_id = $1 AND c.checkin_date = $2
+    INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
+    WHERE wih.user_id = $1 AND c.checkin_date = $2
   `;
 
   const params: any[] = [userId, today];
@@ -61,7 +118,18 @@ export const getTodayUserWorkItems = async (
   queryText += ` ORDER BY wi.created_at`;
 
   const result = await query(queryText, params);
-  return result.rows;
+  
+  // 獲取所有處理人信息
+  const workItemIds = result.rows.map(row => row.id);
+  const handlersMap = await getWorkItemHandlers(workItemIds);
+  
+  // 將處理人信息附加到每個工作項目
+  const workItems = result.rows.map(row => ({
+    ...row,
+    handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
+  }));
+  
+  return workItems;
 };
 
 export const getTodayTeamWorkItems = async (teamId: number) => {
@@ -90,7 +158,17 @@ export const getTodayTeamWorkItems = async (teamId: number) => {
     [teamId, today]
   );
 
-  return result.rows;
+  // 獲取所有處理人信息
+  const workItemIds = result.rows.map(row => row.id);
+  const handlersMap = await getWorkItemHandlers(workItemIds);
+  
+  // 將處理人信息附加到每個工作項目
+  const workItems = result.rows.map(row => ({
+    ...row,
+    handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
+  }));
+
+  return workItems;
 };
 
 export const updateWorkItem = async (
@@ -102,6 +180,22 @@ export const updateWorkItem = async (
 ) => {
   console.log('[updateWorkItem] Called with:', { itemId, userId, content, aiSummary, aiTitle });
   
+  // 檢查用戶是否為主要處理人
+  const handlerCheck = await query(
+    `SELECT handler_type FROM work_item_handlers 
+     WHERE work_item_id = $1 AND user_id = $2`,
+    [itemId, userId]
+  );
+
+  if (handlerCheck.rows.length === 0) {
+    throw new Error('工作項目不存在或您不是處理人');
+  }
+
+  // 只有主要處理人可以修改工作項目內容
+  if (handlerCheck.rows[0].handler_type !== 'primary') {
+    throw new Error('只有主要處理人可以修改工作項目內容');
+  }
+
   const updates: string[] = [];
   const values: any[] = [];
   let paramCount = 1;
@@ -129,12 +223,11 @@ export const updateWorkItem = async (
   
   // Add WHERE clause parameters
   const itemIdParam = paramCount++;
-  const userIdParam = paramCount++;
-  values.push(itemId, userId);
+  values.push(itemId);
 
   const sql = `UPDATE work_items 
      SET ${updates.join(', ')}
-     WHERE id = $${itemIdParam} AND user_id = $${userIdParam}
+     WHERE id = $${itemIdParam}
      RETURNING *`;
   
   console.log('[updateWorkItem] SQL:', sql);
@@ -143,7 +236,7 @@ export const updateWorkItem = async (
   const result = await query(sql, values);
 
   if (result.rows.length === 0) {
-    throw new Error('工作項目不存在或無權限修改');
+    throw new Error('工作項目不存在');
   }
 
   return result.rows[0];
@@ -217,6 +310,36 @@ export const reassignWorkItem = async (
 
   console.log('[reassignWorkItem] Update result:', result.rows.length);
 
+  // Update handlers table - change the primary handler
+  // First, check if there's an existing primary handler
+  const existingPrimary = await query(
+    `SELECT * FROM work_item_handlers 
+     WHERE work_item_id = $1 AND handler_type = 'primary'`,
+    [itemId]
+  );
+
+  if (existingPrimary.rows.length > 0) {
+    const oldPrimaryUserId = existingPrimary.rows[0].user_id;
+    
+    // Remove old primary handler
+    await query(
+      `DELETE FROM work_item_handlers 
+       WHERE work_item_id = $1 AND user_id = $2`,
+      [itemId, oldPrimaryUserId]
+    );
+  }
+
+  // Add new primary handler (or update if they were a co-handler)
+  await query(
+    `INSERT INTO work_item_handlers (work_item_id, user_id, handler_type)
+     VALUES ($1, $2, 'primary')
+     ON CONFLICT (work_item_id, user_id) 
+     DO UPDATE SET handler_type = 'primary'`,
+    [itemId, newUserId]
+  );
+
+  console.log('[reassignWorkItem] Updated handlers table');
+
   return result.rows[0];
 };
 
@@ -226,14 +349,23 @@ export const createWorkUpdate = async (
   updateContent: string,
   progressStatus?: string
 ) => {
-  // Verify work item belongs to user
-  const itemCheck = await query(
-    `SELECT * FROM work_items WHERE id = $1 AND user_id = $2`,
+  // 驗證用戶是否為此工作項目的處理人（主要或共同）
+  const handlerCheck = await query(
+    `SELECT handler_type FROM work_item_handlers 
+     WHERE work_item_id = $1 AND user_id = $2`,
     [workItemId, userId]
   );
 
-  if (itemCheck.rows.length === 0) {
-    throw new Error('工作項目不存在或無權限更新');
+  if (handlerCheck.rows.length === 0) {
+    throw new Error('工作項目不存在或您不是處理人');
+  }
+
+  const handlerType = handlerCheck.rows[0].handler_type;
+
+  // 共同處理人不能修改狀態為 completed 或 cancelled
+  if (handlerType === 'co_handler' && progressStatus && 
+      (progressStatus === 'completed' || progressStatus === 'cancelled')) {
+    throw new Error('共同處理人不能將工作項目標記為完成或取消');
   }
 
   const result = await query(
@@ -269,6 +401,125 @@ export const getWorkItemById = async (itemId: number) => {
   );
 
   return result.rows[0] || null;
+};
+
+// 添加共同處理人
+export const addCoHandler = async (
+  workItemId: number,
+  coHandlerUserId: number,
+  operatorUserId: number
+) => {
+  console.log('[addCoHandler] Called with:', { workItemId, coHandlerUserId, operatorUserId });
+
+  // 檢查操作者是否為主要處理人或管理員
+  const permissionCheck = await query(
+    `SELECT wi.*, wih.handler_type, c.team_id, tm.role
+     FROM work_items wi
+     INNER JOIN checkins c ON wi.checkin_id = c.id
+     LEFT JOIN work_item_handlers wih ON wi.id = wih.work_item_id AND wih.user_id = $2
+     LEFT JOIN team_members tm ON tm.team_id = c.team_id AND tm.user_id = $2
+     WHERE wi.id = $1`,
+    [workItemId, operatorUserId]
+  );
+
+  if (permissionCheck.rows.length === 0) {
+    throw new Error('工作項目不存在');
+  }
+
+  const item = permissionCheck.rows[0];
+  
+  // 只有主要處理人或管理員可以添加共同處理人
+  if (item.handler_type !== 'primary' && item.role !== 'admin') {
+    throw new Error('只有主要處理人或管理員可以添加共同處理人');
+  }
+
+  // 檢查共同處理人是否在同一團隊
+  const teamCheck = await query(
+    `SELECT * FROM team_members WHERE team_id = $1 AND user_id = $2`,
+    [item.team_id, coHandlerUserId]
+  );
+
+  if (teamCheck.rows.length === 0) {
+    throw new Error('共同處理人必須在同一團隊中');
+  }
+
+  // 檢查是否已經是處理人
+  const existingHandler = await query(
+    `SELECT * FROM work_item_handlers WHERE work_item_id = $1 AND user_id = $2`,
+    [workItemId, coHandlerUserId]
+  );
+
+  if (existingHandler.rows.length > 0) {
+    throw new Error('該用戶已經是此工作項目的處理人');
+  }
+
+  // 添加共同處理人
+  const result = await query(
+    `INSERT INTO work_item_handlers (work_item_id, user_id, handler_type)
+     VALUES ($1, $2, 'co_handler')
+     RETURNING *`,
+    [workItemId, coHandlerUserId]
+  );
+
+  console.log('[addCoHandler] Added successfully');
+  return result.rows[0];
+};
+
+// 移除共同處理人
+export const removeCoHandler = async (
+  workItemId: number,
+  coHandlerUserId: number,
+  operatorUserId: number
+) => {
+  console.log('[removeCoHandler] Called with:', { workItemId, coHandlerUserId, operatorUserId });
+
+  // 檢查操作者是否為主要處理人或管理員
+  const permissionCheck = await query(
+    `SELECT wi.*, wih.handler_type, c.team_id, tm.role
+     FROM work_items wi
+     INNER JOIN checkins c ON wi.checkin_id = c.id
+     LEFT JOIN work_item_handlers wih ON wi.id = wih.work_item_id AND wih.user_id = $2
+     LEFT JOIN team_members tm ON tm.team_id = c.team_id AND tm.user_id = $2
+     WHERE wi.id = $1`,
+    [workItemId, operatorUserId]
+  );
+
+  if (permissionCheck.rows.length === 0) {
+    throw new Error('工作項目不存在');
+  }
+
+  const item = permissionCheck.rows[0];
+  
+  // 只有主要處理人或管理員可以移除共同處理人
+  if (item.handler_type !== 'primary' && item.role !== 'admin') {
+    throw new Error('只有主要處理人或管理員可以移除共同處理人');
+  }
+
+  // 檢查要移除的是否為共同處理人
+  const handlerCheck = await query(
+    `SELECT handler_type FROM work_item_handlers 
+     WHERE work_item_id = $1 AND user_id = $2`,
+    [workItemId, coHandlerUserId]
+  );
+
+  if (handlerCheck.rows.length === 0) {
+    throw new Error('該用戶不是此工作項目的處理人');
+  }
+
+  if (handlerCheck.rows[0].handler_type === 'primary') {
+    throw new Error('不能移除主要處理人');
+  }
+
+  // 移除共同處理人
+  const result = await query(
+    `DELETE FROM work_item_handlers 
+     WHERE work_item_id = $1 AND user_id = $2 AND handler_type = 'co_handler'
+     RETURNING *`,
+    [workItemId, coHandlerUserId]
+  );
+
+  console.log('[removeCoHandler] Removed successfully');
+  return result.rows[0];
 };
 
 // 移動未完成的工作項目到今日
@@ -356,7 +607,8 @@ export const getIncompleteUserWorkItems = async (
     FROM work_items wi
     INNER JOIN checkins c ON wi.checkin_id = c.id
     LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
-    WHERE wi.user_id = $1
+    INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
+    WHERE wih.user_id = $1
       AND COALESCE(ls.progress_status, 'not_started') NOT IN ('completed', 'cancelled')
       AND c.checkin_date < $2
   `;
@@ -373,7 +625,18 @@ export const getIncompleteUserWorkItems = async (
   queryText += ` ORDER BY c.checkin_date DESC, wi.created_at DESC`;
 
   const result = await query(queryText, params);
-  return result.rows;
+  
+  // 獲取所有處理人信息
+  const workItemIds = result.rows.map(row => row.id);
+  const handlersMap = await getWorkItemHandlers(workItemIds);
+  
+  // 將處理人信息附加到每個工作項目
+  const workItems = result.rows.map(row => ({
+    ...row,
+    handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
+  }));
+  
+  return workItems;
 };
 
 // 獲取團隊的未完成工作項目（供管理員查看，排除今日項目）
@@ -405,7 +668,18 @@ export const getIncompleteTeamWorkItems = async (teamId: number) => {
   `;
 
   const result = await query(queryText, [teamId, today]);
-  return result.rows;
+  
+  // 獲取所有處理人信息
+  const workItemIds = result.rows.map(row => row.id);
+  const handlersMap = await getWorkItemHandlers(workItemIds);
+  
+  // 將處理人信息附加到每個工作項目
+  const workItems = result.rows.map(row => ({
+    ...row,
+    handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
+  }));
+
+  return workItems;
 };
 
 export const deleteWorkItem = async (itemId: number, userId: number) => {

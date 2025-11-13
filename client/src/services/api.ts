@@ -174,6 +174,16 @@ class ApiService {
     return response.data;
   }
 
+  async addCoHandler(itemId: number, userId: number) {
+    const response = await this.api.post(`/workitems/${itemId}/co-handlers`, { userId });
+    return response.data;
+  }
+
+  async removeCoHandler(itemId: number, userId: number) {
+    const response = await this.api.delete(`/workitems/${itemId}/co-handlers/${userId}`);
+    return response.data;
+  }
+
   // AI
   async chat(message: string, sessionId?: string, context?: any) {
     const response = await this.api.post('/ai/chat', { message, sessionId, context });

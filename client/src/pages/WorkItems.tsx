@@ -25,6 +25,18 @@ interface WorkItem {
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
+  handlers?: {
+    primary: {
+      user_id: number;
+      username: string;
+      display_name: string;
+    } | null;
+    co_handlers: Array<{
+      user_id: number;
+      username: string;
+      display_name: string;
+    }>;
+  };
 }
 
 function WorkItems({ user, teamId }: WorkItemsProps) {
@@ -41,12 +53,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const [showIncomplete, setShowIncomplete] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [showCoHandlerDialog, setShowCoHandlerDialog] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadTodayCheckin();
     loadWorkItems();
     loadIncompleteItems();
+    loadTeamMembers();
     setMessages([{
       role: 'ai',
       content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
@@ -101,7 +116,11 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const loadWorkItems = async () => {
     try {
       const items = await api.getTodayWorkItems(teamId);
-      setWorkItems(items);
+      // 只顯示用戶作為主要處理人的項目
+      const filteredItems = items.filter((item: any) => 
+        item.handlers?.primary?.user_id === user.id
+      );
+      setWorkItems(filteredItems);
     } catch (error) {
       console.error('Failed to load work items:', error);
     }
@@ -111,9 +130,22 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     try {
       const items = await api.getIncompleteWorkItems(teamId);
       // Backend now filters out today's items automatically
-      setIncompleteItems(items);
+      // 只顯示用戶作為主要處理人的項目
+      const filteredItems = items.filter((item: any) => 
+        item.handlers?.primary?.user_id === user.id
+      );
+      setIncompleteItems(filteredItems);
     } catch (error) {
       console.error('Failed to load incomplete items:', error);
+    }
+  };
+
+  const loadTeamMembers = async () => {
+    try {
+      const members = await api.getTeamMembers(teamId);
+      setTeamMembers(members);
+    } catch (error) {
+      console.error('Failed to load team members:', error);
     }
   };
 
@@ -162,6 +194,29 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       }
     } catch (error: any) {
       alert(error.response?.data?.error || '刪除失敗');
+    }
+  };
+
+  const handleAddCoHandler = async (itemId: number, userId: number) => {
+    try {
+      await api.addCoHandler(itemId, userId);
+      await loadWorkItems();
+      setShowCoHandlerDialog(null);
+      alert('已成功添加共同處理人');
+    } catch (error: any) {
+      alert(error.response?.data?.error || '添加共同處理人失敗');
+    }
+  };
+
+  const handleRemoveCoHandler = async (itemId: number, userId: number) => {
+    if (!confirm('確定要移除此共同處理人嗎？')) return;
+    
+    try {
+      await api.removeCoHandler(itemId, userId);
+      await loadWorkItems();
+      alert('已成功移除共同處理人');
+    } catch (error: any) {
+      alert(error.response?.data?.error || '移除共同處理人失敗');
     }
   };
 
@@ -639,6 +694,147 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                         {/* Expanded Content */}
                         {isExpanded && (
                           <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #e5e7eb' }}>
+                            {/* 處理人信息 */}
+                            <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+                              <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>
+                                <strong>主要處理人：</strong>
+                                {item.handlers?.primary ? (
+                                  <span style={{ color: '#667eea', fontWeight: '500' }}>
+                                    {item.handlers.primary.display_name || item.handlers.primary.username}
+                                  </span>
+                                ) : (
+                                  <span>未指定</span>
+                                )}
+                              </div>
+                              
+                              {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
+                                <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>
+                                  <strong>共同處理人：</strong>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                                    {item.handlers.co_handlers.map((handler) => (
+                                      <span
+                                        key={handler.user_id}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          padding: '4px 8px',
+                                          background: '#e0e7ff',
+                                          borderRadius: '12px',
+                                          fontSize: '12px',
+                                          color: '#4338ca'
+                                        }}
+                                      >
+                                        {handler.display_name || handler.username}
+                                        {item.handlers?.primary?.user_id === user.id && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRemoveCoHandler(item.id, handler.user_id);
+                                            }}
+                                            style={{
+                                              background: 'none',
+                                              border: 'none',
+                                              color: '#dc2626',
+                                              cursor: 'pointer',
+                                              padding: '0',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              fontSize: '14px'
+                                            }}
+                                            title="移除"
+                                          >
+                                            ×
+                                          </button>
+                                        )}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* 只有主要處理人可以添加共同處理人 */}
+                              {item.handlers?.primary?.user_id === user.id && (
+                                <div style={{ marginTop: '8px' }}>
+                                  {showCoHandlerDialog === item.id ? (
+                                    <div style={{ 
+                                      padding: '8px', 
+                                      background: '#f9fafb', 
+                                      borderRadius: '6px',
+                                      border: '1px solid #e5e7eb'
+                                    }}>
+                                      <div style={{ fontSize: '13px', marginBottom: '8px', fontWeight: '500' }}>
+                                        選擇共同處理人：
+                                      </div>
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {teamMembers
+                                          .filter(member => 
+                                            member.user_id !== user.id && 
+                                            !item.handlers?.co_handlers?.some(h => h.user_id === member.user_id)
+                                          )
+                                          .map(member => (
+                                            <button
+                                              key={member.user_id}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleAddCoHandler(item.id, member.user_id);
+                                              }}
+                                              style={{
+                                                padding: '6px 12px',
+                                                background: '#fff',
+                                                border: '1px solid #d1d5db',
+                                                borderRadius: '4px',
+                                                cursor: 'pointer',
+                                                textAlign: 'left',
+                                                fontSize: '13px'
+                                              }}
+                                            >
+                                              {member.display_name || member.username}
+                                            </button>
+                                          ))}
+                                      </div>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setShowCoHandlerDialog(null);
+                                        }}
+                                        style={{
+                                          marginTop: '8px',
+                                          padding: '4px 8px',
+                                          background: '#fff',
+                                          border: '1px solid #d1d5db',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          fontSize: '12px',
+                                          width: '100%'
+                                        }}
+                                      >
+                                        取消
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowCoHandlerDialog(item.id);
+                                      }}
+                                      style={{
+                                        padding: '4px 8px',
+                                        background: '#fff',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '12px',
+                                        color: '#667eea'
+                                      }}
+                                    >
+                                      + 添加共同處理人
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
                             {item.ai_summary && (
                               <div className="markdown-content" style={{ 
                                 fontSize: '13px', 
@@ -662,23 +858,25 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   minute: '2-digit' 
                                 })}
                               </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEditWorkItem(item);
-                                }}
-                                className="btn btn-primary"
-                                style={{
-                                  padding: '6px 12px',
-                                  fontSize: '13px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '6px'
-                                }}
-                              >
-                                <Edit2 size={14} />
-                                編輯
-                              </button>
+                              {item.handlers?.primary?.user_id === user.id && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditWorkItem(item);
+                                  }}
+                                  className="btn btn-primary"
+                                  style={{
+                                    padding: '6px 12px',
+                                    fontSize: '13px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  <Edit2 size={14} />
+                                  編輯
+                                </button>
+                              )}
                             </div>
                           </div>
                         )}

@@ -109,6 +109,18 @@ export const initDatabase = async () => {
       )
     `);
 
+    // Work item handlers table (for multiple handlers support)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS work_item_handlers (
+        id SERIAL PRIMARY KEY,
+        work_item_id INTEGER NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        handler_type VARCHAR(20) NOT NULL DEFAULT 'co_handler',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(work_item_id, user_id)
+      )
+    `);
+
     // Daily summaries table
     await client.query(`
       CREATE TABLE IF NOT EXISTS daily_summaries (
@@ -158,6 +170,9 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_checkins_team ON checkins(team_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_user ON work_items(user_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_session ON work_items(session_id);
+      CREATE INDEX IF NOT EXISTS idx_work_item_handlers_work_item ON work_item_handlers(work_item_id);
+      CREATE INDEX IF NOT EXISTS idx_work_item_handlers_user ON work_item_handlers(user_id);
+      CREATE INDEX IF NOT EXISTS idx_work_item_handlers_type ON work_item_handlers(handler_type);
       CREATE INDEX IF NOT EXISTS idx_standup_meetings_date ON standup_meetings(meeting_date);
       CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_daily_summaries_team_date ON daily_summaries(team_id, summary_date);

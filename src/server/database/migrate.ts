@@ -44,6 +44,9 @@ const runMigration = async () => {
     // Step 2: Run username normalization migration
     await runMigrationFile('007_normalize_usernames.sql');
     
+    // Step 3: Run work item handlers migration
+    await runMigrationFile('008_create_work_item_handlers.sql');
+    
     console.log('✓ Migration completed successfully');
     process.exit(0);
   } catch (error) {

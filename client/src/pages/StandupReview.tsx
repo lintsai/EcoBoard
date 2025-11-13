@@ -32,6 +32,19 @@ interface WorkItem {
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
+  progress_status?: string;
+  handlers?: {
+    primary: {
+      user_id: number;
+      username: string;
+      display_name: string;
+    } | null;
+    co_handlers: Array<{
+      user_id: number;
+      username: string;
+      display_name: string;
+    }>;
+  };
 }
 
 function StandupReview({ user, teamId }: any) {
@@ -50,7 +63,11 @@ function StandupReview({ user, teamId }: any) {
   const [showIncompleteItems, setShowIncompleteItems] = useState(true);
   const [assigningItem, setAssigningItem] = useState<number | null>(null);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
-  const [expandedWorkItems, setExpandedWorkItems] = useState<Set<number>>(new Set());
+  const [expandedWorkItems, setExpandedWorkItems] = useState<Set<number | string>>(new Set());
+  const [showHandlerModal, setShowHandlerModal] = useState(false);
+  const [editingWorkItem, setEditingWorkItem] = useState<WorkItem | null>(null);
+  const [selectedPrimaryHandler, setSelectedPrimaryHandler] = useState<number | null>(null);
+  const [selectedCoHandlers, setSelectedCoHandlers] = useState<number[]>([]);
 
   useEffect(() => {
     if (teamId) {
@@ -75,6 +92,7 @@ function StandupReview({ user, teamId }: any) {
     const handleEscKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setEnlargedTable(null);
+        setShowHandlerModal(false);
       }
     };
 
@@ -197,12 +215,71 @@ function StandupReview({ user, teamId }: any) {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   };
 
+  // 獲取用戶作為共同處理人的工作項目
+  const getUserCoHandlerWorkItems = (userId: number) => {
+    return workItems
+      .filter(item => 
+        item.handlers?.co_handlers?.some(h => h.user_id === userId) && 
+        item.user_id !== userId
+      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  };
+
+  const getUserCoHandlerIncompleteItems = (userId: number) => {
+    return incompleteItems
+      .filter(item => 
+        item.handlers?.co_handlers?.some(h => h.user_id === userId) && 
+        item.user_id !== userId
+      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  };
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleTimeString('zh-TW', {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const getStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'completed':
+        return {
+          text: '已完成',
+          icon: <CheckCircle size={12} />,
+          color: '#065f46',
+          bgColor: '#d1fae5'
+        };
+      case 'in_progress':
+        return {
+          text: '進行中',
+          icon: <Clock size={12} />,
+          color: '#92400e',
+          bgColor: '#fef3c7'
+        };
+      case 'not_started':
+        return {
+          text: '未開始',
+          icon: <Clock size={12} />,
+          color: '#374151',
+          bgColor: '#f3f4f6'
+        };
+      case 'cancelled':
+        return {
+          text: '已取消',
+          icon: <AlertCircle size={12} />,
+          color: '#1f2937',
+          bgColor: '#e5e7eb'
+        };
+      default:
+        return {
+          text: '進行中',
+          icon: <Clock size={12} />,
+          color: '#92400e',
+          bgColor: '#fef3c7'
+        };
+    }
   };
 
   const toggleMemberExpand = (userId: number) => {
@@ -241,6 +318,106 @@ function StandupReview({ user, teamId }: any) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const openHandlerModal = (item: WorkItem) => {
+    setEditingWorkItem(item);
+    setSelectedPrimaryHandler(item.handlers?.primary?.user_id || null);
+    setSelectedCoHandlers(item.handlers?.co_handlers?.map(h => h.user_id) || []);
+    setShowHandlerModal(true);
+  };
+
+  const handleSaveHandlers = async () => {
+    if (!editingWorkItem || !selectedPrimaryHandler) {
+      alert('請選擇主要處理人');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const originalPrimaryId = editingWorkItem.handlers?.primary?.user_id || editingWorkItem.user_id;
+      const currentCoHandlerIds = editingWorkItem.handlers?.co_handlers?.map(h => h.user_id) || [];
+      
+      // 1. 先處理共同處理人的移除（在重新指派之前）
+      // 移除不再是共同處理人的用戶（但不包括即將成為新主要處理人的用戶）
+      for (const userId of currentCoHandlerIds) {
+        if (!selectedCoHandlers.includes(userId) && userId !== selectedPrimaryHandler) {
+          await api.removeCoHandler(editingWorkItem.id, userId);
+        }
+      }
+
+      // 2. 重新指派主要處理人（如果改變了）
+      if (selectedPrimaryHandler !== originalPrimaryId) {
+        await api.reassignWorkItem(editingWorkItem.id, selectedPrimaryHandler);
+      }
+
+      // 3. 添加新的共同處理人
+      // 需要排除：原主要處理人（可能還在 handlers 中）、新主要處理人、已經是共同處理人的
+      for (const userId of selectedCoHandlers) {
+        if (userId !== selectedPrimaryHandler && userId !== originalPrimaryId) {
+          if (!currentCoHandlerIds.includes(userId)) {
+            try {
+              await api.addCoHandler(editingWorkItem.id, userId);
+            } catch (err: any) {
+              // 如果已經是處理人，忽略錯誤
+              console.log('Add co-handler warning:', err.response?.data?.error);
+              if (!err.response?.data?.error?.includes('已經是')) {
+                throw err;
+              }
+            }
+          }
+        }
+      }
+
+      // 重新加載數據
+      await loadStandupData();
+      setShowHandlerModal(false);
+      setEditingWorkItem(null);
+      alert('處理人設定已更新！');
+    } catch (err: any) {
+      console.error('Save handlers error:', err);
+      alert(err.response?.data?.error || '更新處理人失敗');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleCoHandler = (userId: number) => {
+    if (selectedCoHandlers.includes(userId)) {
+      setSelectedCoHandlers(selectedCoHandlers.filter(id => id !== userId));
+    } else {
+      setSelectedCoHandlers([...selectedCoHandlers, userId]);
+    }
+  };
+
+  // 跳轉到原始項目（在主要處理人的區域）
+  const scrollToOriginalItem = (workItemId: number, primaryUserId: number) => {
+    // 先展開該成員的區域
+    const newExpanded = new Set(expandedMembers);
+    newExpanded.add(primaryUserId);
+    setExpandedMembers(newExpanded);
+    
+    // 展開該工作項目
+    const newExpandedItems = new Set(expandedWorkItems);
+    newExpandedItems.add(workItemId);
+    setExpandedWorkItems(newExpandedItems);
+    
+    // 展開未完成項目區塊（如果原始項目在未完成項目中）
+    setShowIncompleteItems(true);
+    
+    // 等待 DOM 更新後滾動
+    setTimeout(() => {
+      const element = document.getElementById(`work-item-${workItemId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // 添加高亮效果
+        element.style.backgroundColor = '#fef3c7';
+        setTimeout(() => {
+          element.style.backgroundColor = '';
+        }, 2000);
+      }
+    }, 100);
   };
 
   const getUnassignedWorkItems = () => {
@@ -589,13 +766,15 @@ function StandupReview({ user, teamId }: any) {
                               
                               return (
                                 <div 
-                                  key={item.id} 
+                                  key={item.id}
+                                  id={`work-item-${item.id}`}
                                   style={{ 
                                     marginBottom: '8px',
                                     backgroundColor: '#fff',
                                     borderRadius: '6px',
                                     borderLeft: '3px solid #7c3aed',
-                                    overflow: 'hidden'
+                                    overflow: 'hidden',
+                                    transition: 'background-color 0.3s ease'
                                   }}
                                 >
                                   {/* Header - Always Visible */}
@@ -627,68 +806,89 @@ function StandupReview({ user, teamId }: any) {
                                       <div style={{ fontWeight: '600', fontSize: '14px' }}>
                                         {item.ai_title || item.content}
                                       </div>
+                                      {(() => {
+                                        const statusBadge = getStatusBadge(item.progress_status);
+                                        return (
+                                          <span
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              padding: '2px 8px',
+                                              borderRadius: '12px',
+                                              fontSize: '11px',
+                                              fontWeight: '500',
+                                              color: statusBadge.color,
+                                              backgroundColor: statusBadge.bgColor
+                                            }}
+                                          >
+                                            {statusBadge.icon}
+                                            {statusBadge.text}
+                                          </span>
+                                        );
+                                      })()}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                       <div style={{ fontSize: '11px', color: '#999' }}>
                                         {formatTime(item.created_at).split(' ')[1]}
                                       </div>
                                       <div className="reassign-area">
-                                        {assigningItem === item.id ? (
-                                          <select 
-                                            className="input"
-                                            style={{ fontSize: '12px', padding: '4px', width: 'auto', minWidth: '120px' }}
-                                            onChange={(e) => {
-                                              const newUserId = parseInt(e.target.value);
-                                              if (newUserId) {
-                                                handleAssignWorkItem(item.id, newUserId);
-                                              } else {
-                                                setAssigningItem(null);
-                                              }
-                                            }}
-                                            onBlur={() => setAssigningItem(null)}
-                                            autoFocus
-                                          >
-                                            <option value="">選擇成員</option>
-                                            {teamMembers.filter(m => m.user_id !== member.user_id).map(m => (
-                                              <option key={m.user_id} value={m.user_id}>
-                                                {m.display_name || m.username}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        ) : (
-                                          <button
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setAssigningItem(item.id);
-                                            }}
-                                            title="重新分配給其他成員"
-                                          >
-                                            <UserPlus size={12} />
-                                          </button>
-                                        )}
+                                        <button
+                                          className="btn btn-secondary"
+                                          style={{ fontSize: '11px', padding: '4px 8px' }}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openHandlerModal(item);
+                                          }}
+                                          title="設定處理人"
+                                        >
+                                          <UserPlus size={12} />
+                                        </button>
                                       </div>
                                     </div>
                                   </div>
                                   
                                   {/* Expanded Content */}
-                                  {isItemExpanded && item.ai_summary && (
+                                  {isItemExpanded && (
                                     <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #e5e7eb' }}>
-                                      <div style={{
-                                        padding: '8px',
-                                        backgroundColor: '#f8f9fa',
-                                        borderRadius: '4px',
-                                        marginTop: '8px'
-                                      }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                                          <Sparkles size={12} style={{ color: '#7c3aed', marginRight: '4px' }} />
-                                          <span style={{ fontSize: '11px', fontWeight: '600', color: '#7c3aed' }}>AI 摘要</span>
+                                      {/* 處理人信息 */}
+                                      <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
+                                        <div style={{ marginBottom: '4px' }}>
+                                          <strong style={{ color: '#667eea' }}>主要處理人：</strong>
+                                          {item.handlers?.primary ? (
+                                            <span style={{ marginLeft: '4px' }}>
+                                              {item.handlers.primary.display_name || item.handlers.primary.username}
+                                            </span>
+                                          ) : (
+                                            <span style={{ marginLeft: '4px', color: '#999' }}>未指定</span>
+                                          )}
                                         </div>
-                                        <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
-                                        </div>
+                                        {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
+                                          <div>
+                                            <strong style={{ color: '#667eea' }}>共同處理人：</strong>
+                                            <span style={{ marginLeft: '4px' }}>
+                                              {item.handlers.co_handlers.map(h => h.display_name || h.username).join(', ')}
+                                            </span>
+                                          </div>
+                                        )}
                                       </div>
+                                      
+                                      {item.ai_summary && (
+                                        <div style={{
+                                          padding: '8px',
+                                          backgroundColor: '#f8f9fa',
+                                          borderRadius: '4px',
+                                          marginTop: '8px'
+                                        }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                            <Sparkles size={12} style={{ color: '#7c3aed', marginRight: '4px' }} />
+                                            <span style={{ fontSize: '11px', fontWeight: '600', color: '#7c3aed' }}>AI 摘要</span>
+                                          </div>
+                                          <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -741,13 +941,15 @@ function StandupReview({ user, teamId }: any) {
                                       
                                       return (
                                         <div 
-                                          key={item.id} 
+                                          key={item.id}
+                                          id={`work-item-${item.id}`}
                                           style={{ 
                                             marginBottom: '8px',
                                             backgroundColor: '#fefce8',
                                             borderRadius: '6px',
                                             borderLeft: '3px solid #f59e0b',
-                                            overflow: 'hidden'
+                                            overflow: 'hidden',
+                                            transition: 'background-color 0.3s ease'
                                           }}
                                         >
                                           <div
@@ -777,72 +979,421 @@ function StandupReview({ user, teamId }: any) {
                                               <div style={{ fontWeight: '600', fontSize: '14px' }}>
                                                 {item.ai_title || item.content}
                                               </div>
+                                              {(() => {
+                                                const statusBadge = getStatusBadge(item.progress_status);
+                                                return (
+                                                  <span
+                                                    style={{
+                                                      display: 'inline-flex',
+                                                      alignItems: 'center',
+                                                      gap: '4px',
+                                                      padding: '2px 8px',
+                                                      borderRadius: '12px',
+                                                      fontSize: '11px',
+                                                      fontWeight: '500',
+                                                      color: statusBadge.color,
+                                                      backgroundColor: statusBadge.bgColor
+                                                    }}
+                                                  >
+                                                    {statusBadge.icon}
+                                                    {statusBadge.text}
+                                                  </span>
+                                                );
+                                              })()}
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                               <div style={{ fontSize: '11px', color: '#92400e' }}>
                                                 📅 {itemDate}
                                               </div>
                                               <div className="reassign-area">
-                                                {assigningItem === item.id ? (
-                                                  <select 
-                                                    className="input"
-                                                    style={{ fontSize: '12px', padding: '4px', width: 'auto', minWidth: '120px' }}
-                                                    onChange={(e) => {
-                                                      const newUserId = parseInt(e.target.value);
-                                                      if (newUserId) {
-                                                        handleAssignWorkItem(item.id, newUserId);
-                                                      } else {
-                                                        setAssigningItem(null);
-                                                      }
-                                                    }}
-                                                    onBlur={() => setAssigningItem(null)}
-                                                    autoFocus
-                                                  >
-                                                    <option value="">選擇成員</option>
-                                                    {teamMembers.filter(m => m.user_id !== member.user_id).map(m => (
-                                                      <option key={m.user_id} value={m.user_id}>
-                                                        {m.display_name || m.username}
-                                                      </option>
-                                                    ))}
-                                                  </select>
-                                                ) : (
-                                                  <button
-                                                    className="btn btn-secondary"
-                                                    style={{ fontSize: '11px', padding: '4px 8px' }}
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      setAssigningItem(item.id);
-                                                    }}
-                                                    title="重新分配給其他成員"
-                                                  >
-                                                    <UserPlus size={12} />
-                                                  </button>
-                                                )}
+                                                <button
+                                                  className="btn btn-secondary"
+                                                  style={{ fontSize: '11px', padding: '4px 8px' }}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openHandlerModal(item);
+                                                  }}
+                                                  title="設定處理人"
+                                                >
+                                                  <UserPlus size={12} />
+                                                </button>
                                               </div>
                                             </div>
                                           </div>
                                           
-                                          {isItemExpanded && item.ai_summary && (
+                                          {isItemExpanded && (
                                             <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #fef3c7' }}>
-                                              <div style={{
-                                                padding: '8px',
-                                                backgroundColor: '#fffbeb',
-                                                borderRadius: '4px',
-                                                marginTop: '8px'
-                                              }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                                                  <Sparkles size={12} style={{ color: '#f59e0b', marginRight: '4px' }} />
-                                                  <span style={{ fontSize: '11px', fontWeight: '600', color: '#f59e0b' }}>AI 摘要</span>
+                                              {/* 處理人信息 */}
+                                              <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
+                                                <div style={{ marginBottom: '4px' }}>
+                                                  <strong style={{ color: '#f59e0b' }}>主要處理人：</strong>
+                                                  {item.handlers?.primary ? (
+                                                    <span style={{ marginLeft: '4px' }}>
+                                                      {item.handlers.primary.display_name || item.handlers.primary.username}
+                                                    </span>
+                                                  ) : (
+                                                    <span style={{ marginLeft: '4px', color: '#999' }}>未指定</span>
+                                                  )}
                                                 </div>
-                                                <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5', color: '#92400e' }}>
-                                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
-                                                </div>
+                                                {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
+                                                  <div>
+                                                    <strong style={{ color: '#f59e0b' }}>共同處理人：</strong>
+                                                    <span style={{ marginLeft: '4px' }}>
+                                                      {item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ')}
+                                                    </span>
+                                                  </div>
+                                                )}
                                               </div>
+                                              
+                                              {item.ai_summary && (
+                                                <div style={{
+                                                  padding: '8px',
+                                                  backgroundColor: '#fffbeb',
+                                                  borderRadius: '4px',
+                                                  marginTop: '8px'
+                                                }}>
+                                                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                                    <Sparkles size={12} style={{ color: '#f59e0b', marginRight: '4px' }} />
+                                                    <span style={{ fontSize: '11px', fontWeight: '600', color: '#f59e0b' }}>AI 摘要</span>
+                                                  </div>
+                                                  <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5', color: '#92400e' }}>
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                                  </div>
+                                                </div>
+                                              )}
                                             </div>
                                           )}
                                         </div>
                                       );
                                     })}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                          
+                          {/* 共同處理項目區塊 */}
+                          {(() => {
+                            const coHandlerTodayItems = getUserCoHandlerWorkItems(member.user_id);
+                            const coHandlerIncompleteItems = getUserCoHandlerIncompleteItems(member.user_id);
+                            const totalCoHandlerItems = coHandlerTodayItems.length + coHandlerIncompleteItems.length;
+                            
+                            if (totalCoHandlerItems === 0) return null;
+                            
+                            // 使用負數 ID 來區分共同處理項目的展開狀態
+                            const coHandlerExpandId = -(member.user_id * 1000);
+                            
+                            return (
+                              <>
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    cursor: 'pointer',
+                                    marginTop: '12px',
+                                    marginBottom: '8px',
+                                    padding: '8px',
+                                    backgroundColor: '#f0f9ff',
+                                    borderRadius: '6px',
+                                    border: '1px solid #bfdbfe'
+                                  }}
+                                  onClick={() => {
+                                    const newExpanded = new Set(expandedWorkItems);
+                                    if (newExpanded.has(coHandlerExpandId)) {
+                                      newExpanded.delete(coHandlerExpandId);
+                                    } else {
+                                      newExpanded.add(coHandlerExpandId);
+                                    }
+                                    setExpandedWorkItems(newExpanded);
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {expandedWorkItems.has(coHandlerExpandId) ? 
+                                      <ChevronUp size={16} style={{ color: '#0066cc' }} /> : 
+                                      <ChevronDown size={16} style={{ color: '#0066cc' }} />
+                                    }
+                                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#0066cc' }}>
+                                      共同處理項目
+                                    </span>
+                                    <span style={{ fontSize: '12px', color: '#0066cc', backgroundColor: '#dbeafe', padding: '2px 6px', borderRadius: '10px' }}>
+                                      {totalCoHandlerItems}
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                {expandedWorkItems.has(coHandlerExpandId) && (
+                                  <div style={{ paddingLeft: '10px', marginBottom: '10px' }}>
+                                    {/* 今日共同處理項目 */}
+                                    {coHandlerTodayItems.length > 0 && (
+                                      <div style={{ marginBottom: '8px' }}>
+                                        <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '600' }}>
+                                          今日項目 ({coHandlerTodayItems.length})
+                                        </div>
+                                        {coHandlerTodayItems.map((item) => {
+                                          // 共同處理項目使用不同的展開 ID，避免與原始項目連動
+                                          const coHandlerExpandKey = `co-handler-${item.id}`;
+                                          const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
+                                          const primaryUser = item.handlers?.primary;
+                                          const otherCoHandlers = item.handlers?.co_handlers?.filter(
+                                            (h: any) => h.user_id !== member.user_id
+                                          ) || [];
+                                          
+                                          return (
+                                            <div
+                                              key={item.id}
+                                              style={{
+                                                marginBottom: '6px',
+                                                padding: '8px',
+                                                backgroundColor: '#ffffff',
+                                                borderRadius: '4px',
+                                                border: '1px solid #bfdbfe'
+                                              }}
+                                            >
+                                              <div
+                                                style={{
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center',
+                                                  cursor: 'pointer'
+                                                }}
+                                                onClick={(e) => {
+                                                  if ((e.target as HTMLElement).closest('.jump-to-original')) {
+                                                    return;
+                                                  }
+                                                  const newExpanded = new Set(expandedWorkItems);
+                                                  if (isItemExpanded) {
+                                                    newExpanded.delete(coHandlerExpandKey);
+                                                  } else {
+                                                    newExpanded.add(coHandlerExpandKey);
+                                                  }
+                                                  // 只展開/收起共同處理項目本身，不影響原始項目
+                                                  setExpandedWorkItems(newExpanded);
+                                                }}
+                                              >
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                                  {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                                  <div style={{ fontSize: '13px', flex: 1 }}>
+                                                    {item.ai_title || item.content.substring(0, 50)}...
+                                                  </div>
+                                                  {(() => {
+                                                    const statusBadge = getStatusBadge(item.progress_status);
+                                                    return (
+                                                      <span
+                                                        style={{
+                                                          display: 'inline-flex',
+                                                          alignItems: 'center',
+                                                          gap: '3px',
+                                                          padding: '1px 6px',
+                                                          borderRadius: '10px',
+                                                          fontSize: '10px',
+                                                          fontWeight: '500',
+                                                          color: statusBadge.color,
+                                                          backgroundColor: statusBadge.bgColor
+                                                        }}
+                                                      >
+                                                        {statusBadge.icon}
+                                                        {statusBadge.text}
+                                                      </span>
+                                                    );
+                                                  })()}
+                                                </div>
+                                                <button
+                                                  className="jump-to-original"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (primaryUser) {
+                                                      scrollToOriginalItem(item.id, primaryUser.user_id);
+                                                    }
+                                                  }}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #0066cc',
+                                                    color: '#0066cc',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px'
+                                                  }}
+                                                  title="跳轉到原始項目"
+                                                >
+                                                  📍 定位
+                                                </button>
+                                              </div>
+                                              
+                                              {isItemExpanded && (
+                                                <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #e5e7eb', marginTop: '6px' }}>
+                                                  {/* 處理人資訊 */}
+                                                  <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                                                    <div style={{ marginBottom: '4px', color: '#0066cc' }}>
+                                                      <strong>主要處理人：</strong>
+                                                      <span style={{ marginLeft: '4px' }}>
+                                                        {primaryUser?.display_name || primaryUser?.username || '未指定'}
+                                                      </span>
+                                                    </div>
+                                                    {otherCoHandlers.length > 0 && (
+                                                      <div style={{ color: '#0066cc' }}>
+                                                        <strong>其他共同處理人：</strong>
+                                                        <span style={{ marginLeft: '4px' }}>
+                                                          {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                  {/* 工作內容 */}
+                                                  <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#555' }}>
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                      {item.ai_summary || item.content}
+                                                    </ReactMarkdown>
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    
+                                    {/* 未完成共同處理項目 */}
+                                    {coHandlerIncompleteItems.length > 0 && (
+                                      <div>
+                                        <div style={{ fontSize: '12px', color: '#f59e0b', marginBottom: '6px', fontWeight: '600' }}>
+                                          未完成項目 ({coHandlerIncompleteItems.length})
+                                        </div>
+                                        {coHandlerIncompleteItems.map((item: any) => {
+                                          // 共同處理項目使用不同的展開 ID，避免與原始項目連動
+                                          const coHandlerExpandKey = `co-handler-${item.id}`;
+                                          const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
+                                          const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : new Date(item.created_at).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+                                          const primaryUser = item.handlers?.primary;
+                                          const otherCoHandlers = item.handlers?.co_handlers?.filter(
+                                            (h: any) => h.user_id !== member.user_id
+                                          ) || [];
+                                          
+                                          return (
+                                            <div
+                                              key={item.id}
+                                              style={{
+                                                marginBottom: '6px',
+                                                padding: '8px',
+                                                backgroundColor: '#ffffff',
+                                                borderRadius: '4px',
+                                                border: '1px solid #fed7aa'
+                                              }}
+                                            >
+                                              <div
+                                                style={{
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center',
+                                                  cursor: 'pointer'
+                                                }}
+                                                onClick={(e) => {
+                                                  if ((e.target as HTMLElement).closest('.jump-to-original')) {
+                                                    return;
+                                                  }
+                                                  const newExpanded = new Set(expandedWorkItems);
+                                                  if (isItemExpanded) {
+                                                    newExpanded.delete(coHandlerExpandKey);
+                                                  } else {
+                                                    newExpanded.add(coHandlerExpandKey);
+                                                  }
+                                                  // 只展開/收起共同處理項目本身，不影響原始項目
+                                                  setExpandedWorkItems(newExpanded);
+                                                }}
+                                              >
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                                  {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                                  <div style={{ fontSize: '13px', flex: 1 }}>
+                                                    {item.ai_title || item.content.substring(0, 50)}...
+                                                  </div>
+                                                  {(() => {
+                                                    const statusBadge = getStatusBadge(item.progress_status);
+                                                    return (
+                                                      <span
+                                                        style={{
+                                                          display: 'inline-flex',
+                                                          alignItems: 'center',
+                                                          gap: '3px',
+                                                          padding: '1px 6px',
+                                                          borderRadius: '10px',
+                                                          fontSize: '10px',
+                                                          fontWeight: '500',
+                                                          color: statusBadge.color,
+                                                          backgroundColor: statusBadge.bgColor
+                                                        }}
+                                                      >
+                                                        {statusBadge.icon}
+                                                        {statusBadge.text}
+                                                      </span>
+                                                    );
+                                                  })()}
+                                                  <div style={{ fontSize: '11px', color: '#f59e0b', whiteSpace: 'nowrap', marginLeft: '6px' }}>
+                                                    📅 {itemDate}
+                                                  </div>
+                                                </div>
+                                                <button
+                                                  className="jump-to-original"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (primaryUser) {
+                                                      scrollToOriginalItem(item.id, primaryUser.user_id);
+                                                    }
+                                                  }}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #f59e0b',
+                                                    color: '#f59e0b',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px',
+                                                    marginLeft: '6px'
+                                                  }}
+                                                  title="跳轉到原始項目"
+                                                >
+                                                  📍 定位
+                                                </button>
+                                              </div>
+                                              
+                                              {isItemExpanded && (
+                                                <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #fef3c7', marginTop: '6px' }}>
+                                                  {/* 處理人資訊 */}
+                                                  <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                                                    <div style={{ marginBottom: '4px', color: '#f59e0b' }}>
+                                                      <strong>主要處理人：</strong>
+                                                      <span style={{ marginLeft: '4px' }}>
+                                                        {primaryUser?.display_name || primaryUser?.username || '未指定'}
+                                                      </span>
+                                                    </div>
+                                                    {otherCoHandlers.length > 0 && (
+                                                      <div style={{ color: '#f59e0b' }}>
+                                                        <strong>其他共同處理人：</strong>
+                                                        <span style={{ marginLeft: '4px' }}>
+                                                          {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
+                                                        </span>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                  {/* 工作內容 */}
+                                                  <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#92400e' }}>
+                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                      {item.ai_summary || item.content}
+                                                    </ReactMarkdown>
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </>
@@ -866,6 +1417,135 @@ function StandupReview({ user, teamId }: any) {
             <li>適合在每日站立會議時使用，快速了解團隊狀況</li>
           </ul>
         </div>
+
+        {/* 處理人設定 Modal */}
+        {showHandlerModal && editingWorkItem && (
+          <div 
+            className="modal-overlay" 
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}
+            onClick={() => setShowHandlerModal(false)}
+          >
+            <div 
+              className="modal-content card" 
+              style={{
+                width: '90%',
+                maxWidth: '500px',
+                padding: '24px',
+                maxHeight: '80vh',
+                overflowY: 'auto'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
+                設定處理人：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
+              </h3>
+
+              {/* 主要處理人 */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px', 
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                  color: '#333'
+                }}>
+                  主要處理人
+                </label>
+                <select
+                  className="input"
+                  value={selectedPrimaryHandler || ''}
+                  onChange={(e) => setSelectedPrimaryHandler(parseInt(e.target.value))}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">請選擇主要處理人</option>
+                  {teamMembers.map(member => (
+                    <option key={member.user_id} value={member.user_id}>
+                      {member.display_name || member.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 共同處理人 */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px', 
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                  color: '#333'
+                }}>
+                  共同處理人（可選多人）
+                </label>
+                <div style={{ 
+                  border: '1px solid #ddd', 
+                  borderRadius: '4px', 
+                  padding: '12px',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  backgroundColor: '#f9f9f9'
+                }}>
+                  {teamMembers
+                    .filter(member => member.user_id !== selectedPrimaryHandler)
+                    .map(member => (
+                      <label 
+                        key={member.user_id} 
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          padding: '6px 0',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCoHandlers.includes(member.user_id)}
+                          onChange={() => toggleCoHandler(member.user_id)}
+                          style={{ marginRight: '8px', cursor: 'pointer' }}
+                        />
+                        <span style={{ fontSize: '14px' }}>
+                          {member.display_name || member.username}
+                        </span>
+                      </label>
+                    ))}
+                  {teamMembers.filter(m => m.user_id !== selectedPrimaryHandler).length === 0 && (
+                    <div style={{ color: '#999', fontSize: '14px' }}>
+                      請先選擇主要處理人
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 按鈕 */}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowHandlerModal(false)}
+                >
+                  取消
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSaveHandlers}
+                  disabled={!selectedPrimaryHandler}
+                >
+                  儲存
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
