@@ -113,21 +113,6 @@ function UpdateWork({ user, teamId }: any) {
     try {
       const data = await api.getWorkItemUpdates(itemId);
       setUpdates(data);
-      
-      // 如果有更新記錄，用最新的狀態更新工作項目
-      if (data.length > 0) {
-        const latestStatus = data[0].progress_status;
-        
-        // 更新今日項目狀態
-        setWorkItems(prev => prev.map(item => 
-          item.id === itemId ? { ...item, progress_status: latestStatus } : item
-        ));
-        
-        // 更新未完成項目狀態
-        setIncompleteItems(prev => prev.map(item => 
-          item.id === itemId ? { ...item, progress_status: latestStatus } : item
-        ));
-      }
     } catch (err: any) {
       console.error('載入更新記錄失敗:', err);
     }
@@ -153,10 +138,19 @@ function UpdateWork({ user, teamId }: any) {
       setSuccess('工作更新已提交！');
       setUpdateContent('');
       
-      // 重新載入更新記錄（這會自動更新工作項目狀態）
+      // 立即更新本地狀態，避免狀態消失
+      const updateLocalStatus = (items: WorkItem[]) => 
+        items.map(item => 
+          item.id === selectedItem ? { ...item, progress_status: progressStatus } : item
+        );
+      
+      setWorkItems(updateLocalStatus);
+      setIncompleteItems(updateLocalStatus);
+      
+      // 重新載入更新記錄
       await fetchWorkUpdates(selectedItem);
       
-      // 重新載入工作項目以獲取最新狀態
+      // 重新載入工作項目以獲取最新狀態（確保與後端同步）
       await fetchTodayWorkItems();
       await fetchIncompleteWorkItems();
 

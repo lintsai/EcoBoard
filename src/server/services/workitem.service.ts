@@ -33,9 +33,21 @@ export const getTodayUserWorkItems = async (
   const today = getTodayDate();
 
   let queryText = `
-    SELECT wi.*, c.team_id, c.checkin_date
+    WITH latest_statuses AS (
+      SELECT DISTINCT ON (work_item_id)
+        work_item_id,
+        progress_status
+      FROM work_updates
+      ORDER BY work_item_id, updated_at DESC
+    )
+    SELECT 
+      wi.*, 
+      c.team_id, 
+      c.checkin_date,
+      COALESCE(ls.progress_status, 'in_progress') as progress_status
     FROM work_items wi
     INNER JOIN checkins c ON wi.checkin_id = c.id
+    LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
     WHERE wi.user_id = $1 AND c.checkin_date = $2
   `;
 
@@ -56,12 +68,25 @@ export const getTodayTeamWorkItems = async (teamId: number) => {
   const today = getTodayDate();
 
   const result = await query(
-    `SELECT wi.*, u.username, u.display_name, c.checkin_date
-     FROM work_items wi
-     INNER JOIN checkins c ON wi.checkin_id = c.id
-     INNER JOIN users u ON wi.user_id = u.id
-     WHERE c.team_id = $1 AND c.checkin_date = $2
-     ORDER BY u.display_name, wi.created_at`,
+    `WITH latest_statuses AS (
+      SELECT DISTINCT ON (work_item_id)
+        work_item_id,
+        progress_status
+      FROM work_updates
+      ORDER BY work_item_id, updated_at DESC
+    )
+    SELECT 
+      wi.*, 
+      u.username, 
+      u.display_name, 
+      c.checkin_date,
+      COALESCE(ls.progress_status, 'in_progress') as progress_status
+    FROM work_items wi
+    INNER JOIN checkins c ON wi.checkin_id = c.id
+    INNER JOIN users u ON wi.user_id = u.id
+    LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
+    WHERE c.team_id = $1 AND c.checkin_date = $2
+    ORDER BY u.display_name, wi.created_at`,
     [teamId, today]
   );
 
