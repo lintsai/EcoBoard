@@ -481,20 +481,6 @@ function UpdateWork({ user, teamId }: any) {
                     
                     return (
                       <div style={{ marginTop: '15px' }}>
-                        {isIncompleteItem && (
-                          <div style={{
-                            padding: '10px 14px',
-                            backgroundColor: '#fef3c7',
-                            borderLeft: '4px solid #f59e0b',
-                            borderRadius: '6px',
-                            marginBottom: '15px',
-                            fontSize: '13px',
-                            color: '#92400e'
-                          }}>
-                            <strong>⚠️ 未完成項目</strong> - 建立於 {new Date(item.checkin_date).toLocaleDateString('zh-TW')}
-                          </div>
-                        )}
-                        
                         {/* 項目資訊標題列 */}
                         <div style={{ 
                           display: 'flex', 
