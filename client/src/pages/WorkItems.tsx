@@ -52,9 +52,13 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
       timestamp: new Date().toISOString()
     }]);
+  }, []);
 
+  useEffect(() => {
     // Add table click handler
     const handleTableClick = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
       const target = e.target as HTMLElement;
       const table = target.closest('.markdown-content table');
       if (table && !target.closest('.table-modal-content')) {
@@ -65,7 +69,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
     // Add ESC key handler
     const handleEscKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && enlargedTable) {
+      if (e.key === 'Escape') {
         setEnlargedTable(null);
       }
     };
@@ -76,7 +80,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       document.removeEventListener('click', handleTableClick);
       document.removeEventListener('keydown', handleEscKey);
     };
-  }, [enlargedTable]);
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });

@@ -41,9 +41,13 @@ function DailySummary({ user, teamId }: any) {
     if (teamId) {
       fetchDailySummary();
     }
+  }, [teamId]);
 
+  useEffect(() => {
     // Add table click handler
     const handleTableClick = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
       const target = e.target as HTMLElement;
       const table = target.closest('.markdown-content table');
       if (table && !target.closest('.table-modal-content')) {
@@ -54,7 +58,7 @@ function DailySummary({ user, teamId }: any) {
 
     // Add ESC key handler
     const handleEscKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && enlargedTable) {
+      if (e.key === 'Escape') {
         setEnlargedTable(null);
       }
     };
@@ -65,7 +69,7 @@ function DailySummary({ user, teamId }: any) {
       document.removeEventListener('click', handleTableClick);
       document.removeEventListener('keydown', handleEscKey);
     };
-  }, [teamId, enlargedTable]);
+  }, []);
 
   const fetchDailySummary = async (date?: string) => {
     setLoading(true);

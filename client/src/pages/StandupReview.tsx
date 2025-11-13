@@ -56,9 +56,13 @@ function StandupReview({ user, teamId }: any) {
     if (teamId) {
       loadStandupData();
     }
+  }, [teamId]);
 
+  useEffect(() => {
     // Add table click handler
     const handleTableClick = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
       const target = e.target as HTMLElement;
       const table = target.closest('.markdown-content table');
       if (table && !target.closest('.table-modal-content')) {
@@ -69,7 +73,7 @@ function StandupReview({ user, teamId }: any) {
 
     // Add ESC key handler
     const handleEscKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && enlargedTable) {
+      if (e.key === 'Escape') {
         setEnlargedTable(null);
       }
     };
@@ -80,7 +84,7 @@ function StandupReview({ user, teamId }: any) {
       document.removeEventListener('click', handleTableClick);
       document.removeEventListener('keydown', handleEscKey);
     };
-  }, [teamId, enlargedTable]);
+  }, []);
 
   useEffect(() => {
     // 默認展開所有成員
