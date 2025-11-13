@@ -29,6 +29,7 @@ interface WorkItem {
   content: string;
   item_type: string;
   created_at: string;
+  priority?: number;
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
@@ -65,9 +66,36 @@ function StandupReview({ user, teamId }: any) {
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const [expandedWorkItems, setExpandedWorkItems] = useState<Set<number | string>>(new Set());
   const [showHandlerModal, setShowHandlerModal] = useState(false);
+  const [showPriorityModal, setShowPriorityModal] = useState(false);
   const [editingWorkItem, setEditingWorkItem] = useState<WorkItem | null>(null);
   const [selectedPrimaryHandler, setSelectedPrimaryHandler] = useState<number | null>(null);
   const [selectedCoHandlers, setSelectedCoHandlers] = useState<number[]>([]);
+  const [selectedPriority, setSelectedPriority] = useState<number>(3);
+
+  // Helper function to get priority badge
+  const getPriorityBadge = (priority: number = 3) => {
+    const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
+      1: { label: '最高', emoji: '🔴', color: '#dc2626' },
+      2: { label: '高', emoji: '🟠', color: '#ea580c' },
+      3: { label: '中', emoji: '🟡', color: '#ca8a04' },
+      4: { label: '低', emoji: '🟢', color: '#16a34a' },
+      5: { label: '最低', emoji: '🔵', color: '#2563eb' }
+    };
+    
+    const config = priorityConfig[priority] || priorityConfig[3];
+    return (
+      <span style={{ 
+        fontSize: '11px', 
+        color: config.color,
+        fontWeight: '600',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '2px'
+      }}>
+        {config.emoji} {config.label}
+      </span>
+    );
+  };
 
   useEffect(() => {
     if (teamId) {
@@ -206,13 +234,31 @@ function StandupReview({ user, teamId }: any) {
   const getUserWorkItems = (userId: number) => {
     return workItems
       .filter(item => item.user_id === userId)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .sort((a, b) => {
+        // 優先按照優先級排序（數字越小越前面）
+        const aPriority = a.priority ?? 3;
+        const bPriority = b.priority ?? 3;
+        if (aPriority !== bPriority) {
+          return aPriority - bPriority;
+        }
+        // 優先級相同時按照創建時間排序（新的在前）
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
   };
 
   const getUserIncompleteItems = (userId: number) => {
     return incompleteItems
       .filter(item => item.user_id === userId)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .sort((a, b) => {
+        // 優先按照優先級排序（數字越小越前面）
+        const aPriority = a.priority ?? 3;
+        const bPriority = b.priority ?? 3;
+        if (aPriority !== bPriority) {
+          return aPriority - bPriority;
+        }
+        // 優先級相同時按照創建時間排序（新的在前）
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
   };
 
   // 獲取用戶作為共同處理人的工作項目
@@ -222,7 +268,16 @@ function StandupReview({ user, teamId }: any) {
         item.handlers?.co_handlers?.some(h => h.user_id === userId) && 
         item.user_id !== userId
       )
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .sort((a, b) => {
+        // 優先按照優先級排序（數字越小越前面）
+        const aPriority = a.priority ?? 3;
+        const bPriority = b.priority ?? 3;
+        if (aPriority !== bPriority) {
+          return aPriority - bPriority;
+        }
+        // 優先級相同時按照創建時間排序（新的在前）
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
   };
 
   const getUserCoHandlerIncompleteItems = (userId: number) => {
@@ -325,6 +380,34 @@ function StandupReview({ user, teamId }: any) {
     setSelectedPrimaryHandler(item.handlers?.primary?.user_id || null);
     setSelectedCoHandlers(item.handlers?.co_handlers?.map(h => h.user_id) || []);
     setShowHandlerModal(true);
+  };
+
+  const openPriorityModal = (item: WorkItem) => {
+    setEditingWorkItem(item);
+    setSelectedPriority(item.priority || 3);
+    setShowPriorityModal(true);
+  };
+
+  const handleSavePriority = async () => {
+    if (!editingWorkItem) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.updateWorkItem(editingWorkItem.id, {
+        priority: selectedPriority
+      });
+      await loadStandupData();
+      setShowPriorityModal(false);
+      setEditingWorkItem(null);
+      alert('優先級已更新！');
+    } catch (err: any) {
+      console.error('Update priority error:', err);
+      alert(err.response?.data?.error || '更新優先級失敗');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveHandlers = async () => {
@@ -609,6 +692,9 @@ function StandupReview({ user, teamId }: any) {
                     
                     if (!workItem) return null;
                     
+                    // 取得優先級資訊
+                    const priority = suggestion.priority || workItem.priority || 3;
+                    
                     return (
                       <div 
                         key={index}
@@ -623,12 +709,25 @@ function StandupReview({ user, teamId }: any) {
                         }}
                       >
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '14px', fontWeight: '500', marginBottom: '4px' }}>
-                            {suggestion.task}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            {getPriorityBadge(priority)}
+                            <span style={{ fontSize: '14px', fontWeight: '500' }}>
+                              {suggestion.task}
+                            </span>
                           </div>
-                          <div style={{ fontSize: '12px', color: '#666' }}>
+                          <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
                             從 <strong>{suggestion.from}</strong> 分配給 <strong>{suggestion.to}</strong>
                           </div>
+                          {suggestion.reason && (
+                            <div style={{ fontSize: '12px', color: '#888', fontStyle: 'italic' }}>
+                              原因：{suggestion.reason}
+                            </div>
+                          )}
+                          {workItem.handlers?.co_handlers && workItem.handlers.co_handlers.length > 0 && (
+                            <div style={{ fontSize: '11px', color: '#0066cc', marginTop: '4px' }}>
+                              💡 當前有 {workItem.handlers.co_handlers.length} 位共同處理人
+                            </div>
+                          )}
                         </div>
                         <button
                           className="btn btn-primary"
@@ -806,6 +905,7 @@ function StandupReview({ user, teamId }: any) {
                                       <div style={{ fontWeight: '600', fontSize: '14px' }}>
                                         {item.ai_title || item.content}
                                       </div>
+                                      {getPriorityBadge(item.priority)}
                                       {(() => {
                                         const statusBadge = getStatusBadge(item.progress_status);
                                         return (
@@ -832,7 +932,18 @@ function StandupReview({ user, teamId }: any) {
                                       <div style={{ fontSize: '11px', color: '#999' }}>
                                         {formatTime(item.created_at).split(' ')[1]}
                                       </div>
-                                      <div className="reassign-area">
+                                      <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                        <button
+                                          className="btn btn-secondary"
+                                          style={{ fontSize: '11px', padding: '4px 8px' }}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openPriorityModal(item);
+                                          }}
+                                          title="設定優先級"
+                                        >
+                                          🎯
+                                        </button>
                                         <button
                                           className="btn btn-secondary"
                                           style={{ fontSize: '11px', padding: '4px 8px' }}
@@ -979,6 +1090,7 @@ function StandupReview({ user, teamId }: any) {
                                               <div style={{ fontWeight: '600', fontSize: '14px' }}>
                                                 {item.ai_title || item.content}
                                               </div>
+                                              {getPriorityBadge(item.priority)}
                                               {(() => {
                                                 const statusBadge = getStatusBadge(item.progress_status);
                                                 return (
@@ -1005,7 +1117,18 @@ function StandupReview({ user, teamId }: any) {
                                               <div style={{ fontSize: '11px', color: '#92400e' }}>
                                                 📅 {itemDate}
                                               </div>
-                                              <div className="reassign-area">
+                                              <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                                <button
+                                                  className="btn btn-secondary"
+                                                  style={{ fontSize: '11px', padding: '4px 8px' }}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openPriorityModal(item);
+                                                  }}
+                                                  title="設定優先級"
+                                                >
+                                                  🎯
+                                                </button>
                                                 <button
                                                   className="btn btn-secondary"
                                                   style={{ fontSize: '11px', padding: '4px 8px' }}
@@ -1176,6 +1299,7 @@ function StandupReview({ user, teamId }: any) {
                                                   <div style={{ fontSize: '13px', flex: 1 }}>
                                                     {item.ai_title || item.content.substring(0, 50)}...
                                                   </div>
+                                                  {getPriorityBadge(item.priority)}
                                                   {(() => {
                                                     const statusBadge = getStatusBadge(item.progress_status);
                                                     return (
@@ -1310,6 +1434,7 @@ function StandupReview({ user, teamId }: any) {
                                                   <div style={{ fontSize: '13px', flex: 1 }}>
                                                     {item.ai_title || item.content.substring(0, 50)}...
                                                   </div>
+                                                  {getPriorityBadge(item.priority)}
                                                   {(() => {
                                                     const statusBadge = getStatusBadge(item.progress_status);
                                                     return (
@@ -1539,6 +1664,80 @@ function StandupReview({ user, teamId }: any) {
                   className="btn btn-primary"
                   onClick={handleSaveHandlers}
                   disabled={!selectedPrimaryHandler}
+                >
+                  儲存
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 優先級設定 Modal */}
+        {showPriorityModal && editingWorkItem && (
+          <div 
+            className="modal-overlay" 
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}
+            onClick={() => setShowPriorityModal(false)}
+          >
+            <div 
+              className="modal-content card" 
+              style={{
+                width: '90%',
+                maxWidth: '400px',
+                padding: '24px'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
+                設定優先級：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
+              </h3>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px', 
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                  color: '#333'
+                }}>
+                  優先級
+                </label>
+                <select
+                  className="input"
+                  value={selectedPriority}
+                  onChange={(e) => setSelectedPriority(parseInt(e.target.value))}
+                  style={{ width: '100%', fontSize: '16px', padding: '12px' }}
+                >
+                  <option value={1}>🔴 最高</option>
+                  <option value={2}>🟠 高</option>
+                  <option value={3}>🟡 中</option>
+                  <option value={4}>🟢 低</option>
+                  <option value={5}>🔵 最低</option>
+                </select>
+              </div>
+
+              {/* 按鈕 */}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowPriorityModal(false)}
+                >
+                  取消
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSavePriority}
                 >
                   儲存
                 </button>

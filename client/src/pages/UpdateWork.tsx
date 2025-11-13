@@ -15,6 +15,7 @@ interface WorkItem {
   user_id: number;
   team_id: number;
   checkin_date: string;
+  priority?: number;
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
@@ -62,6 +63,31 @@ function UpdateWork({ user, teamId }: any) {
   const [viewAllMembers, setViewAllMembers] = useState(false);
   const [showIncomplete, setShowIncomplete] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
+
+  // Helper function to get priority badge
+  const getPriorityBadge = (priority: number = 3) => {
+    const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
+      1: { label: '最高', emoji: '🔴', color: '#dc2626' },
+      2: { label: '高', emoji: '🟠', color: '#ea580c' },
+      3: { label: '中', emoji: '🟡', color: '#ca8a04' },
+      4: { label: '低', emoji: '🟢', color: '#16a34a' },
+      5: { label: '最低', emoji: '🔵', color: '#2563eb' }
+    };
+    
+    const config = priorityConfig[priority] || priorityConfig[3];
+    return (
+      <span style={{ 
+        fontSize: '11px', 
+        color: config.color,
+        fontWeight: '600',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '2px'
+      }}>
+        {config.emoji} {config.label}
+      </span>
+    );
+  };
 
   useEffect(() => {
     checkManagerRole();
@@ -406,6 +432,7 @@ function UpdateWork({ user, teamId }: any) {
                           {title}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
+                          {getPriorityBadge(item.priority)}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <User size={12} />
                             <span style={{ fontWeight: '600', color: '#667eea' }}>
@@ -480,6 +507,7 @@ function UpdateWork({ user, teamId }: any) {
                           {title}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
+                          {getPriorityBadge(item.priority)}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <User size={12} />
                             <span style={{ fontWeight: '600', color: '#f59e0b' }}>
@@ -546,10 +574,7 @@ function UpdateWork({ user, teamId }: any) {
                           borderBottom: '2px solid #e6e6e6',
                           flexWrap: 'wrap' 
                         }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
-                            <User size={16} style={{ color: '#0066cc' }} />
-                            <strong style={{ color: '#333' }}>{assignee}</strong>
-                          </div>
+                          {getPriorityBadge(item.priority)}
                           <div>{getStatusBadge(status)}</div>
                           <span style={{ fontSize: '12px', color: '#999', marginLeft: 'auto' }}>
                             建立於 {formatTime(item.created_at)}

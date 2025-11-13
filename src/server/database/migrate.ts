@@ -41,11 +41,8 @@ const runMigration = async () => {
     // Step 1: Initialize database schema
     await initDatabase();
     
-    // Step 2: Run username normalization migration
-    await runMigrationFile('007_normalize_usernames.sql');
-    
-    // Step 3: Run work item handlers migration
-    await runMigrationFile('008_create_work_item_handlers.sql');
+    // Step 2: Add priority field to work items (new migration)
+    await runMigrationFile('009_add_priority_to_work_items.sql');
     
     console.log('✓ Migration completed successfully');
     process.exit(0);

@@ -22,6 +22,7 @@ interface WorkItem {
   content: string;
   item_type: string;
   created_at: string;
+  priority?: number;
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
@@ -50,12 +51,38 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [incompleteItems, setIncompleteItems] = useState<WorkItem[]>([]);
   const [currentItemAiSummary, setCurrentItemAiSummary] = useState<string>('');
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [selectedPriority, setSelectedPriority] = useState<number>(3);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const [showIncomplete, setShowIncomplete] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [showCoHandlerDialog, setShowCoHandlerDialog] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Helper function to get priority badge
+  const getPriorityBadge = (priority: number = 3) => {
+    const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
+      1: { label: '最高', emoji: '🔴', color: '#dc2626' },
+      2: { label: '高', emoji: '🟠', color: '#ea580c' },
+      3: { label: '中', emoji: '🟡', color: '#ca8a04' },
+      4: { label: '低', emoji: '🟢', color: '#16a34a' },
+      5: { label: '最低', emoji: '🔵', color: '#2563eb' }
+    };
+    
+    const config = priorityConfig[priority] || priorityConfig[3];
+    return (
+      <span style={{ 
+        fontSize: '11px', 
+        color: config.color,
+        fontWeight: '600',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '2px'
+      }}>
+        {config.emoji} {config.label}
+      </span>
+    );
+  };
 
   useEffect(() => {
     loadTodayCheckin();
@@ -223,6 +250,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const handleEditWorkItem = async (item: WorkItem) => {
     setSelectedItemId(item.id);
     setCurrentItemAiSummary(item.ai_summary || '');
+    setSelectedPriority(item.priority || 3);
     
     console.log('[WorkItems] Editing item:', item.id, 'existing session_id:', item.session_id);
     
@@ -311,7 +339,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         'task',
         sessionId,
         summaryText,
-        titleText
+        titleText,
+        selectedPriority
       );
 
       alert('工作項目已儲存！');
@@ -320,6 +349,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setSessionId('');
       setSelectedItemId(null);
       setCurrentItemAiSummary('');
+      setSelectedPriority(3);
       setMessages([{
         role: 'ai',
         content: '✅ 工作項目已成功儲存！\n\n您可以繼續新增其他工作項目。',
@@ -369,7 +399,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       await api.updateWorkItem(selectedItemId, {
         content: summary.summary,
         aiSummary: summary.summary,
-        aiTitle: summary.title
+        aiTitle: summary.title,
+        priority: selectedPriority
       });
 
       // Reload work items list
@@ -378,6 +409,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       // Clear edit mode states
       setSessionId('');
       setSelectedItemId(null);
+      setSelectedPriority(3);
       
       // Keep the summary visible so user can see what was saved
       setCurrentItemAiSummary(summary.summary);
@@ -401,6 +433,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     setSelectedItemId(null);
     setSessionId('');
     setCurrentItemAiSummary('');
+    setSelectedPriority(3);
     setMessages([{
       role: 'ai',
       content: '已取消編輯。您可以新增其他工作項目或編輯現有項目。',
@@ -533,6 +566,25 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
             {/* Chat Input */}
             <div style={{ padding: '15px', borderTop: '1px solid #e5e7eb' }}>
+              {/* Priority Selector */}
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '500', marginBottom: '6px' }}>
+                  優先級：
+                </label>
+                <select
+                  value={selectedPriority}
+                  onChange={(e) => setSelectedPriority(parseInt(e.target.value))}
+                  className="form-control"
+                  style={{ width: '100%', padding: '8px' }}
+                >
+                  <option value={1}>🔴 最高優先級 (1)</option>
+                  <option value={2}>🟠 高優先級 (2)</option>
+                  <option value={3}>🟡 中優先級 (3)</option>
+                  <option value={4}>🟢 低優先級 (4)</option>
+                  <option value={5}>🔵 最低優先級 (5)</option>
+                </select>
+              </div>
+
               <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
                 <textarea
                   className="input"
@@ -666,6 +718,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             </h4>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            {getPriorityBadge(item.priority)}
                             <span style={{ fontSize: '12px', color: '#999', whiteSpace: 'nowrap' }}>
                               {new Date(item.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
                             </span>
@@ -956,16 +1009,20 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
                               {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <h4 style={{ 
-                                  fontWeight: '600', 
-                                  fontSize: '14px', 
-                                  margin: 0,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: isExpanded ? 'normal' : 'nowrap'
-                                }}>
-                                  {item.ai_title || item.content.substring(0, 50) + '...'}
-                                </h4>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                  <h4 style={{ 
+                                    fontWeight: '600', 
+                                    fontSize: '14px', 
+                                    margin: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: isExpanded ? 'normal' : 'nowrap',
+                                    flex: 1
+                                  }}>
+                                    {item.ai_title || item.content.substring(0, 50) + '...'}
+                                  </h4>
+                                  {getPriorityBadge(item.priority)}
+                                </div>
                                 <span style={{ fontSize: '11px', color: '#92400e' }}>
                                   📅 建立於 {itemDate}
                                 </span>

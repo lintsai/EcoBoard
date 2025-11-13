@@ -108,14 +108,15 @@ class ApiService {
   }
 
   // Work Items
-  async createWorkItem(checkinId: number, content: string, itemType?: string, sessionId?: string, aiSummary?: string, aiTitle?: string) {
+  async createWorkItem(checkinId: number, content: string, itemType?: string, sessionId?: string, aiSummary?: string, aiTitle?: string, priority?: number) {
     const response = await this.api.post('/workitems', { 
       checkinId, 
       content, 
       itemType,
       sessionId,
       aiSummary,
-      aiTitle
+      aiTitle,
+      priority
     });
     return response.data;
   }
@@ -154,7 +155,7 @@ class ApiService {
     return response.data;
   }
 
-  async updateWorkItem(itemId: number, data: { content?: string; aiSummary?: string; aiTitle?: string }) {
+  async updateWorkItem(itemId: number, data: { content?: string; aiSummary?: string; aiTitle?: string; priority?: number }) {
     const response = await this.api.put(`/workitems/${itemId}`, data);
     return response.data;
   }

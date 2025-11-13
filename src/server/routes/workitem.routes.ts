@@ -15,7 +15,8 @@ router.post(
     body('itemType').optional(),
     body('sessionId').optional(),
     body('aiSummary').optional(),
-    body('aiTitle').optional()
+    body('aiTitle').optional(),
+    body('priority').optional().isInt({ min: 1, max: 5 }).withMessage('優先級必須是 1-5 之間的整數')
   ],
   async (req: AuthRequest, res: Response) => {
     try {
@@ -24,7 +25,7 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { checkinId, content, itemType, sessionId, aiSummary, aiTitle } = req.body;
+      const { checkinId, content, itemType, sessionId, aiSummary, aiTitle, priority } = req.body;
       const workItem = await workItemService.createWorkItem(
         checkinId,
         req.user!.id,
@@ -32,7 +33,8 @@ router.post(
         itemType,
         sessionId,
         aiSummary,
-        aiTitle
+        aiTitle,
+        priority
       );
 
       res.status(201).json(workItem);
@@ -88,19 +90,21 @@ router.put(
   [
     body('content').optional(),
     body('aiSummary').optional(),
-    body('aiTitle').optional()
+    body('aiTitle').optional(),
+    body('priority').optional().isInt({ min: 1, max: 5 }).withMessage('優先級必須是 1-5 之間的整數')
   ],
   async (req: AuthRequest, res: Response) => {
     try {
       const itemId = parseInt(req.params.itemId);
-      const { content, aiSummary, aiTitle } = req.body;
+      const { content, aiSummary, aiTitle, priority } = req.body;
       
       const workItem = await workItemService.updateWorkItem(
         itemId,
         req.user!.id,
         content,
         aiSummary,
-        aiTitle
+        aiTitle,
+        priority
       );
 
       res.json(workItem);

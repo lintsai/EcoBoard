@@ -205,8 +205,23 @@ ${conversation}
 // AI 分析工作項目
 export const analyzeWorkItems = async (workItems: any[], teamId: number) => {
   const config = getVLLMConfig();
+  
+  // 優先級權重定義
+  const PRIORITY_WEIGHTS = {
+    1: 3.0,  // 最高優先級：權重 3.0
+    2: 2.0,  // 高優先級：權重 2.0
+    3: 1.0,  // 中優先級：權重 1.0
+    4: 0.7,  // 低優先級：權重 0.7
+    5: 0.5   // 最低優先級：權重 0.5
+  };
+  
+  const CO_HANDLER_WEIGHT = 0.3; // 共同處理人的工作量權重係數
+  
   // 統計每個成員的工作量（包含主要處理人和共同處理人）
   const memberWorkload = workItems.reduce((acc: any, item) => {
+    const priority = item.priority || 3;
+    const priorityWeight = PRIORITY_WEIGHTS[priority as keyof typeof PRIORITY_WEIGHTS] || 1.0;
+    
     // 主要處理人
     const primaryUserId = item.handlers?.primary?.user_id || item.user_id;
     const primaryKey = primaryUserId;
@@ -218,11 +233,34 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number) => {
         primaryCount: 0,
         coHandlerCount: 0,
         primaryItems: [],
-        coHandlerItems: []
+        coHandlerItems: [],
+        highPriorityCount: 0,
+        mediumPriorityCount: 0,
+        lowPriorityCount: 0,
+        weightedWorkload: 0,
+        primaryWeightedWorkload: 0,
+        coHandlerWeightedWorkload: 0
       };
     }
     acc[primaryKey].primaryCount++;
-    acc[primaryKey].primaryItems.push(item.ai_title || item.content);
+    acc[primaryKey].primaryItems.push({
+      title: item.ai_title || item.content,
+      priority: item.priority || 3,
+      status: item.progress_status
+    });
+    
+    // 加權工作負載計算（主要處理人）
+    acc[primaryKey].primaryWeightedWorkload += priorityWeight;
+    acc[primaryKey].weightedWorkload += priorityWeight;
+    
+    // 統計優先級分布
+    if (priority <= 2) {
+      acc[primaryKey].highPriorityCount++;
+    } else if (priority === 3) {
+      acc[primaryKey].mediumPriorityCount++;
+    } else {
+      acc[primaryKey].lowPriorityCount++;
+    }
     
     // 共同處理人
     if (item.handlers?.co_handlers && item.handlers.co_handlers.length > 0) {
@@ -236,43 +274,91 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number) => {
             primaryCount: 0,
             coHandlerCount: 0,
             primaryItems: [],
-            coHandlerItems: []
+            coHandlerItems: [],
+            highPriorityCount: 0,
+            mediumPriorityCount: 0,
+            lowPriorityCount: 0,
+            weightedWorkload: 0,
+            primaryWeightedWorkload: 0,
+            coHandlerWeightedWorkload: 0
           };
         }
         acc[coKey].coHandlerCount++;
-        acc[coKey].coHandlerItems.push(item.ai_title || item.content);
+        acc[coKey].coHandlerItems.push({
+          title: item.ai_title || item.content,
+          priority: item.priority || 3,
+          status: item.progress_status
+        });
+        
+        // 加權工作負載計算（共同處理人，使用較低的權重）
+        const coHandlerWeight = priorityWeight * CO_HANDLER_WEIGHT;
+        acc[coKey].coHandlerWeightedWorkload += coHandlerWeight;
+        acc[coKey].weightedWorkload += coHandlerWeight;
       });
     }
     
     return acc;
   }, {});
 
-  const workloadSummary = Object.values(memberWorkload);
+  const workloadSummary = Object.values(memberWorkload).map((member: any) => ({
+    ...member,
+    // 四捨五入到小數點後一位
+    weightedWorkload: Math.round(member.weightedWorkload * 10) / 10,
+    primaryWeightedWorkload: Math.round(member.primaryWeightedWorkload * 10) / 10,
+    coHandlerWeightedWorkload: Math.round(member.coHandlerWeightedWorkload * 10) / 10
+  }));
 
   const prompt = `請分析以下團隊的工作分配狀況，提供工作負載分析和建議：
 
 團隊工作分配（包含主要處理人和共同處理人）：
 ${JSON.stringify(workloadSummary, null, 2)}
 
+優先級說明：
+- 1-2：高優先級（🔴🟠）- 緊急且重要的任務
+- 3：中優先級（🟡）- 正常優先級
+- 4-5：低優先級（🟢🔵）- 較不緊急的任務
+
+工作負載權重計算說明：
+- 優先級 1（最高）：權重 3.0
+- 優先級 2（高）：權重 2.0
+- 優先級 3（中）：權重 1.0
+- 優先級 4（低）：權重 0.7
+- 優先級 5（最低）：權重 0.5
+- 共同處理人：主要處理人權重的 30%
+- weightedWorkload = 加權總工作負載（考慮優先級和協作角色）
+- primaryWeightedWorkload = 作為主要處理人的加權負載
+- coHandlerWeightedWorkload = 作為共同處理人的加權負載
+
 註：
 - primaryCount: 作為主要處理人的項目數
 - coHandlerCount: 作為共同處理人的項目數
+- highPriorityCount: 高優先級任務數（priority 1-2）
+- mediumPriorityCount: 中優先級任務數（priority 3）
+- lowPriorityCount: 低優先級任務數（priority 4-5）
 - 共同處理人雖然責任較輕，但也需要投入時間協作
 
 請分析以下方面：
-1. **工作負載均衡度**：評估團隊成員的工作量是否均衡（考慮主要處理和共同處理）
-2. **潛在風險**：識別工作量過重或過輕的成員
-3. **分配建議**：提供具體的工作重新分配建議
-4. **團隊協作**：評估共同處理的協作模式，建議哪些工作可以協同完成
+1. **加權工作負載均衡度**：使用 weightedWorkload 評估團隊成員的實際工作壓力是否均衡。加權負載考慮了優先級（高優先級任務權重更高）和角色（主要處理人 vs 共同處理人）
+2. **優先級分布**：分析每個成員的高優先級任務佔比和 highPriorityCount，識別是否有成員承擔過多緊急任務
+3. **潛在風險**：識別 weightedWorkload 過高或過低的成員，特別注意 weightedWorkload > 8.0 或 highPriorityCount > 3 的成員
+4. **分配建議**：提供具體的工作重新分配建議，優先考慮：
+   - 從高 weightedWorkload 成員轉移任務到低 weightedWorkload 成員
+   - 優先轉移低優先級任務，保持高優先級任務的專注度
+   - 考慮將高優先級任務分配給經驗豐富且負載較輕的成員
+5. **優先級調整**：建議是否有任務的優先級需要調整
+6. **團隊協作**：評估共同處理的協作模式，建議哪些高 weightedWorkload 的成員可以透過增加共同處理人來分散壓力
 
 請用繁體中文回答，並以 JSON 格式返回結果，包含以下欄位：
 {
-  "workloadBalance": "工作負載均衡度評估（高/中/低）",
-  "overloadedMembers": ["工作量過重的成員"],
-  "underloadedMembers": ["工作量較輕的成員"],
-  "redistributionSuggestions": [{"from": "成員A", "to": "成員B", "task": "任務", "reason": "原因"}],
-  "collaborationOpportunities": ["協作建議"],
-  "summary": "整體分析總結"
+  "workloadBalance": "加權工作負載均衡度評估（高/中/低）",
+  "priorityDistribution": "優先級分布分析",
+  "overloadedMembers": ["加權負載過重的成員（weightedWorkload > 8.0 或建議值）"],
+  "underloadedMembers": ["加權負載較輕的成員（weightedWorkload < 4.0 或建議值）"],
+  "highPriorityRisks": ["承擔過多高優先級任務的成員及風險說明"],
+  "redistributionSuggestions": [{"from": "成員A", "to": "成員B", "task": "任務", "priority": "優先級", "reason": "原因（應提及加權負載考量）"}],
+  "priorityAdjustments": [{"task": "任務", "currentPriority": "目前優先級", "suggestedPriority": "建議優先級", "reason": "原因"}],
+  "collaborationOpportunities": ["協作建議（可建議為高負載成員的高優先級任務增加共同處理人）"],
+  "summary": "整體分析總結（應提及加權負載的使用）"
 }`;
 
   try {
@@ -285,7 +371,7 @@ ${JSON.stringify(workloadSummary, null, 2)}
           { role: 'user', content: prompt }
         ],
         temperature: 0.5,
-        max_tokens: 2000  // 增加到 2000，確保複雜 JSON 完整
+        max_tokens: 4500  // 增加到 4500，確保包含加權負載和優先級分析的完整 JSON 回應
       },
       {
         headers: {
@@ -311,18 +397,18 @@ ${JSON.stringify(workloadSummary, null, 2)}
         analysisText += `| 成員 | 主要處理 | 共同處理 | 總計 | 負載狀態 |\n`;
         analysisText += `|------|----------|----------|------|----------|\n`;
         
-        const totalWorkItems = workItems.length;
+        const totalWeightedWorkload = Object.values(memberWorkload as any).reduce((sum: number, m: any) => sum + m.weightedWorkload, 0);
         const memberCount = Object.keys(memberWorkload).length;
-        const avgWorkload = totalWorkItems / memberCount;
+        const avgWeightedWorkload = totalWeightedWorkload / memberCount;
         
         Object.values(memberWorkload as any).forEach((member: any) => {
-          // 計算總負載（主要處理權重為1，共同處理權重為0.5）
-          const totalLoad = member.primaryCount + (member.coHandlerCount * 0.5);
-          const loadStatus = totalLoad > avgWorkload * 1.3 ? '🔴 偏重' : 
-                           totalLoad < avgWorkload * 0.7 ? '🟢 偏輕' : '🟡 適中';
+          // 使用加權總負載（已考慮優先級和協作角色）
+          const totalLoad = member.weightedWorkload;
+          const loadStatus = totalLoad > avgWeightedWorkload * 1.3 ? '🔴 偏重' : 
+                           totalLoad < avgWeightedWorkload * 0.7 ? '🟢 偏輕' : '🟡 適中';
           analysisText += `| ${member.displayName || member.username} | ${member.primaryCount} 項 | ${member.coHandlerCount} 項 | ${totalLoad.toFixed(1)} | ${loadStatus} |\n`;
         });
-        analysisText += `\n平均負載：${avgWorkload.toFixed(1)} 項/人（共同處理以0.5權重計算）\n\n`;
+        analysisText += `\n平均加權負載：${avgWeightedWorkload.toFixed(1)}（已考慮優先級權重和協作角色）\n\n`;
         
         // 負載均衡評估
         if (parsedResult.workloadBalance) {
@@ -408,38 +494,109 @@ export const distributeTasksToTeam = async (
   teamId: number
 ) => {
   const config = getVLLMConfig();
+  
+  // 增強工作項目資訊，包含優先級和處理人
+  const enrichedWorkItems = workItems.map(item => ({
+    id: item.id,
+    title: item.ai_title || item.content,
+    priority: item.priority || 3,
+    priorityLabel: (() => {
+      const p = item.priority || 3;
+      if (p <= 2) return '高優先級 🔴🟠';
+      if (p === 3) return '中優先級 🟡';
+      return '低優先級 🟢🔵';
+    })(),
+    status: item.progress_status || 'in_progress',
+    currentPrimaryHandler: item.handlers?.primary ? 
+      (item.handlers.primary.display_name || item.handlers.primary.username) : '未指定',
+    currentCoHandlers: item.handlers?.co_handlers?.length > 0 ?
+      item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ') : '無',
+    hasCoHandlers: item.handlers?.co_handlers?.length > 0
+  }));
+
+  // 統計團隊成員當前工作負載（包含優先級分布）
+  const memberWorkload = teamMembers.map(member => {
+    const primaryItems = workItems.filter(item => 
+      item.handlers?.primary?.user_id === member.user_id || item.user_id === member.user_id
+    );
+    const coHandlerItems = workItems.filter(item =>
+      item.handlers?.co_handlers?.some((h: any) => h.user_id === member.user_id)
+    );
+    
+    const highPriorityCount = primaryItems.filter(item => (item.priority || 3) <= 2).length;
+    const mediumPriorityCount = primaryItems.filter(item => (item.priority || 3) === 3).length;
+    const lowPriorityCount = primaryItems.filter(item => (item.priority || 3) >= 4).length;
+    
+    return {
+      id: member.user_id || member.id,
+      name: member.display_name || member.username,
+      role: member.role,
+      currentPrimaryCount: primaryItems.length,
+      currentCoHandlerCount: coHandlerItems.length,
+      totalWorkload: primaryItems.length + coHandlerItems.length,
+      highPriorityCount,
+      mediumPriorityCount,
+      lowPriorityCount
+    };
+  });
+
   const prompt = `請根據以下工作項目和團隊成員，智能分配任務並提供執行順序建議。
 
-工作項目：
-${JSON.stringify(workItems, null, 2)}
+工作項目（包含優先級和當前處理人）：
+${JSON.stringify(enrichedWorkItems, null, 2)}
 
-團隊成員：
-${JSON.stringify(teamMembers.map(m => ({ id: m.id, name: m.display_name, role: m.role })), null, 2)}
+團隊成員當前負載狀況：
+${JSON.stringify(memberWorkload, null, 2)}
 
-請考慮：
-1. 任務的依賴關係和優先級
-2. 合理的工作量分配
-3. 任務的執行順序
-4. 成員的角色
+優先級說明：
+- 1-2：高優先級 🔴🟠 - 緊急且重要的任務
+- 3：中優先級 🟡 - 正常優先級
+- 4-5：低優先級 🟢🔵 - 較不緊急的任務
+
+請考慮以下因素進行任務分配：
+1. **優先級優先**：高優先級任務（1-2）應優先分配給負載較輕且經驗豐富的成員
+2. **工作量平衡**：考慮每個成員的 currentPrimaryCount（主要處理）和 currentCoHandlerCount（共同處理）
+3. **高優先級風險**：避免單一成員承擔過多高優先級任務
+4. **協作機會**：識別哪些高優先級或複雜任務適合設定共同處理人
+5. **執行順序**：高優先級任務應安排在前面，考慮任務間的依賴關係
+6. **成員角色**：考慮成員的角色和專長
 
 請用繁體中文回答，並以 JSON 格式返回，包含以下欄位：
 {
   "distribution": [
     {
-      "userId": 使用者ID,
-      "userName": "使用者名稱",
-      "tasks": ["任務1", "任務2"],
+      "workItemId": 工作項目ID,
+      "workItemTitle": "任務標題",
+      "priority": 優先級數字,
+      "recommendedPrimaryHandler": {
+        "userId": 使用者ID,
+        "userName": "使用者名稱",
+        "reason": "推薦原因"
+      },
+      "recommendedCoHandlers": [
+        {
+          "userId": 使用者ID,
+          "userName": "使用者名稱",
+          "reason": "推薦原因"
+        }
+      ],
       "estimatedWorkload": "high/medium/low"
     }
   ],
   "executionOrder": [
     {
       "step": 1,
+      "workItemIds": [工作項目ID],
       "tasks": ["任務描述"],
+      "priority": "優先級",
       "assignees": ["成員名稱"],
       "reason": "執行順序原因"
     }
   ],
+  "workloadBalance": {
+    "balanced": true/false,
+    "concerns": ["需要注意的負載問題"]
+  },
   "recommendations": ["建議1", "建議2"]
 }`;
 
@@ -453,7 +610,7 @@ ${JSON.stringify(teamMembers.map(m => ({ id: m.id, name: m.display_name, role: m
           { role: 'user', content: prompt }
         ],
         temperature: 0.5,
-        max_tokens: 2500  // 增加到 2500，確保複雜分配 JSON 完整
+        max_tokens: 4000  // 增加到 4000，確保包含優先級和協作建議的完整 JSON
       },
       {
         headers: {
@@ -636,6 +793,13 @@ ${JSON.stringify(workItems.rows.map((item: any) => ({
     item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ') : 
     '無',
   項目: item.ai_title || item.content.substring(0, 100),
+  優先級: item.priority || 3,
+  優先級說明: (() => {
+    const p = item.priority || 3;
+    if (p <= 2) return '高優先級 🔴🟠';
+    if (p === 3) return '中優先級 🟡';
+    return '低優先級 🟢🔵';
+  })(),
   建立日期: item.checkin_date,
   是否今日新建: item.created_today ? '是' : '否（跨日期追蹤）',
   當前狀態: item.current_status,
@@ -652,19 +816,26 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
   更新內容: update.update_content
 })), null, 2)}
 
+## 優先級說明
+- 1-2：高優先級 🔴🟠 - 緊急且重要的任務
+- 3：中優先級 🟡 - 正常優先級
+- 4-5：低優先級 🟢🔵 - 較不緊急的任務
+
 請提供專業的工作總結報告，包含：
 
 1. **每日概況** - 簡述今日整體工作情況和團隊參與度
-2. **完成項目總覽** - 列出已完成（completed）的工作項目，按主要處理人分組。如有共同處理人，也要列出。特別標註跨日期完成的項目
-3. **進行中項目** - 列出進行中（in_progress）的項目及進度說明，包含主要處理人和共同處理人
-4. **遇到的問題** - 分析受阻（blocked）、已取消（cancelled）或未開始（not_started）的項目，並說明原因
-5. **跨日期項目追蹤** - 特別關注並總結那些非今日建立但今日有更新的項目（表示持續追蹤中）
-6. **團隊協作情況** - 評估有共同處理人的項目執行情況，協作是否順暢
-7. **進度評估** - 評估整體進度是否符合預期，有哪些亮點和需要關注的地方
-8. **明日建議** - 根據今日狀況，提出明天的工作重點和待辦事項
+2. **優先級分布** - 統計並分析高/中/低優先級任務的分布情況，評估團隊是否聚焦在重要任務上
+3. **完成項目總覽** - 列出已完成（completed）的工作項目，按主要處理人分組，並標註優先級。如有共同處理人，也要列出。特別標註跨日期完成的項目和高優先級完成項目
+4. **進行中項目** - 列出進行中（in_progress）的項目及進度說明，包含主要處理人和共同處理人。特別標註高優先級項目的進展
+5. **高優先級任務追蹤** - 重點關注所有高優先級任務的狀態，是否有延遲或受阻的情況
+6. **遇到的問題** - 分析受阻（blocked）、已取消（cancelled）或未開始（not_started）的項目，並說明原因。如果是高優先級任務受阻，需特別強調
+7. **跨日期項目追蹤** - 特別關注並總結那些非今日建立但今日有更新的項目（表示持續追蹤中），評估其優先級是否合理
+8. **團隊協作情況** - 評估有共同處理人的項目執行情況，協作是否順暢，特別是高優先級協作項目
+9. **進度評估** - 評估整體進度是否符合預期，有哪些亮點和需要關注的地方。評估優先級設定是否合理
+10. **明日建議** - 根據今日狀況和優先級分布，提出明天的工作重點和待辦事項。建議哪些低優先級任務可能需要提升優先級，或哪些高優先級任務需要更多資源
 
 請使用 Markdown 格式撰寫，可以使用表格整理數據，文字專業且易讀，適合在團隊站立會議中分享。
-注意：當分析工作項目時，請同時考慮主要處理人和共同處理人的貢獻。`;
+注意：當分析工作項目時，請同時考慮主要處理人和共同處理人的貢獻，並特別關注優先級的合理性和執行狀況。`;
 
   try {
     const response = await axios.post(

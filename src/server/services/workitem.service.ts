@@ -60,13 +60,14 @@ export const createWorkItem = async (
   itemType: string = 'task',
   sessionId?: string,
   aiSummary?: string,
-  aiTitle?: string
+  aiTitle?: string,
+  priority: number = 3
 ) => {
   const result = await query(
-    `INSERT INTO work_items (checkin_id, user_id, content, item_type, session_id, ai_summary, ai_title)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO work_items (checkin_id, user_id, content, item_type, session_id, ai_summary, ai_title, priority)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [checkinId, userId, content, itemType, sessionId, aiSummary, aiTitle]
+    [checkinId, userId, content, itemType, sessionId, aiSummary, aiTitle, priority]
   );
 
   const workItem = result.rows[0];
@@ -115,7 +116,7 @@ export const getTodayUserWorkItems = async (
     params.push(teamId);
   }
 
-  queryText += ` ORDER BY wi.created_at`;
+  queryText += ` ORDER BY wi.priority ASC, wi.created_at`;
 
   const result = await query(queryText, params);
   
@@ -154,7 +155,7 @@ export const getTodayTeamWorkItems = async (teamId: number) => {
     INNER JOIN users u ON wi.user_id = u.id
     LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
     WHERE c.team_id = $1 AND c.checkin_date = $2
-    ORDER BY u.display_name, wi.created_at`,
+    ORDER BY wi.priority ASC, u.display_name, wi.created_at`,
     [teamId, today]
   );
 
@@ -176,9 +177,10 @@ export const updateWorkItem = async (
   userId: number,
   content?: string,
   aiSummary?: string,
-  aiTitle?: string
+  aiTitle?: string,
+  priority?: number
 ) => {
-  console.log('[updateWorkItem] Called with:', { itemId, userId, content, aiSummary, aiTitle });
+  console.log('[updateWorkItem] Called with:', { itemId, userId, content, aiSummary, aiTitle, priority });
   
   // 檢查用戶是否為主要處理人
   const handlerCheck = await query(
@@ -213,6 +215,11 @@ export const updateWorkItem = async (
   if (aiTitle !== undefined) {
     updates.push(`ai_title = $${paramCount++}`);
     values.push(aiTitle);
+  }
+
+  if (priority !== undefined) {
+    updates.push(`priority = $${paramCount++}`);
+    values.push(priority);
   }
 
   if (updates.length === 0) {
@@ -622,7 +629,7 @@ export const getIncompleteUserWorkItems = async (
     paramCount++;
   }
 
-  queryText += ` ORDER BY c.checkin_date DESC, wi.created_at DESC`;
+  queryText += ` ORDER BY wi.priority ASC, c.checkin_date DESC, wi.created_at DESC`;
 
   const result = await query(queryText, params);
   
@@ -664,7 +671,7 @@ export const getIncompleteTeamWorkItems = async (teamId: number) => {
     WHERE c.team_id = $1
       AND COALESCE(ls.progress_status, 'not_started') NOT IN ('completed', 'cancelled')
       AND c.checkin_date < $2
-    ORDER BY u.display_name, c.checkin_date DESC, wi.created_at DESC
+    ORDER BY wi.priority ASC, u.display_name, c.checkin_date DESC, wi.created_at DESC
   `;
 
   const result = await query(queryText, [teamId, today]);

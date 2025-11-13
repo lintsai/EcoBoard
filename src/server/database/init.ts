@@ -68,6 +68,7 @@ export const initDatabase = async () => {
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         content TEXT NOT NULL,
         item_type VARCHAR(50) DEFAULT 'task',
+        priority INTEGER DEFAULT 3 CHECK (priority >= 1 AND priority <= 5),
         session_id VARCHAR(255),
         ai_summary TEXT,
         ai_title VARCHAR(500),
@@ -80,6 +81,7 @@ export const initDatabase = async () => {
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS session_id VARCHAR(255)`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ai_summary TEXT`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ai_title VARCHAR(500)`);
+    await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 3 CHECK (priority >= 1 AND priority <= 5)`);
 
     // Daily standup meetings table
     await client.query(`
@@ -170,6 +172,7 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_checkins_team ON checkins(team_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_user ON work_items(user_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_session ON work_items(session_id);
+      CREATE INDEX IF NOT EXISTS idx_work_items_priority ON work_items(priority);
       CREATE INDEX IF NOT EXISTS idx_work_item_handlers_work_item ON work_item_handlers(work_item_id);
       CREATE INDEX IF NOT EXISTS idx_work_item_handlers_user ON work_item_handlers(user_id);
       CREATE INDEX IF NOT EXISTS idx_work_item_handlers_type ON work_item_handlers(handler_type);
