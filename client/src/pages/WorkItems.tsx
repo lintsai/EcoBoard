@@ -534,18 +534,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
           {/* Right: AI Summary + Work Items List - 40% */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            {/* AI Summary Section */}
-            {currentItemAiSummary && (
-              <div className="card" style={{ padding: '15px' }}>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-                  <Sparkles size={20} style={{ color: '#667eea' }} />
-                  AI 摘要
-                </h3>
-                <div className="markdown-content" style={{ fontSize: '14px', lineHeight: '1.6' }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentItemAiSummary}</ReactMarkdown>
-                </div>
-              </div>
-            )}
+
 
             {/* Work Items List */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -584,7 +573,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             cursor: 'pointer',
-                            backgroundColor: isExpanded ? '#f9fafb' : 'transparent'
+                            backgroundColor: isExpanded ? '#f9fafb' : 'transparent',
+                            gap: '8px'
                           }}
                           onClick={() => {
                             const newExpanded = new Set(expandedItems);
@@ -596,22 +586,28 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             setExpandedItems(newExpanded);
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                            <h4 style={{ 
-                              fontWeight: '600', 
-                              fontSize: '14px', 
-                              margin: 0, 
-                              flex: 1,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                            <div style={{ flexShrink: 0 }}>
+                              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                            </div>
+                            <h4 
+                              style={{ 
+                                fontWeight: '600', 
+                                fontSize: '14px', 
+                                margin: 0, 
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={item.ai_title || item.content}
+                            >
                               {item.ai_title || item.content}
                             </h4>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '12px', color: '#999' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            <span style={{ fontSize: '12px', color: '#999', whiteSpace: 'nowrap' }}>
                               {new Date(item.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
                             </span>
                             <button
@@ -626,7 +622,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 cursor: 'pointer',
                                 padding: '4px',
                                 display: 'flex',
-                                alignItems: 'center'
+                                alignItems: 'center',
+                                flexShrink: 0
                               }}
                               title="刪除"
                             >
@@ -652,7 +649,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                               </div>
                             )}
                             
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                              <div style={{ fontSize: '11px', color: '#999' }}>
+                                建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
+                                  month: '2-digit', 
+                                  day: '2-digit', 
+                                  hour: '2-digit', 
+                                  minute: '2-digit' 
+                                })}
+                              </div>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -783,7 +788,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 </div>
                               )}
                               
-                              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                                <div style={{ fontSize: '11px', color: '#92400e' }}>
+                                  建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
+                                    month: '2-digit', 
+                                    day: '2-digit', 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                  })}
+                                </div>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -795,8 +808,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                     fontSize: '13px',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '6px',
-                                    flex: 1
+                                    gap: '6px'
                                   }}
                                   disabled={loading}
                                 >

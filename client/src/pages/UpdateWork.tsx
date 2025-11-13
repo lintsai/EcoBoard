@@ -478,27 +478,8 @@ function UpdateWork({ user, teamId }: any) {
                           </span>
                         </div>
                           
-                        {/* 完整內容 */}
-                        <div style={{ 
-                          padding: '14px',
-                          backgroundColor: '#fafafa',
-                          borderRadius: '6px',
-                          marginBottom: '12px',
-                          border: '1px solid #f0f0f0',
-                          overflowX: 'auto'
-                        }}>
-                          <div className="prose-sm markdown-content" style={{ 
-                            fontSize: '14px', 
-                            lineHeight: '1.7',
-                            wordWrap: 'break-word',
-                            wordBreak: 'break-word'
-                          }}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                          </div>
-                        </div>
-                        
-                        {/* AI 摘要 */}
-                        {item.ai_summary && (
+                        {/* 工作項目內容 */}
+                        {item.ai_summary ? (
                           <div style={{ 
                             padding: '14px',
                             backgroundColor: '#f8f5ff',
@@ -508,16 +489,33 @@ function UpdateWork({ user, teamId }: any) {
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
                               <Sparkles size={14} style={{ color: '#7c3aed', marginRight: '6px' }} />
-                              <span style={{ fontSize: '13px', fontWeight: '600', color: '#7c3aed' }}>AI 摘要</span>
+                              <span style={{ fontSize: '13px', fontWeight: '600', color: '#7c3aed' }}>工作項目內容</span>
                             </div>
                             <div className="prose-sm markdown-content" style={{ 
-                              fontSize: '13px', 
-                              lineHeight: '1.6', 
+                              fontSize: '14px', 
+                              lineHeight: '1.7', 
                               color: '#555',
                               wordWrap: 'break-word',
                               wordBreak: 'break-word'
                             }}>
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ 
+                            padding: '14px',
+                            backgroundColor: '#fafafa',
+                            borderRadius: '6px',
+                            border: '1px solid #f0f0f0',
+                            overflowX: 'auto'
+                          }}>
+                            <div className="prose-sm markdown-content" style={{ 
+                              fontSize: '14px', 
+                              lineHeight: '1.7',
+                              wordWrap: 'break-word',
+                              wordBreak: 'break-word'
+                            }}>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
                             </div>
                           </div>
                         )}

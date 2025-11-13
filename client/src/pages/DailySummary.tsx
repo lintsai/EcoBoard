@@ -202,11 +202,11 @@ function DailySummary({ user, teamId }: any) {
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div className="header">
           <div>
-            <h1>每日總結</h1>
-            <p className="subtitle">
-              <Sparkles size={16} style={{ display: 'inline', marginRight: '5px' }} />
+            <h1 style={{ marginBottom: '8px' }}>每日總結</h1>
+            <p style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sparkles size={16} />
               AI 自動分析團隊當日工作進展並生成總結報告
             </p>
           </div>
@@ -275,7 +275,7 @@ function DailySummary({ user, teamId }: any) {
         {/* 歷史記錄列表 */}
         {showHistory && (
           <div className="card" style={{ marginBottom: '20px', maxHeight: '400px', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '18px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h3 style={{ fontSize: '18px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px', color: '#1f2937' }}>
               <History size={20} />
               歷史總結記錄
             </h3>
@@ -297,12 +297,12 @@ function DailySummary({ user, teamId }: any) {
                       border: '1px solid #e0e0e0',
                       borderRadius: '6px',
                       cursor: 'pointer',
-                      backgroundColor: selectedDate === item.summary_date ? '#e6f2ff' : '#fff',
+                      backgroundColor: selectedDate === item.summary_date ? '#f0f8ff' : '#fff',
                       transition: 'all 0.2s ease'
                     }}
                     onMouseEnter={(e) => {
                       if (selectedDate !== item.summary_date) {
-                        e.currentTarget.style.backgroundColor = '#f5f5f5';
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
                       }
                     }}
                     onMouseLeave={(e) => {
@@ -313,8 +313,8 @@ function DailySummary({ user, teamId }: any) {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <Calendar size={16} style={{ color: '#0066cc' }} />
-                        <span style={{ fontWeight: 500, fontSize: '15px' }}>
+                        <Calendar size={16} style={{ color: '#667eea' }} />
+                        <span style={{ fontWeight: 500, fontSize: '15px', color: '#1f2937' }}>
                           {new Date(item.summary_date).toLocaleDateString('zh-TW', {
                             year: 'numeric',
                             month: 'long',
@@ -323,7 +323,7 @@ function DailySummary({ user, teamId }: any) {
                           })}
                         </span>
                       </div>
-                      <div style={{ fontSize: '13px', color: '#999' }}>
+                      <div style={{ fontSize: '13px', color: '#6b7280' }}>
                         {item.generated_by_name && `由 ${item.generated_by_name} 生成`}
                         {' · '}
                         {new Date(item.created_at).toLocaleDateString('zh-TW')}
@@ -420,12 +420,12 @@ function DailySummary({ user, teamId }: any) {
               justifyContent: 'space-between', 
               alignItems: 'center',
               paddingBottom: '15px',
-              borderBottom: '2px solid #e0e0e0',
+              borderBottom: '2px solid #e5e7eb',
               marginBottom: '20px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Calendar size={20} style={{ color: '#0066cc' }} />
-                <h2 style={{ margin: 0, fontSize: '20px' }}>
+                <Calendar size={20} style={{ color: '#667eea' }} />
+                <h2 style={{ margin: 0, fontSize: '20px', color: '#1f2937' }}>
                   {new Date(summary.date).toLocaleDateString('zh-TW', {
                     year: 'numeric',
                     month: 'long',
@@ -465,11 +465,11 @@ function DailySummary({ user, teamId }: any) {
           </div>
         ) : (
           <div className="card" style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <FileText size={48} style={{ color: '#ccc', margin: '0 auto 20px' }} />
-            <p style={{ color: '#666', fontSize: '16px', marginBottom: '20px' }}>
+            <FileText size={48} style={{ color: '#d1d5db', margin: '0 auto 20px' }} />
+            <p style={{ color: '#6b7280', fontSize: '16px', marginBottom: '20px' }}>
               尚未生成總結，請選擇日期並點擊「生成總結」按鈕
             </p>
-            <p style={{ color: '#999', fontSize: '14px' }}>
+            <p style={{ color: '#9ca3af', fontSize: '14px' }}>
               AI 將分析該日期的工作項目、打卡記錄和進度更新，<br />
               自動生成詳細的工作總結報告
             </p>
@@ -477,9 +477,9 @@ function DailySummary({ user, teamId }: any) {
         )}
 
         {/* 使用說明 */}
-        <div className="card" style={{ marginTop: '20px', backgroundColor: '#f8f9fa' }}>
-          <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>💡 總結報告包含內容</h3>
-          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#666' }}>
+        <div className="card" style={{ marginTop: '20px', backgroundColor: '#f9fafb' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 總結報告包含內容</h3>
+          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
             <li>今日完成項目總覽</li>
             <li>進度評估（是否按計劃完成）</li>
             <li>遇到的問題和挑戰</li>
@@ -489,103 +489,7 @@ function DailySummary({ user, teamId }: any) {
         </div>
       </div>
 
-      <style>{`
-        .markdown-content h1 {
-          font-size: 24px;
-          margin: 20px 0 15px;
-          color: #0066cc;
-        }
-        .markdown-content h2 {
-          font-size: 20px;
-          margin: 18px 0 12px;
-          color: #0066cc;
-        }
-        .markdown-content h3 {
-          font-size: 18px;
-          margin: 16px 0 10px;
-          color: #333;
-        }
-        .markdown-content h4 {
-          font-size: 16px;
-          margin: 14px 0 8px;
-          color: #333;
-        }
-        .markdown-content p {
-          margin: 10px 0;
-          line-height: 1.8;
-        }
-        .markdown-content ul, .markdown-content ol {
-          margin: 10px 0;
-          padding-left: 25px;
-        }
-        .markdown-content li {
-          margin: 5px 0;
-        }
-        .markdown-content table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 15px 0;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .markdown-content th {
-          background-color: #0066cc;
-          color: #ffffff;
-          padding: 12px 10px;
-          text-align: left;
-          border: 1px solid #0052a3;
-          font-weight: 600;
-          font-size: 14px;
-        }
-        .markdown-content td {
-          padding: 10px;
-          border: 1px solid #d0d0d0;
-          line-height: 1.6;
-        }
-        .markdown-content td br {
-          display: block;
-          content: "";
-          margin: 4px 0;
-        }
-        .markdown-content tr:nth-child(even) {
-          background-color: #f8f9fa;
-        }
-        .markdown-content tr:hover {
-          background-color: #f0f8ff;
-        }
-        .markdown-content blockquote {
-          border-left: 4px solid #0066cc;
-          padding-left: 15px;
-          margin: 15px 0;
-          color: #666;
-          font-style: italic;
-        }
-        .markdown-content code {
-          background-color: #f5f5f5;
-          padding: 2px 6px;
-          border-radius: 3px;
-          font-family: 'Consolas', 'Monaco', monospace;
-          font-size: 14px;
-        }
-        .markdown-content pre {
-          background-color: #f5f5f5;
-          padding: 15px;
-          border-radius: 5px;
-          overflow-x: auto;
-        }
-        .markdown-content pre code {
-          background: none;
-          padding: 0;
-        }
-        .markdown-content hr {
-          border: none;
-          border-top: 2px solid #e0e0e0;
-          margin: 20px 0;
-        }
-        .markdown-content strong {
-          font-weight: 600;
-          color: #000;
-        }
-      `}</style>
+
     </div>
   );
 }
