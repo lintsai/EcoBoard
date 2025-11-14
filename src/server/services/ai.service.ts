@@ -72,7 +72,7 @@ export const chat = async (
         model: config.modelName,
         messages: messages,
         temperature: 0.7,
-        max_tokens: 1000  // 增加到 1000，避免回應被截斷
+        max_tokens: 4000  // 增加到 4000，確保對話回應不會被截斷
       },
       {
         headers: {
@@ -889,7 +889,7 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
           { role: 'user', content: prompt }
         ],
         temperature: 0.7,
-        max_tokens: 3000  // 增加到 3000，確保完整的每日總結
+        max_tokens: 8000  // 增加到 8000，確保項目較多時也能完整生成總結
       },
       {
         headers: {
