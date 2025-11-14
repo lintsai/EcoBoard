@@ -872,13 +872,13 @@ function UpdateWork({ user, teamId }: any) {
                             <span style={{ fontSize: '12px', color: '#666' }}>
                               {formatTime(update.updated_at)}
                             </span>
+                            <span style={{ fontSize: '12px', color: '#92400e', marginLeft: '8px' }}>
+                              {update.display_name || update.username}
+                            </span>
                           </div>
-                          {/* 只在第一條（最新）顯示狀態變化 */}
-                          {index === 0 && (
-                            <div style={{ fontSize: '11px', color: '#666' }}>
-                              更新狀態為: {getStatusBadge(update.progress_status)}
-                            </div>
-                          )}
+                          <div style={{ fontSize: '11px', color: '#666' }}>
+                            狀態: {getStatusBadge(update.progress_status)}
+                          </div>
                         </div>
                         <div style={{ fontSize: '14px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
                           {update.update_content}
