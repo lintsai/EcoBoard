@@ -674,6 +674,7 @@ export const generateDailySummary = async (
 
   // Get work items with current status
   // 包含：1) 今日建立的項目 2) 今日有更新記錄的所有項目（不論何時建立）
+  // 排除：Backlog 項目（is_backlog = TRUE）
   const workItems = await query(
     `SELECT DISTINCT wi.*, u.display_name, u.username, c.checkin_date,
             COALESCE(latest_update.progress_status, 'in_progress') as current_status,
@@ -693,6 +694,7 @@ export const generateDailySummary = async (
        LIMIT 1
      ) latest_update ON true
      WHERE c.team_id = $1 
+       AND (wi.is_backlog IS NULL OR wi.is_backlog = FALSE)
        AND (
          c.checkin_date = $2  -- 今日建立的項目
          OR EXISTS (  -- 或今日有更新記錄的項目
@@ -748,6 +750,7 @@ export const generateDailySummary = async (
 
   // Get all work updates with status progression
   // 只查詢今日的更新記錄（但項目可能是之前建立的）
+  // 排除：Backlog 項目的更新
   const updates = await query(
     `SELECT wu.*, wi.content as work_item_content, 
             wi.ai_title as work_item_title,
@@ -758,6 +761,7 @@ export const generateDailySummary = async (
      INNER JOIN users u ON wu.user_id = u.id
      INNER JOIN checkins c ON wi.checkin_id = c.id
      WHERE c.team_id = $1 AND DATE(wu.updated_at) = $2
+       AND (wi.is_backlog IS NULL OR wi.is_backlog = FALSE)
      ORDER BY wu.updated_at ASC`,
     [teamId, summaryDate]
   );
@@ -768,7 +772,8 @@ export const generateDailySummary = async (
             COUNT(DISTINCT wi.id) as total_work_items,
             COUNT(DISTINCT wu.id) as total_updates
      FROM checkins c
-     LEFT JOIN work_items wi ON wi.checkin_id = c.id
+     LEFT JOIN work_items wi ON wi.checkin_id = c.id 
+       AND (wi.is_backlog IS NULL OR wi.is_backlog = FALSE)
      LEFT JOIN work_updates wu ON wu.work_item_id = wi.id
      WHERE c.team_id = $1 AND c.checkin_date = $2`,
     [teamId, summaryDate]
@@ -1037,5 +1042,99 @@ export const getChatHistory = async (sessionId: string) => {
   } catch (error) {
     console.error('Get chat history error:', error);
     throw new Error('取得聊天記錄失敗');
+  }
+};
+
+// 解析貼上的表格並轉換為結構化的 backlog 項目
+export const parseTableToBacklogItems = async (
+  tableText: string,
+  userId: number
+) => {
+  const config = getVLLMConfig();
+
+  const systemPrompt = `你是一個專門解析工作項目表格的 AI 助手。
+使用者會貼上一個包含工作項目的表格（可能是 Excel、Word、純文字等格式）。
+
+你需要：
+1. 識別表格中的各個欄位（標題、內容、優先級、預計處理時間等）
+2. 將每一行轉換為結構化的工作項目
+3. 如果沒有明確的優先級，根據內容判斷（緊急/重要的為1-2，一般的為3，可延後的為4-5）
+4. 如果沒有明確的日期，設為 null
+
+請回傳 JSON 格式的陣列，每個項目包含：
+- title: 簡短標題（20字以內）
+- content: 詳細內容描述
+- priority: 1-5 的整數（1最高，5最低）
+- estimatedDate: YYYY-MM-DD 格式的日期字串，沒有則為 null
+
+範例輸出：
+\`\`\`json
+[
+  {
+    "title": "修復登入問題",
+    "content": "用戶反映無法使用 LDAP 登入系統，需要檢查 LDAP 設定並修復",
+    "priority": 1,
+    "estimatedDate": "2025-11-20"
+  },
+  {
+    "title": "優化資料庫查詢",
+    "content": "Daily Summary 頁面載入緩慢，需要優化 SQL 查詢和建立索引",
+    "priority": 2,
+    "estimatedDate": null
+  }
+]
+\`\`\`
+
+請直接回傳 JSON，不要有其他說明文字。`;
+
+  try {
+    const response = await axios.post(
+      `${config.apiUrl}/chat/completions`,
+      {
+        model: config.modelName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `請解析以下表格並轉換為 JSON 格式：\n\n${tableText}` }
+        ],
+        temperature: 0.3, // 降低溫度以獲得更一致的輸出
+        max_tokens: 12000  // 增加到 12000，確保表格資料較多時也能完整解析並生成所有項目
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`
+        }
+      }
+    );
+
+    const aiResponse = response.data.choices[0].message.content;
+    
+    // 嘗試從回應中提取 JSON
+    let jsonMatch = aiResponse.match(/```json\s*([\s\S]*?)\s*```/);
+    if (!jsonMatch) {
+      jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
+    }
+    
+    if (!jsonMatch) {
+      throw new Error('無法從 AI 回應中提取 JSON');
+    }
+
+    const items = JSON.parse(jsonMatch[0].replace(/```json|```/g, '').trim());
+    
+    // 驗證並修正數據
+    const validatedItems = items.map((item: any) => ({
+      title: item.title || '未命名項目',
+      content: item.content || item.title || '無內容',
+      priority: Math.max(1, Math.min(5, parseInt(item.priority) || 3)),
+      estimatedDate: item.estimatedDate || null
+    }));
+
+    return validatedItems;
+  } catch (error: any) {
+    console.error('Parse table error:', error);
+    if (error.response) {
+      console.error('API response:', error.response.data);
+    }
+    throw new Error('解析表格失敗：' + (error.message || '未知錯誤'));
   }
 };

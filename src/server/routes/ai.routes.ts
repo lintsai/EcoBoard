@@ -300,4 +300,33 @@ router.post(
   }
 );
 
+// 解析貼上的表格並轉換為 backlog 項目
+router.post(
+  '/parse-table',
+  authenticate,
+  [
+    body('tableText').notEmpty().withMessage('表格內容為必填')
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { tableText } = req.body;
+      
+      const items = await aiService.parseTableToBacklogItems(
+        tableText,
+        req.user!.id
+      );
+
+      res.json({ items });
+    } catch (error: any) {
+      console.error('Parse table error:', error);
+      res.status(500).json({ error: error.message || '解析表格失敗' });
+    }
+  }
+);
+
 export default router;

@@ -98,7 +98,10 @@ export const getTodayUserWorkItems = async (
       ORDER BY work_item_id, updated_at DESC
     )
     SELECT 
-      wi.*, 
+      wi.id, wi.checkin_id, wi.user_id, wi.content, wi.item_type,
+      wi.session_id, wi.ai_summary, wi.ai_title, wi.priority,
+      TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
+      wi.is_backlog, wi.created_at, wi.updated_at,
       c.team_id, 
       c.checkin_date,
       COALESCE(ls.progress_status, 'in_progress') as progress_status
@@ -107,6 +110,7 @@ export const getTodayUserWorkItems = async (
     LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
     INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
     WHERE wih.user_id = $1 AND c.checkin_date = $2
+      AND (wi.is_backlog IS NULL OR wi.is_backlog = FALSE)
   `;
 
   const params: any[] = [userId, today];
@@ -145,7 +149,10 @@ export const getTodayTeamWorkItems = async (teamId: number) => {
       ORDER BY work_item_id, updated_at DESC
     )
     SELECT 
-      wi.*, 
+      wi.id, wi.checkin_id, wi.user_id, wi.content, wi.item_type,
+      wi.session_id, wi.ai_summary, wi.ai_title, wi.priority,
+      TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
+      wi.is_backlog, wi.created_at, wi.updated_at,
       u.username, 
       u.display_name, 
       c.checkin_date,
@@ -155,6 +162,7 @@ export const getTodayTeamWorkItems = async (teamId: number) => {
     INNER JOIN users u ON wi.user_id = u.id
     LEFT JOIN latest_statuses ls ON wi.id = ls.work_item_id
     WHERE c.team_id = $1 AND c.checkin_date = $2
+      AND (wi.is_backlog IS NULL OR wi.is_backlog = FALSE)
     ORDER BY wi.priority ASC, u.display_name, wi.created_at`,
     [teamId, today]
   );
@@ -178,11 +186,13 @@ export const updateWorkItem = async (
   content?: string,
   aiSummary?: string,
   aiTitle?: string,
-  priority?: number
+  priority?: number,
+  estimatedDate?: string,
+  sessionId?: string
 ) => {
-  console.log('[updateWorkItem] Called with:', { itemId, userId, content, aiSummary, aiTitle, priority });
+  console.log('[updateWorkItem] Called with:', { itemId, userId, content, aiSummary, aiTitle, priority, estimatedDate, sessionId });
   
-  // 檢查用戶是否為主要處理人
+  // 檢查用戶是否為處理人（主要或共同）
   const handlerCheck = await query(
     `SELECT handler_type FROM work_item_handlers 
      WHERE work_item_id = $1 AND user_id = $2`,
@@ -193,8 +203,10 @@ export const updateWorkItem = async (
     throw new Error('工作項目不存在或您不是處理人');
   }
 
-  // 只有主要處理人可以修改工作項目內容
-  if (handlerCheck.rows[0].handler_type !== 'primary') {
+  const isPrimary = handlerCheck.rows[0].handler_type === 'primary';
+
+  // 只有主要處理人可以修改工作項目內容、AI摘要和標題
+  if (!isPrimary && (content !== undefined || aiSummary !== undefined || aiTitle !== undefined)) {
     throw new Error('只有主要處理人可以修改工作項目內容');
   }
 
@@ -217,9 +229,22 @@ export const updateWorkItem = async (
     values.push(aiTitle);
   }
 
+  // session_id 可以更新（用於關聯 AI 對話記錄）
+  if (sessionId !== undefined) {
+    updates.push(`session_id = $${paramCount++}`);
+    values.push(sessionId);
+  }
+
+  // 優先級和預計時間所有處理人都可以修改
   if (priority !== undefined) {
     updates.push(`priority = $${paramCount++}`);
     values.push(priority);
+  }
+
+  if (estimatedDate !== undefined) {
+    // 使用 CAST 確保日期正確儲存，避免時區問題
+    updates.push(`estimated_date = CAST($${paramCount++} AS DATE)`);
+    values.push(estimatedDate);
   }
 
   if (updates.length === 0) {
@@ -259,7 +284,11 @@ export const reassignWorkItem = async (
   
   // Check if operator has permission (must be manager or owner)
   const permissionCheck = await query(
-    `SELECT wi.*, c.team_id, tm.role
+    `SELECT wi.id, wi.checkin_id, wi.user_id, wi.content, wi.item_type,
+            wi.session_id, wi.ai_summary, wi.ai_title, wi.priority,
+            TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
+            wi.is_backlog, wi.created_at, wi.updated_at,
+            c.team_id, tm.role
      FROM work_items wi
      INNER JOIN checkins c ON wi.checkin_id = c.id
      LEFT JOIN team_members tm ON tm.team_id = c.team_id AND tm.user_id = $2
@@ -400,7 +429,11 @@ export const getWorkItemUpdates = async (workItemId: number) => {
 
 export const getWorkItemById = async (itemId: number) => {
   const result = await query(
-    `SELECT wi.*, u.username, u.display_name
+    `SELECT wi.id, wi.checkin_id, wi.user_id, wi.content, wi.item_type,
+            wi.session_id, wi.ai_summary, wi.ai_title, wi.priority,
+            TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
+            wi.is_backlog, wi.created_at, wi.updated_at,
+            u.username, u.display_name
      FROM work_items wi
      INNER JOIN users u ON wi.user_id = u.id
      WHERE wi.id = $1`,
@@ -618,6 +651,7 @@ export const getIncompleteUserWorkItems = async (
     WHERE wih.user_id = $1
       AND COALESCE(ls.progress_status, 'not_started') NOT IN ('completed', 'cancelled')
       AND c.checkin_date < $2
+      AND (wi.is_backlog IS NULL OR wi.is_backlog = FALSE)
   `;
 
   const params: any[] = [userId, today];
@@ -671,6 +705,7 @@ export const getIncompleteTeamWorkItems = async (teamId: number) => {
     WHERE c.team_id = $1
       AND COALESCE(ls.progress_status, 'not_started') NOT IN ('completed', 'cancelled')
       AND c.checkin_date < $2
+      AND (wi.is_backlog IS NULL OR wi.is_backlog = FALSE)
     ORDER BY wi.priority ASC, u.display_name, c.checkin_date DESC, wi.created_at DESC
   `;
 

@@ -91,12 +91,13 @@ router.put(
     body('content').optional(),
     body('aiSummary').optional(),
     body('aiTitle').optional(),
-    body('priority').optional().isInt({ min: 1, max: 5 }).withMessage('優先級必須是 1-5 之間的整數')
+    body('priority').optional().isInt({ min: 1, max: 5 }).withMessage('優先級必須是 1-5 之間的整數'),
+    body('estimatedDate').optional().isDate().withMessage('預計日期格式錯誤')
   ],
   async (req: AuthRequest, res: Response) => {
     try {
       const itemId = parseInt(req.params.itemId);
-      const { content, aiSummary, aiTitle, priority } = req.body;
+      const { content, aiSummary, aiTitle, priority, estimatedDate, sessionId } = req.body;
       
       const workItem = await workItemService.updateWorkItem(
         itemId,
@@ -104,12 +105,52 @@ router.put(
         content,
         aiSummary,
         aiTitle,
-        priority
+        priority,
+        estimatedDate,
+        sessionId
       );
 
       res.json(workItem);
     } catch (error: any) {
       console.error('Update work item error:', error);
+      res.status(500).json({ 
+        error: error.message || '更新工作項目失敗',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
+);
+
+// 部分更新工作項目（PATCH）
+router.patch(
+  '/:itemId',
+  authenticate,
+  [
+    body('content').optional(),
+    body('aiSummary').optional(),
+    body('aiTitle').optional(),
+    body('priority').optional().isInt({ min: 1, max: 5 }).withMessage('優先級必須是 1-5 之間的整數'),
+    body('estimated_date').optional()
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      const { content, aiSummary, aiTitle, priority, estimated_date, sessionId } = req.body;
+      
+      const workItem = await workItemService.updateWorkItem(
+        itemId,
+        req.user!.id,
+        content,
+        aiSummary,
+        aiTitle,
+        priority,
+        estimated_date,
+        sessionId
+      );
+
+      res.json(workItem);
+    } catch (error: any) {
+      console.error('Patch work item error:', error);
       res.status(500).json({ 
         error: error.message || '更新工作項目失敗',
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined

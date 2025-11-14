@@ -41,8 +41,8 @@ const runMigration = async () => {
     // Step 1: Initialize database schema
     await initDatabase();
     
-    // Step 2: Add priority field to work items (new migration)
-    await runMigrationFile('009_add_priority_to_work_items.sql');
+    // Step 2: Create backlog support (extends work_items table)
+    await runMigrationFile('010_create_backlog.sql');
     
     console.log('✓ Migration completed successfully');
     process.exit(0);

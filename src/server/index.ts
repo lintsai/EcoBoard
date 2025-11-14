@@ -11,6 +11,7 @@ import teamRoutes from './routes/team.routes';
 import checkinRoutes from './routes/checkin.routes';
 import workItemRoutes from './routes/workitem.routes';
 import aiRoutes from './routes/ai.routes';
+import backlogRoutes from './routes/backlog.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { initDatabase } from './database/init';
 
@@ -70,6 +71,7 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/checkin', checkinRoutes);
 app.use('/api/workitems', workItemRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/backlog', backlogRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

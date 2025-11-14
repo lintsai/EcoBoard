@@ -72,16 +72,20 @@ export const initDatabase = async () => {
         session_id VARCHAR(255),
         ai_summary TEXT,
         ai_title VARCHAR(500),
+        is_backlog BOOLEAN DEFAULT FALSE,
+        estimated_date DATE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     
-    // Add AI fields to work_items if they don't exist
+    // Add AI fields and backlog fields to work_items if they don't exist
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS session_id VARCHAR(255)`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ai_summary TEXT`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS ai_title VARCHAR(500)`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 3 CHECK (priority >= 1 AND priority <= 5)`);
+    await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS is_backlog BOOLEAN DEFAULT FALSE`);
+    await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS estimated_date DATE`);
 
     // Daily standup meetings table
     await client.query(`
@@ -173,6 +177,8 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_work_items_user ON work_items(user_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_session ON work_items(session_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_priority ON work_items(priority);
+      CREATE INDEX IF NOT EXISTS idx_work_items_backlog ON work_items(is_backlog) WHERE is_backlog = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_work_items_estimated_date ON work_items(estimated_date) WHERE estimated_date IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_work_item_handlers_work_item ON work_item_handlers(work_item_id);
       CREATE INDEX IF NOT EXISTS idx_work_item_handlers_user ON work_item_handlers(user_id);
       CREATE INDEX IF NOT EXISTS idx_work_item_handlers_type ON work_item_handlers(handler_type);

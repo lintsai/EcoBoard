@@ -162,7 +162,7 @@ class ApiService {
     return response.data;
   }
 
-  async updateWorkItem(itemId: number, data: { content?: string; aiSummary?: string; aiTitle?: string; priority?: number }) {
+  async updateWorkItem(itemId: number, data: { content?: string; aiSummary?: string; aiTitle?: string; priority?: number; sessionId?: string }) {
     const response = await this.api.put(`/workitems/${itemId}`, data);
     return response.data;
   }
@@ -264,6 +264,54 @@ class ApiService {
 
   async regenerateDailySummary(teamId: number, summaryDate: string) {
     const response = await this.api.post('/ai/daily-summary', { teamId, summaryDate });
+    return response.data;
+  }
+
+  // Backlog Items
+  async createBacklogItem(title: string, content: string, priority?: number, estimatedDate?: string) {
+    const response = await this.api.post('/backlog', { 
+      title, 
+      content, 
+      priority, 
+      estimatedDate 
+    });
+    return response.data;
+  }
+
+  async createBacklogItemsBatch(items: Array<{title: string; content: string; priority: number; estimatedDate?: string}>) {
+    const response = await this.api.post('/backlog/batch', { items });
+    return response.data;
+  }
+
+  async getUserBacklogItems(teamId?: number) {
+    const response = await this.api.get('/backlog/my', {
+      params: { teamId }
+    });
+    return response.data;
+  }
+
+  async getTeamBacklogItems(teamId: number) {
+    const response = await this.api.get(`/backlog/team/${teamId}`);
+    return response.data;
+  }
+
+  async updateBacklogItem(itemId: number, data: { title?: string; content?: string; priority?: number; estimatedDate?: string }) {
+    const response = await this.api.put(`/backlog/${itemId}`, data);
+    return response.data;
+  }
+
+  async deleteBacklogItem(itemId: number) {
+    const response = await this.api.delete(`/backlog/${itemId}`);
+    return response.data;
+  }
+
+  async moveBacklogToWorkItem(backlogItemId: number, teamId: number) {
+    const response = await this.api.post(`/backlog/${backlogItemId}/move-to-today`, { teamId });
+    return response.data;
+  }
+
+  async parseTableToBacklogItems(tableText: string) {
+    const response = await this.api.post('/ai/parse-table', { tableText });
     return response.data;
   }
 }

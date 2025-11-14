@@ -30,6 +30,7 @@ interface WorkItem {
   item_type: string;
   created_at: string;
   priority?: number;
+  estimated_date?: string;
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
@@ -71,6 +72,22 @@ function StandupReview({ user, teamId }: any) {
   const [selectedPrimaryHandler, setSelectedPrimaryHandler] = useState<number | null>(null);
   const [selectedCoHandlers, setSelectedCoHandlers] = useState<number[]>([]);
   const [selectedPriority, setSelectedPriority] = useState<number>(3);
+  const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
+
+  // 排序函數
+  const sortItems = (items: WorkItem[]) => {
+    if (sortBy === 'priority') {
+      return [...items].sort((a, b) => (a.priority || 3) - (b.priority || 3));
+    } else {
+      // Sort by estimated_date: items without date go to bottom
+      return [...items].sort((a, b) => {
+        if (!a.estimated_date && !b.estimated_date) return (a.priority || 3) - (b.priority || 3);
+        if (!a.estimated_date) return 1;
+        if (!b.estimated_date) return -1;
+        return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+      });
+    }
+  };
 
   // Helper function to get priority badge
   const getPriorityBadge = (priority: number = 3) => {
@@ -849,8 +866,28 @@ function StandupReview({ user, teamId }: any) {
                             }}
                             onClick={() => toggleMemberExpand(member.user_id)}
                           >
-                            <div style={{ fontSize: '13px', fontWeight: 500, color: '#666' }}>
-                              今日工作項目 ({memberWorkItems.length})
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{ fontSize: '13px', fontWeight: 500, color: '#666' }}>
+                                今日工作項目 ({memberWorkItems.length})
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority');
+                                }}
+                                style={{
+                                  padding: '2px 8px',
+                                  fontSize: '11px',
+                                  borderRadius: '3px',
+                                  border: '1px solid #7c3aed',
+                                  backgroundColor: '#7c3aed',
+                                  color: '#fff',
+                                  cursor: 'pointer'
+                                }}
+                                title="點擊切換排序方式"
+                              >
+                                {sortBy === 'priority' ? '🔢' : '📅'}
+                              </button>
                             </div>
                             {expandedMembers.has(member.user_id) ? (
                               <ChevronUp size={16} style={{ color: '#666' }} />
@@ -860,7 +897,7 @@ function StandupReview({ user, teamId }: any) {
                           </div>
                           {expandedMembers.has(member.user_id) && (
                           <div style={{ marginTop: '8px' }}>
-                            {memberWorkItems.map((item) => {
+                            {sortItems(memberWorkItems).map((item) => {
                               const isItemExpanded = expandedWorkItems.has(item.id);
                               
                               return (
@@ -906,6 +943,17 @@ function StandupReview({ user, teamId }: any) {
                                         {item.ai_title || item.content}
                                       </div>
                                       {getPriorityBadge(item.priority)}
+                                      <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                        📅 {item.estimated_date 
+                                          ? (() => {
+                                              const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
+                                                ? item.estimated_date.split('T')[0] 
+                                                : item.estimated_date;
+                                              const [year, month, day] = dateStr.split('-');
+                                              return `${parseInt(month)}/${parseInt(day)}`;
+                                            })()
+                                          : '未設定'}
+                                      </span>
                                       {(() => {
                                         const statusBadge = getStatusBadge(item.progress_status);
                                         return (
@@ -962,6 +1010,52 @@ function StandupReview({ user, teamId }: any) {
                                   {/* Expanded Content */}
                                   {isItemExpanded && (
                                     <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #e5e7eb' }}>
+                                      {/* 預計處理時間 */}
+                                      <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>
+                                          <strong>預計處理時間：</strong>
+                                        </div>
+                                        <input
+                                          type="date"
+                                          className="input"
+                                          value={item.estimated_date ? (() => {
+                                            const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
+                                            return dateStr;
+                                          })() : ''}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.currentTarget.showPicker && e.currentTarget.showPicker();
+                                          }}
+                                          onChange={async (e) => {
+                                            e.stopPropagation();
+                                            try {
+                                              // 確保日期格式正確（YYYY-MM-DD），不受時區影響
+                                              const dateValue = e.target.value ? e.target.value : null;
+                                              const token = localStorage.getItem('token');
+                                              const response = await fetch(`/api/workitems/${item.id}`, {
+                                                method: 'PATCH',
+                                                headers: { 
+                                                  'Content-Type': 'application/json',
+                                                  'Authorization': token ? `Bearer ${token}` : ''
+                                                },
+                                                credentials: 'include',
+                                                body: JSON.stringify({ estimated_date: dateValue })
+                                              });
+                                              if (!response.ok) {
+                                                const error = await response.json();
+                                                console.error('更新預計時間失敗:', error);
+                                                alert(error.error || '更新失敗');
+                                                return;
+                                              }
+                                              await loadStandupData();
+                                            } catch (error) {
+                                              console.error('更新預計時間失敗:', error);
+                                              alert('更新失敗，請稍後再試');
+                                            }
+                                          }}
+                                          style={{ maxWidth: '200px' }}
+                                        />
+                                      </div>
                                       {/* 處理人信息 */}
                                       <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
                                         <div style={{ marginBottom: '4px' }}>
@@ -1035,8 +1129,28 @@ function StandupReview({ user, teamId }: any) {
                               }}
                               onClick={() => setShowIncompleteItems(!showIncompleteItems)}
                             >
-                                  <div style={{ fontSize: '13px', fontWeight: 500, color: '#92400e' }}>
-                                    ⚠️ 未完成項目 ({memberIncompleteItems.length})
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ fontSize: '13px', fontWeight: 500, color: '#92400e' }}>
+                                      ⚠️ 未完成項目 ({memberIncompleteItems.length})
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority');
+                                      }}
+                                      style={{
+                                        padding: '2px 8px',
+                                        fontSize: '11px',
+                                        borderRadius: '3px',
+                                        border: '1px solid #f59e0b',
+                                        backgroundColor: '#f59e0b',
+                                        color: '#fff',
+                                        cursor: 'pointer'
+                                      }}
+                                      title="點擊切換排序方式"
+                                    >
+                                      {sortBy === 'priority' ? '🔢' : '📅'}
+                                    </button>
                                   </div>
                                   {showIncompleteItems ? (
                                     <ChevronUp size={16} style={{ color: '#92400e' }} />
@@ -1046,7 +1160,7 @@ function StandupReview({ user, teamId }: any) {
                                 </div>
                                 {showIncompleteItems && (
                                   <div style={{ marginTop: '8px' }}>
-                                    {memberIncompleteItems.map((item: any) => {
+                                    {sortItems(memberIncompleteItems).map((item: any) => {
                                       const isItemExpanded = expandedWorkItems.has(item.id);
                                       const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
                                       
@@ -1091,6 +1205,17 @@ function StandupReview({ user, teamId }: any) {
                                                 {item.ai_title || item.content}
                                               </div>
                                               {getPriorityBadge(item.priority)}
+                                              <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                                📅 {item.estimated_date 
+                                                  ? (() => {
+                                                      const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
+                                                        ? item.estimated_date.split('T')[0] 
+                                                        : item.estimated_date;
+                                                      const [year, month, day] = dateStr.split('-');
+                                                      return `${parseInt(month)}/${parseInt(day)}`;
+                                                    })()
+                                                  : '未設定'}
+                                              </span>
                                               {(() => {
                                                 const statusBadge = getStatusBadge(item.progress_status);
                                                 return (
@@ -1146,6 +1271,52 @@ function StandupReview({ user, teamId }: any) {
                                           
                                           {isItemExpanded && (
                                             <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #fef3c7' }}>
+                                              {/* 預計處理時間 */}
+                                              <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                                                <div style={{ fontSize: '13px', color: '#92400e', marginBottom: '6px' }}>
+                                                  <strong>預計處理時間：</strong>
+                                                </div>
+                                                <input
+                                                  type="date"
+                                                  className="input"
+                                                  value={item.estimated_date ? (() => {
+                                                    const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
+                                                    return dateStr;
+                                                  })() : ''}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    e.currentTarget.showPicker && e.currentTarget.showPicker();
+                                                  }}
+                                                  onChange={async (e) => {
+                                                    e.stopPropagation();
+                                                    try {
+                                                      // 確保日期格式正確（YYYY-MM-DD），不受時區影響
+                                                      const dateValue = e.target.value ? e.target.value : null;
+                                                      const token = localStorage.getItem('token');
+                                                      const response = await fetch(`/api/workitems/${item.id}`, {
+                                                        method: 'PATCH',
+                                                        headers: { 
+                                                          'Content-Type': 'application/json',
+                                                          'Authorization': token ? `Bearer ${token}` : ''
+                                                        },
+                                                        credentials: 'include',
+                                                        body: JSON.stringify({ estimated_date: dateValue })
+                                                      });
+                                                      if (!response.ok) {
+                                                        const error = await response.json();
+                                                        console.error('更新預計時間失敗:', error);
+                                                        alert(error.error || '更新失敗');
+                                                        return;
+                                                      }
+                                                      await loadStandupData();
+                                                    } catch (error) {
+                                                      console.error('更新預計時間失敗:', error);
+                                                      alert('更新失敗，請稍後再試');
+                                                    }
+                                                  }}
+                                                  style={{ maxWidth: '200px' }}
+                                                />
+                                              </div>
                                               {/* 處理人信息 */}
                                               <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
                                                 <div style={{ marginBottom: '4px' }}>

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings } from 'lucide-react';
+import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar } from 'lucide-react';
 
 interface DashboardProps {
   user: any;
@@ -17,6 +17,13 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
       icon: CheckSquare,
       path: '/checkin',
       color: '#10b981'
+    },
+    {
+      title: '工作項目規劃 (Backlog)',
+      description: '提早規劃工作項目，支援手動填寫或 AI 批量匯入',
+      icon: Calendar,
+      path: '/backlog',
+      color: '#6366f1'
     },
     {
       title: '填寫工作項目',

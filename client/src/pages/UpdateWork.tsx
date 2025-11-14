@@ -16,6 +16,7 @@ interface WorkItem {
   team_id: number;
   checkin_date: string;
   priority?: number;
+  estimated_date?: string;
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
@@ -63,6 +64,7 @@ function UpdateWork({ user, teamId }: any) {
   const [viewAllMembers, setViewAllMembers] = useState(false);
   const [showIncomplete, setShowIncomplete] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
 
   // Helper function to get priority badge
   const getPriorityBadge = (priority: number = 3) => {
@@ -87,6 +89,25 @@ function UpdateWork({ user, teamId }: any) {
         {config.emoji} {config.label}
       </span>
     );
+  };
+
+  // Sorting function
+  const sortItems = <T extends WorkItem>(items: T[]): T[] => {
+    const sorted = [...items];
+    
+    if (sortBy === 'priority') {
+      sorted.sort((a, b) => (a.priority || 3) - (b.priority || 3));
+    } else {
+      // Sort by estimated_date: items without date go to bottom
+      sorted.sort((a, b) => {
+        if (!a.estimated_date && !b.estimated_date) return (a.priority || 3) - (b.priority || 3);
+        if (!a.estimated_date) return 1;
+        if (!b.estimated_date) return -1;
+        return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+      });
+    }
+    
+    return sorted;
   };
 
   useEffect(() => {
@@ -407,8 +428,28 @@ function UpdateWork({ user, teamId }: any) {
               {/* 今日工作項目 */}
               {workItems.length > 0 && (
                 <div style={{ marginTop: '15px' }}>
-                  <h4 style={{ fontSize: '14px', color: '#0066cc', marginBottom: '10px' }}>今日項目 ({workItems.length})</h4>
-                  {workItems.map((item) => {
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <h4 style={{ fontSize: '14px', color: '#0066cc', margin: 0 }}>今日項目 ({workItems.length})</h4>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority');
+                      }}
+                      style={{
+                        padding: '2px 8px',
+                        fontSize: '11px',
+                        borderRadius: '3px',
+                        border: '1px solid #0066cc',
+                        backgroundColor: '#0066cc',
+                        color: '#fff',
+                        cursor: 'pointer'
+                      }}
+                      title="點擊切換排序方式"
+                    >
+                      {sortBy === 'priority' ? '🔢' : '📅'}
+                    </button>
+                  </div>
+                  {sortItems(workItems).map((item) => {
                     const isSelected = selectedItem === item.id;
                     const primaryHandler = item.handlers?.primary;
                     const coHandlers = item.handlers?.co_handlers || [];
@@ -447,6 +488,17 @@ function UpdateWork({ user, teamId }: any) {
                               </span>
                             </div>
                           )}
+                          <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                            📅 {item.estimated_date 
+                              ? (() => {
+                                  const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
+                                    ? item.estimated_date.split('T')[0] 
+                                    : item.estimated_date;
+                                  const [year, month, day] = dateStr.split('-');
+                                  return `${parseInt(month)}/${parseInt(day)}`;
+                                })()
+                              : '未設定'}
+                          </span>
                           {item.progress_status && (
                             <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
                               {getStatusBadge(item.progress_status)}
@@ -466,23 +518,43 @@ function UpdateWork({ user, teamId }: any) {
                     <h4 style={{ fontSize: '14px', color: '#f59e0b', margin: 0 }}>
                       未完成項目 ({incompleteItems.length})
                     </h4>
-                    <button
-                      onClick={() => setShowIncomplete(!showIncomplete)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#666',
-                        cursor: 'pointer',
-                        padding: '4px',
-                        display: 'flex',
-                        alignItems: 'center'
-                      }}
-                    >
-                      {showIncomplete ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority');
+                        }}
+                        style={{
+                          padding: '2px 8px',
+                          fontSize: '11px',
+                          borderRadius: '3px',
+                          border: '1px solid #f59e0b',
+                          backgroundColor: '#f59e0b',
+                          color: '#fff',
+                          cursor: 'pointer'
+                        }}
+                        title="點擊切換排序方式"
+                      >
+                        {sortBy === 'priority' ? '🔢' : '📅'}
+                      </button>
+                      <button
+                        onClick={() => setShowIncomplete(!showIncomplete)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#666',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        {showIncomplete ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
+                    </div>
                   </div>
                   
-                  {showIncomplete && incompleteItems.map((item) => {
+                  {showIncomplete && sortItems(incompleteItems).map((item) => {
                     const isSelected = selectedItem === item.id;
                     const primaryHandler = item.handlers?.primary;
                     const coHandlers = item.handlers?.co_handlers || [];
@@ -523,6 +595,17 @@ function UpdateWork({ user, teamId }: any) {
                             </div>
                           )}
                           <span style={{ color: '#f59e0b' }}>📅 {itemDate}</span>
+                          <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                            📅 {item.estimated_date 
+                              ? (() => {
+                                  const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
+                                    ? item.estimated_date.split('T')[0] 
+                                    : item.estimated_date;
+                                  const [year, month, day] = dateStr.split('-');
+                                  return `${parseInt(month)}/${parseInt(day)}`;
+                                })()
+                              : '未設定'}
+                          </span>
                           {item.progress_status && (
                             <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
                               {getStatusBadge(item.progress_status)}
@@ -600,10 +683,22 @@ function UpdateWork({ user, teamId }: any) {
                             )}
                           </div>
                           {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
-                            <div style={{ fontSize: '13px' }}>
+                            <div style={{ fontSize: '13px', marginBottom: '6px' }}>
                               <strong style={{ color: '#0066cc' }}>共同處理人：</strong>
                               <span style={{ marginLeft: '6px', color: '#333' }}>
                                 {item.handlers.co_handlers.map(h => h.display_name || h.username).join(', ')}
+                              </span>
+                            </div>
+                          )}
+                          {item.estimated_date && (
+                            <div style={{ fontSize: '13px' }}>
+                              <strong style={{ color: '#0066cc' }}>預計處理時間：</strong>
+                              <span style={{ marginLeft: '6px', color: '#0891b2', fontWeight: '600' }}>
+                                {new Date(item.estimated_date).toLocaleDateString('zh-TW', { 
+                                  year: 'numeric',
+                                  month: '2-digit', 
+                                  day: '2-digit' 
+                                })}
                               </span>
                             </div>
                           )}

@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import TeamSelect from './pages/TeamSelect';
 import Checkin from './pages/Checkin';
 import WorkItems from './pages/WorkItems';
+import Backlog from './pages/Backlog';
 import StandupReview from './pages/StandupReview';
 import UpdateWork from './pages/UpdateWork';
 import DailySummary from './pages/DailySummary';
@@ -109,6 +110,16 @@ function App() {
           element={
             user && selectedTeam ? (
               <WorkItems user={user} teamId={selectedTeam} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/teams" />
+            )
+          }
+        />
+        <Route
+          path="/backlog"
+          element={
+            user && selectedTeam ? (
+              <Backlog user={user} teamId={selectedTeam} onLogout={handleLogout} />
             ) : (
               <Navigate to="/teams" />
             )

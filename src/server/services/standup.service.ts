@@ -45,7 +45,7 @@ export const completeStandupReview = async (
   teamId: number,
   reviewerId: number
 ) => {
-  // Get all work items for today
+  // Get all work items for today (exclude backlog items)
   const workItems = await getTodayTeamWorkItems(teamId);
   
   // Get team members

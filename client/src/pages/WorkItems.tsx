@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp, Calendar, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -23,6 +23,7 @@ interface WorkItem {
   item_type: string;
   created_at: string;
   priority?: number;
+  estimated_date?: string;
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
@@ -49,14 +50,19 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [checkinId, setCheckinId] = useState<number | null>(null);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [incompleteItems, setIncompleteItems] = useState<WorkItem[]>([]);
+  const [backlogItems, setBacklogItems] = useState<any[]>([]);
   const [currentItemAiSummary, setCurrentItemAiSummary] = useState<string>('');
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [selectedPriority, setSelectedPriority] = useState<number>(3);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const [showIncomplete, setShowIncomplete] = useState(true);
+  const [showBacklog, setShowBacklog] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [showCoHandlerDialog, setShowCoHandlerDialog] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [backlogSearchQuery, setBacklogSearchQuery] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Helper function to get priority badge
@@ -84,14 +90,59 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     );
   };
 
+  // Filter function for work items search
+  const filterWorkItems = (items: WorkItem[]): WorkItem[] => {
+    if (!searchQuery.trim()) return items;
+    
+    const query = searchQuery.toLowerCase();
+    return items.filter(item => {
+      const title = (item.ai_title || '').toLowerCase();
+      const content = item.content.toLowerCase();
+      const summary = (item.ai_summary || '').toLowerCase();
+      return title.includes(query) || content.includes(query) || summary.includes(query);
+    });
+  };
+
+  // Filter function for backlog items search
+  const filterBacklogItems = (items: any[]): any[] => {
+    if (!backlogSearchQuery.trim()) return items;
+    
+    const query = backlogSearchQuery.toLowerCase();
+    return items.filter(item => {
+      const title = (item.ai_title || '').toLowerCase();
+      const content = item.content.toLowerCase();
+      return title.includes(query) || content.includes(query);
+    });
+  };
+
+  // Sorting function
+  const sortItems = <T extends WorkItem>(items: T[]): T[] => {
+    const sorted = [...items];
+    
+    if (sortBy === 'priority') {
+      sorted.sort((a, b) => (a.priority || 3) - (b.priority || 3));
+    } else {
+      // Sort by estimated_date: items without date go to bottom
+      sorted.sort((a, b) => {
+        if (!a.estimated_date && !b.estimated_date) return (a.priority || 3) - (b.priority || 3);
+        if (!a.estimated_date) return 1;
+        if (!b.estimated_date) return -1;
+        return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+      });
+    }
+    
+    return sorted;
+  };
+
   useEffect(() => {
     loadTodayCheckin();
     loadWorkItems();
     loadIncompleteItems();
+    loadBacklogItems();
     loadTeamMembers();
     setMessages([{
       role: 'ai',
-      content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
+      content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
       timestamp: new Date().toISOString()
     }]);
   }, []);
@@ -167,6 +218,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     }
   };
 
+  const loadBacklogItems = async () => {
+    try {
+      const items = await api.getUserBacklogItems(teamId);
+      setBacklogItems(items);
+    } catch (error) {
+      console.error('Failed to load backlog items:', error);
+    }
+  };
+
   const loadTeamMembers = async () => {
     try {
       const members = await api.getTeamMembers(teamId);
@@ -215,7 +275,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         setSessionId('');
         setMessages([{
           role: 'ai',
-          content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃完成哪些工作？',
+          content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
           timestamp: new Date().toISOString()
         }]);
       }
@@ -400,7 +460,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         content: summary.summary,
         aiSummary: summary.summary,
         aiTitle: summary.title,
-        priority: selectedPriority
+        priority: selectedPriority,
+        sessionId: sessionId  // 關聯 AI 對話記錄
       });
 
       // Reload work items list
@@ -467,6 +528,67 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     }
   };
 
+  // 從 Backlog 加入今日工作項目（會用標題開啟 AI 對談）
+  const handleAddBacklogToToday = async (backlogItem: any) => {
+    if (!checkinId) {
+      alert('請先完成打卡');
+      return;
+    }
+
+    if (!confirm(`確定要將「${backlogItem.ai_title || backlogItem.content}」加入今日工作項目嗎？\n\n這會使用項目標題開啟 AI 對談，讓您進一步完善工作內容。`)) return;
+    
+    try {
+      setLoading(true);
+      
+      // 移動 Backlog 項目到今日工作（後端會更新 is_backlog = false 和綁定 checkin_id）
+      const movedItem = await api.moveBacklogToWorkItem(backlogItem.id, teamId);
+      
+      // 重新載入所有列表
+      await Promise.all([
+        loadWorkItems(),
+        loadIncompleteItems(),
+        loadBacklogItems()
+      ]);
+      
+      // 使用 Backlog 項目的標題作為第一次 AI 對談
+      const backlogTitle = backlogItem.ai_title || backlogItem.content;
+      
+      // 設定為編輯模式，而不是新增模式
+      // 這樣儲存時會更新現有項目，而不是創建新項目
+      setSelectedItemId(backlogItem.id);  // 設置選中的項目 ID
+      setCurrentItemAiSummary(backlogItem.ai_summary || backlogItem.content);
+      setSelectedPriority(backlogItem.priority || 3);
+      
+      // 使用後端生成的新 session_id
+      const newSessionId = movedItem.session_id;
+      console.log('[WorkItems] Using new session from backend:', newSessionId);
+      setSessionId(newSessionId);
+      
+      // 設置初始訊息
+      setMessages([{
+        role: 'ai',
+        content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
+        timestamp: new Date().toISOString()
+      }]);
+      
+      // 自動發送 Backlog 標題作為第一次對談
+      setInputMessage(backlogTitle);
+      
+      // 稍作延遲後自動送出（確保 UI 已更新）
+      setTimeout(() => {
+        handleSend();
+      }, 100);
+      
+      alert('Backlog 項目已加入今日工作！AI 正在協助您完善工作內容...\n\n完成對談後，請點擊「更新此工作項目」儲存變更。');
+    } catch (error: any) {
+      console.error('Failed to add backlog to today:', error);
+      const errorMsg = error.response?.data?.error || '加入失敗';
+      alert(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="app-container">
       <div className="main-content">
@@ -482,8 +604,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
               AI 工作項目規劃
             </h1>
           </div>
-          <div style={{ fontSize: '14px', color: '#666' }}>
-            {user.display_name || user.username}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <button className="btn btn-success" onClick={() => navigate('/backlog')}>
+              <Calendar size={18} />
+              Backlog 規劃
+            </button>
+            <div style={{ fontSize: '14px', color: '#666' }}>
+              {user.display_name || user.username}
+            </div>
           </div>
         </div>
 
@@ -650,9 +778,65 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
             {/* Work Items List */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb' }}>
-                <h3 style={{ margin: 0 }}>
-                  今日工作項目 ({workItems.length})
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <h3 style={{ margin: 0 }}>
+                    今日工作項目 ({filterWorkItems(workItems).length}{searchQuery && ` / ${workItems.length}`})
+                  </h3>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority')}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '12px',
+                        borderRadius: '4px',
+                        border: '1px solid #667eea',
+                        backgroundColor: '#667eea',
+                        color: '#fff',
+                        cursor: 'pointer'
+                      }}
+                      title="點擊切換排序方式"
+                    >
+                      {sortBy === 'priority' ? '🔢 優先級' : '📅 預計時間'}
+                    </button>
+                  </div>
+                </div>
+                {workItems.length > 0 && (
+                  <div style={{ position: 'relative' }}>
+                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
+                    <input
+                      type="text"
+                      placeholder="搜尋標題或內容..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      style={{
+                        padding: '6px 12px 6px 32px',
+                        fontSize: '13px',
+                        borderRadius: '4px',
+                        border: '1px solid #d1d5db',
+                        width: '100%'
+                      }}
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          color: '#999',
+                          cursor: 'pointer',
+                          fontSize: '18px',
+                          padding: '0 4px'
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               
               <div style={{ padding: '15px' }}>
@@ -660,8 +844,12 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                   <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
                     還沒有工作項目，開始與 AI 對話來建立吧！
                   </p>
+                ) : filterWorkItems(workItems).length === 0 ? (
+                  <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
+                    找不到符合「{searchQuery}」的項目
+                  </p>
                 ) : (
-                  workItems.map((item) => {
+                  sortItems(filterWorkItems(workItems)).map((item) => {
                     const isExpanded = expandedItems.has(item.id);
                     
                     return (
@@ -687,7 +875,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             backgroundColor: isExpanded ? '#f9fafb' : 'transparent',
                             gap: '8px'
                           }}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             const newExpanded = new Set(expandedItems);
                             if (isExpanded) {
                               newExpanded.delete(item.id);
@@ -719,8 +909,16 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                             {getPriorityBadge(item.priority)}
-                            <span style={{ fontSize: '12px', color: '#999', whiteSpace: 'nowrap' }}>
-                              {new Date(item.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+                            <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
+                              📅 {item.estimated_date 
+                                ? (() => {
+                                    const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
+                                      ? item.estimated_date.split('T')[0] 
+                                      : item.estimated_date;
+                                    const [year, month, day] = dateStr.split('-');
+                                    return `${parseInt(month)}/${parseInt(day)}`;
+                                  })()
+                                : '未設定'}
                             </span>
                             <button
                               onClick={(e) => {
@@ -747,6 +945,48 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                         {/* Expanded Content */}
                         {isExpanded && (
                           <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #e5e7eb' }}>
+                            {/* 預計處理時間 */}
+                            <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+                              <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>
+                                <strong>預計處理時間：</strong>
+                              </div>
+                              <input
+                                type="date"
+                                className="input"
+                                value={item.estimated_date ? (() => {
+                                  const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
+                                  return dateStr;
+                                })() : ''}
+                                onClick={(e) => e.currentTarget.showPicker && e.currentTarget.showPicker()}
+                                onChange={async (e) => {
+                                  try {
+                                    // 確保日期格式正確（YYYY-MM-DD），不受時區影響
+                                    const dateValue = e.target.value ? e.target.value : null;
+                                    const token = localStorage.getItem('token');
+                                    const response = await fetch(`/api/workitems/${item.id}`, {
+                                      method: 'PATCH',
+                                      headers: { 
+                                        'Content-Type': 'application/json',
+                                        'Authorization': token ? `Bearer ${token}` : ''
+                                      },
+                                      credentials: 'include',
+                                      body: JSON.stringify({ estimated_date: dateValue })
+                                    });
+                                    if (!response.ok) {
+                                      const error = await response.json();
+                                      console.error('更新預計時間失敗:', error);
+                                      alert(error.error || '更新失敗');
+                                      return;
+                                    }
+                                    await loadWorkItems();
+                                  } catch (error) {
+                                    console.error('更新預計時間失敗:', error);
+                                    alert('更新失敗，請稍後再試');
+                                  }
+                                }}
+                                style={{ maxWidth: '200px' }}
+                              />
+                            </div>
                             {/* 處理人信息 */}
                             <div style={{ marginTop: '12px', marginBottom: '12px' }}>
                               <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>
@@ -948,20 +1188,53 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                     <h3 style={{ margin: 0, color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       ⚠️ 未完成項目 ({incompleteItems.length})
                     </h3>
-                    <button
-                      onClick={() => setShowIncomplete(!showIncomplete)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#666',
-                        cursor: 'pointer',
-                        padding: '4px',
-                        display: 'flex',
-                        alignItems: 'center'
-                      }}
-                    >
-                      {showIncomplete ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                    </button>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '13px', color: '#92400e' }}>排序：</span>
+                        <button
+                          onClick={() => setSortBy('priority')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            border: sortBy === 'priority' ? '1px solid #f59e0b' : '1px solid #fbbf24',
+                            backgroundColor: sortBy === 'priority' ? '#f59e0b' : '#fff',
+                            color: sortBy === 'priority' ? '#fff' : '#92400e',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          優先級
+                        </button>
+                        <button
+                          onClick={() => setSortBy('estimated_date')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '12px',
+                            borderRadius: '4px',
+                            border: sortBy === 'estimated_date' ? '1px solid #f59e0b' : '1px solid #fbbf24',
+                            backgroundColor: sortBy === 'estimated_date' ? '#f59e0b' : '#fff',
+                            color: sortBy === 'estimated_date' ? '#fff' : '#92400e',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          預計時間
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => setShowIncomplete(!showIncomplete)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#666',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        {showIncomplete ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                      </button>
+                    </div>
                   </div>
                   <p style={{ fontSize: '12px', color: '#92400e', margin: '5px 0 0 0' }}>
                     這些是之前建立但尚未完成的項目，您可以繼續進行或標記為已完成/已取消
@@ -970,7 +1243,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                 
                 {showIncomplete && (
                   <div style={{ padding: '15px' }}>
-                    {incompleteItems.map((item: any) => {
+                    {sortItems(incompleteItems).map((item: any) => {
                       const isExpanded = expandedItems.has(item.id);
                       const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
                       
@@ -996,7 +1269,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                               cursor: 'pointer',
                               backgroundColor: isExpanded ? '#fef3c7' : 'transparent'
                             }}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
                               const newExpanded = new Set(expandedItems);
                               if (isExpanded) {
                                 newExpanded.delete(item.id);
@@ -1023,9 +1298,19 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   </h4>
                                   {getPriorityBadge(item.priority)}
                                 </div>
-                                <span style={{ fontSize: '11px', color: '#92400e' }}>
-                                  📅 建立於 {itemDate}
-                                </span>
+                                <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
+                                  <span style={{ color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                    📅 {item.estimated_date 
+                                      ? (() => {
+                                          const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
+                                            ? item.estimated_date.split('T')[0] 
+                                            : item.estimated_date;
+                                          const [year, month, day] = dateStr.split('-');
+                                          return `${parseInt(month)}/${parseInt(day)}`;
+                                        })()
+                                      : '未設定'}
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1033,6 +1318,48 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           {/* Expanded Content */}
                           {isExpanded && (
                             <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #fef3c7' }}>
+                              {/* 預計處理時間 */}
+                              <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+                                <div style={{ fontSize: '13px', color: '#92400e', marginBottom: '6px' }}>
+                                  <strong>預計處理時間：</strong>
+                                </div>
+                                <input
+                                  type="date"
+                                  className="input"
+                                  value={item.estimated_date ? (() => {
+                                    const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
+                                    return dateStr;
+                                  })() : ''}
+                                  onClick={(e) => e.currentTarget.showPicker && e.currentTarget.showPicker()}
+                                  onChange={async (e) => {
+                                    try {
+                                      // 確保日期格式正確（YYYY-MM-DD），不受時區影響
+                                      const dateValue = e.target.value ? e.target.value : null;
+                                      const token = localStorage.getItem('token');
+                                      const response = await fetch(`/api/workitems/${item.id}`, {
+                                        method: 'PATCH',
+                                        headers: { 
+                                          'Content-Type': 'application/json',
+                                          'Authorization': token ? `Bearer ${token}` : ''
+                                        },
+                                        credentials: 'include',
+                                        body: JSON.stringify({ estimated_date: dateValue })
+                                      });
+                                      if (!response.ok) {
+                                        const error = await response.json();
+                                        console.error('更新預計時間失敗:', error);
+                                        alert(error.error || '更新失敗');
+                                        return;
+                                      }
+                                      await loadWorkItems();
+                                    } catch (error) {
+                                      console.error('更新預計時間失敗:', error);
+                                      alert('更新失敗，請稍後再試');
+                                    }
+                                  }}
+                                  style={{ maxWidth: '200px' }}
+                                />
+                              </div>
                               {item.ai_summary && (
                                 <div className="markdown-content" style={{ 
                                   fontSize: '13px', 
@@ -1083,6 +1410,222 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                   </div>
                 )}
               </div>
+            )}
+          
+          {/* Backlog Items List */}
+          {backlogItems.length > 0 && (
+            <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f0f9ff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <h3 style={{ margin: 0, color: '#0369a1', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      📋 Backlog 待辦項目 ({filterBacklogItems(backlogItems).length}{backlogSearchQuery && ` / ${backlogItems.length}`})
+                    </h3>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <button
+                        onClick={() => setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority')}
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '12px',
+                          borderRadius: '4px',
+                          border: '1px solid #0369a1',
+                          backgroundColor: '#0369a1',
+                          color: '#fff',
+                          cursor: 'pointer'
+                        }}
+                        title="點擊切換排序方式"
+                      >
+                        {sortBy === 'priority' ? '🔢 優先級' : '📅 預計時間'}
+                      </button>
+                      <button
+                        onClick={() => setShowBacklog(!showBacklog)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#666',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        {showBacklog ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                      </button>
+                    </div>
+                  </div>
+                  {showBacklog && (
+                    <div style={{ position: 'relative', marginBottom: '10px' }}>
+                      <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#0369a1' }} />
+                      <input
+                        type="text"
+                        placeholder="搜尋 Backlog 項目..."
+                        value={backlogSearchQuery}
+                        onChange={(e) => setBacklogSearchQuery(e.target.value)}
+                        style={{
+                          padding: '6px 12px 6px 32px',
+                          fontSize: '13px',
+                          borderRadius: '4px',
+                          border: '1px solid #bae6fd',
+                          width: '100%',
+                          backgroundColor: '#fff'
+                        }}
+                      />
+                      {backlogSearchQuery && (
+                        <button
+                          onClick={() => setBacklogSearchQuery('')}
+                          style={{
+                            position: 'absolute',
+                            right: '8px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            background: 'none',
+                            border: 'none',
+                            color: '#999',
+                            cursor: 'pointer',
+                            fontSize: '18px',
+                            padding: '0 4px'
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <p style={{ fontSize: '12px', color: '#0369a1', margin: '5px 0 0 0' }}>
+                    這些是提前規劃的工作項目，點擊「加入今日」會使用 AI 協助您進一步完善工作內容
+                  </p>
+                </div>
+              
+              {showBacklog && (
+                <div style={{ padding: '15px' }}>
+                  {filterBacklogItems(backlogItems).length === 0 ? (
+                    <p style={{ textAlign: 'center', color: '#0369a1', padding: '20px 0' }}>
+                      找不到符合「{backlogSearchQuery}」的項目
+                    </p>
+                  ) : (
+                    sortItems(filterBacklogItems(backlogItems)).map((item: any) => {
+                    const isExpanded = expandedItems.has(item.id);
+                    const estimatedDate = item.estimated_date 
+                      ? (() => {
+                          const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
+                            ? item.estimated_date.split('T')[0] 
+                            : item.estimated_date;
+                          const [year, month, day] = dateStr.split('-');
+                          return `${parseInt(month)}/${parseInt(day)}`;
+                        })()
+                      : '未設定';
+                    
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          marginBottom: '10px',
+                          border: '1px solid #bae6fd',
+                          borderRadius: '8px',
+                          backgroundColor: '#e0f2fe',
+                          transition: 'all 0.2s',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {/* Header */}
+                        <div
+                          style={{
+                            padding: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer',
+                            backgroundColor: isExpanded ? '#bae6fd' : 'transparent'
+                          }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const newExpanded = new Set(expandedItems);
+                            if (isExpanded) {
+                              newExpanded.delete(item.id);
+                            } else {
+                              newExpanded.add(item.id);
+                            }
+                            setExpandedItems(newExpanded);
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                <h4 style={{ 
+                                  fontWeight: '600', 
+                                  fontSize: '14px', 
+                                  margin: 0,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: isExpanded ? 'normal' : 'nowrap',
+                                  flex: 1
+                                }}>
+                                  {item.ai_title || item.content}
+                                </h4>
+                                {getPriorityBadge(item.priority)}
+                                <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
+                                  📅 {estimatedDate}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Expanded Content */}
+                        {isExpanded && (
+                          <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #bae6fd' }}>
+                            {item.content && (
+                              <div className="markdown-content" style={{ 
+                                fontSize: '13px', 
+                                color: '#0369a1', 
+                                marginTop: '12px', 
+                                marginBottom: '12px',
+                                overflowX: 'auto',
+                                wordWrap: 'break-word',
+                                wordBreak: 'break-word'
+                              }}>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                              </div>
+                            )}
+                            
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                              <div style={{ fontSize: '11px', color: '#0369a1' }}>
+                                建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
+                                  month: '2-digit', 
+                                  day: '2-digit', 
+                                  hour: '2-digit', 
+                                  minute: '2-digit' 
+                                })}
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddBacklogToToday(item);
+                                }}
+                                className="btn btn-primary"
+                                style={{
+                                  padding: '6px 12px',
+                                  fontSize: '13px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                                disabled={loading}
+                              >
+                                <Send size={14} />
+                                加入今日 (AI 對談)
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                  )}
+                </div>
+              )}
+            </div>
             )}
           </div>
         </div>
