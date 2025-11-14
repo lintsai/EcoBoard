@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar } from 'lucide-react';
+import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar, FileBarChart } from 'lucide-react';
 
 interface DashboardProps {
   user: any;
@@ -52,6 +52,13 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
       icon: TrendingUp,
       path: '/daily-summary',
       color: '#ec4899'
+    },
+    {
+      title: '週報管理',
+      description: '產生和查看團隊週報，支援多種報表類型',
+      icon: FileBarChart,
+      path: '/weekly-reports',
+      color: '#14b8a6'
     },
     {
       title: '團隊管理',

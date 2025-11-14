@@ -314,6 +314,39 @@ class ApiService {
     const response = await this.api.post('/ai/parse-table', { tableText });
     return response.data;
   }
+
+  // Weekly Reports
+  async getWeeklyReports(teamId: number, limit: number = 50) {
+    const response = await this.api.get(`/weekly-reports/team/${teamId}`, {
+      params: { limit }
+    });
+    return response.data;
+  }
+
+  async getWeeklyReportById(reportId: number, teamId: number) {
+    const response = await this.api.get(`/weekly-reports/${reportId}/team/${teamId}`);
+    return response.data;
+  }
+
+  async generateWeeklyReport(teamId: number, startDate: string, endDate: string, reportType: string) {
+    const response = await this.api.post('/weekly-reports/generate', {
+      teamId,
+      startDate,
+      endDate,
+      reportType
+    });
+    return response.data;
+  }
+
+  async regenerateWeeklyReport(reportId: number, teamId: number) {
+    const response = await this.api.post(`/weekly-reports/${reportId}/regenerate`, { teamId });
+    return response.data;
+  }
+
+  async deleteWeeklyReport(reportId: number, teamId: number) {
+    const response = await this.api.delete(`/weekly-reports/${reportId}/team/${teamId}`);
+    return response.data;
+  }
 }
 
 export default new ApiService();

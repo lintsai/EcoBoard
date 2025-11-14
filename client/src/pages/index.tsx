@@ -2,6 +2,8 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
+export { default as WeeklyReports } from './WeeklyReports';
+
 export function StandupReview({ user, teamId }: any) {
   const navigate = useNavigate();
   return (

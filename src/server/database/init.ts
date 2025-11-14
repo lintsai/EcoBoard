@@ -170,6 +170,23 @@ export const initDatabase = async () => {
       )
     `);
 
+    // Weekly reports table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS weekly_reports (
+        id SERIAL PRIMARY KEY,
+        team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        report_name VARCHAR(255) NOT NULL,
+        report_type VARCHAR(50) NOT NULL CHECK (report_type IN ('statistics', 'analysis', 'burndown', 'productivity', 'task_distribution')),
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        report_content TEXT NOT NULL,
+        generated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT check_date_range CHECK (end_date >= start_date)
+      )
+    `);
+
     // Create indexes
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_checkins_date ON checkins(checkin_date);
@@ -186,6 +203,10 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_daily_summaries_team_date ON daily_summaries(team_id, summary_date);
       CREATE INDEX IF NOT EXISTS idx_daily_summaries_date ON daily_summaries(summary_date);
+      CREATE INDEX IF NOT EXISTS idx_weekly_reports_team ON weekly_reports(team_id);
+      CREATE INDEX IF NOT EXISTS idx_weekly_reports_dates ON weekly_reports(team_id, start_date, end_date);
+      CREATE INDEX IF NOT EXISTS idx_weekly_reports_type ON weekly_reports(report_type);
+      CREATE INDEX IF NOT EXISTS idx_weekly_reports_created ON weekly_reports(created_at DESC);
     `);
 
     await client.query('COMMIT');
