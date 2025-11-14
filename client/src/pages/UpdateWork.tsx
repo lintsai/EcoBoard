@@ -872,6 +872,9 @@ function UpdateWork({ user, teamId }: any) {
                             <span style={{ fontSize: '12px', color: '#666' }}>
                               {formatTime(update.updated_at)}
                             </span>
+                            <span style={{ fontSize: '12px', color: '#92400e', marginLeft: '8px' }}>
+                              {update.display_name || update.username}
+                            </span>
                           </div>
                           {/* 只在第一條（最新）顯示狀態變化 */}
                           {index === 0 && (
