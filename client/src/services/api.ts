@@ -56,6 +56,13 @@ class ApiService {
     return response.data;
   }
 
+  async searchUsers(searchTerm: string) {
+    const response = await this.api.get('/teams/search-users', {
+      params: { q: searchTerm }
+    });
+    return response.data;
+  }
+
   async createTeam(name: string, description?: string) {
     const response = await this.api.post('/teams', { name, description });
     return response.data;

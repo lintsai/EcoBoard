@@ -65,3 +65,32 @@ export const getUserByUsername = async (username: string): Promise<User | null> 
 
   return result.rows[0] || null;
 };
+
+export const searchUsers = async (searchTerm: string, limit: number = 50): Promise<User[]> => {
+  // 如果是萬用字元，返回所有使用者
+  if (searchTerm === '*') {
+    const result = await query(
+      `SELECT id, username, display_name, email, ldap_dn 
+       FROM users 
+       ORDER BY display_name, username 
+       LIMIT $1`,
+      [limit]
+    );
+    return result.rows;
+  }
+
+  // 模糊搜尋
+  const searchPattern = `%${searchTerm.toLowerCase()}%`;
+  const result = await query(
+    `SELECT id, username, display_name, email, ldap_dn 
+     FROM users 
+     WHERE LOWER(username) LIKE $1 
+        OR LOWER(display_name) LIKE $1 
+        OR LOWER(email) LIKE $1
+     ORDER BY display_name, username 
+     LIMIT $2`,
+    [searchPattern, limit]
+  );
+
+  return result.rows;
+};

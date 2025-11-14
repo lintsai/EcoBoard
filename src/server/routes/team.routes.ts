@@ -2,8 +2,35 @@ import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 import * as teamService from '../services/team.service';
+import * as userService from '../services/user.service';
 
 const router = Router();
+
+// 搜尋使用者（從資料庫）
+router.get('/search-users', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const searchTerm = req.query.q as string;
+    
+    if (!searchTerm || searchTerm.trim().length === 0) {
+      return res.status(400).json({ error: '搜尋關鍵字不能為空' });
+    }
+
+    const users = await userService.searchUsers(searchTerm.trim());
+    
+    // 轉換格式以符合前端期望
+    const formattedUsers = users.map(user => ({
+      username: user.username,
+      displayName: user.displayName || user.username,
+      email: user.email,
+      dn: user.ldapDn || ''
+    }));
+    
+    res.json(formattedUsers);
+  } catch (error) {
+    console.error('Search users error:', error);
+    res.status(500).json({ error: '搜尋使用者失敗' });
+  }
+});
 
 // 取得使用者的所有團隊
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {

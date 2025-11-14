@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Users, UserPlus, Shield, Clock, Trash2, Loader2, CheckCircle, AlertCircle, Edit2, Save, X } from 'lucide-react';
 import api from '../services/api';
+import AddMemberModal from '../components/AddMemberModal';
 
 interface TeamMember {
   user_id: number;
@@ -22,9 +23,7 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [newMemberUsername, setNewMemberUsername] = useState('');
-  const [adding, setAdding] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [editingTeam, setEditingTeam] = useState(false);
@@ -66,31 +65,10 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
     }
   };
 
-  const handleAddMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!newMemberUsername.trim()) {
-      setError('請輸入使用者帳號');
-      return;
-    }
-
-    setAdding(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      await api.addTeamMember(teamId, newMemberUsername.trim());
-      setSuccess(`成功新增成員：${newMemberUsername}`);
-      setNewMemberUsername('');
-      setShowAddMember(false);
-      
-      await loadTeamMembers();
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.response?.data?.error || '新增成員失敗');
-    } finally {
-      setAdding(false);
-    }
+  const handleAddMemberSuccess = () => {
+    setSuccess('成員新增成功！');
+    loadTeamMembers();
+    setTimeout(() => setSuccess(''), 3000);
   };
 
   const handleRemoveMember = async (memberId: number, memberName: string) => {
@@ -282,7 +260,7 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
                     </button>
                     <button
                       className="btn btn-primary"
-                      onClick={() => setShowAddMember(!showAddMember)}
+                      onClick={() => setShowAddMemberModal(true)}
                     >
                       <UserPlus size={18} />
                       新增成員
@@ -315,59 +293,14 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
           </div>
         )}
 
-        {/* 新增成員表單 */}
-        {showAddMember && isCurrentUserAdmin && (
-          <div className="card" style={{ marginBottom: '20px', backgroundColor: '#f8f9fa' }}>
-            <h3 style={{ marginBottom: '15px' }}>新增團隊成員</h3>
-            <form onSubmit={handleAddMember}>
-              <div className="form-group">
-                <label htmlFor="username">使用者帳號（LDAP 帳號）</label>
-                <input
-                  type="text"
-                  id="username"
-                  className="form-control"
-                  placeholder="請輸入 LDAP 帳號，例如：john.doe"
-                  value={newMemberUsername}
-                  onChange={(e) => setNewMemberUsername(e.target.value)}
-                  required
-                />
-                <div className="form-hint">
-                  輸入要新增的使用者 LDAP 帳號，該使用者必須是有效的 LDAP 帳號
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={adding}
-                >
-                  {adding ? (
-                    <>
-                      <Loader2 size={18} className="spinner" />
-                      新增中...
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus size={18} />
-                      確認新增
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setShowAddMember(false);
-                    setNewMemberUsername('');
-                    setError('');
-                  }}
-                >
-                  取消
-                </button>
-              </div>
-            </form>
-          </div>
+        {/* 新增成員 Modal */}
+        {showAddMemberModal && (
+          <AddMemberModal
+            teamId={teamId}
+            existingMembers={members}
+            onClose={() => setShowAddMemberModal(false)}
+            onSuccess={handleAddMemberSuccess}
+          />
         )}
 
         {/* 成員統計 */}
