@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import 'katex/dist/katex.min.css';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import TeamSelect from './pages/TeamSelect';
@@ -10,6 +11,7 @@ import StandupReview from './pages/StandupReview';
 import UpdateWork from './pages/UpdateWork';
 import DailySummary from './pages/DailySummary';
 import TeamManagement from './pages/TeamManagement';
+import { WeeklyReports } from './pages';
 import api from './services/api';
 import './App.css';
 
@@ -160,6 +162,16 @@ function App() {
           element={
             user && selectedTeam ? (
               <TeamManagement user={user} teamId={selectedTeam} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/teams" />
+            )
+          }
+        />
+        <Route
+          path="/weekly-reports"
+          element={
+            user && selectedTeam ? (
+              <WeeklyReports user={user} teamId={selectedTeam} />
             ) : (
               <Navigate to="/teams" />
             )

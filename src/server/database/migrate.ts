@@ -41,8 +41,8 @@ const runMigration = async () => {
     // Step 1: Initialize database schema
     await initDatabase();
     
-    // Step 2: Create backlog support (extends work_items table)
-    await runMigrationFile('010_create_backlog.sql');
+    // Step 2: Create weekly reports table
+    await runMigrationFile('011_create_weekly_reports.sql');
     
     console.log('✓ Migration completed successfully');
     process.exit(0);
