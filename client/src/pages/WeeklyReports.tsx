@@ -1,9 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, RefreshCw, Trash2, Calendar, BarChart, TrendingUp, PieChart, Activity } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, RefreshCw, Trash2, BarChart, TrendingUp, PieChart, Activity, Download, ArrowDownUp, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import mermaid from 'mermaid';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import api from '../services/api';
 
 interface WeeklyReportsProps {
@@ -32,8 +37,70 @@ const reportTypeLabels: Record<string, { label: string; icon: any; color: string
   task_distribution: { label: '任務分布', icon: PieChart, color: '#ec4899' }
 };
 
+type SortDirection = 'asc' | 'desc';
+
+interface VisualizationPreview {
+  html: string;
+  type: 'table' | 'chart';
+  title: string;
+}
+
+const sortReports = (items: WeeklyReport[], direction: SortDirection) => {
+  return [...items].sort((a, b) => {
+    const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    return direction === 'desc' ? -diff : diff;
+  });
+};
+
+const MermaidChart = ({ chart }: { chart: string }) => {
+  const [svgContent, setSvgContent] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const renderChart = async () => {
+      try {
+        const { svg } = await mermaid.render(
+          `mermaid-${Math.random().toString(36).slice(2)}`,
+          chart
+        );
+        if (isMounted) {
+          setSvgContent(svg);
+          setError(null);
+        }
+      } catch (err) {
+        console.error('Mermaid render error:', err);
+        if (isMounted) {
+          setError('Mermaid 圖表解析失敗，已顯示原始程式碼');
+        }
+      }
+    };
+
+    renderChart();
+    return () => {
+      isMounted = false;
+    };
+  }, [chart]);
+
+  if (error) {
+    return (
+      <div className="mermaid-error">
+        <p>{error}</p>
+        <pre>{chart}</pre>
+      </div>
+    );
+  }
+
+  if (!svgContent) {
+    return <div className="mermaid-loading">圖表載入中...</div>;
+  }
+
+  return <div className="mermaid-chart" dangerouslySetInnerHTML={{ __html: svgContent }} />;
+};
+
 export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
   const navigate = useNavigate();
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [reports, setReports] = useState<WeeklyReport[]>([]);
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,28 +112,72 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
   });
   const [error, setError] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [selectedTable, setSelectedTable] = useState<HTMLTableElement | null>(null);
+  const [previewContent, setPreviewContent] = useState<VisualizationPreview | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const reportContentRef = useRef<HTMLDivElement | null>(null);
+  const markdownComponents = useMemo(
+    () => ({
+      code({ inline, className, children, ...props }: any) {
+        const language = typeof className === 'string' ? className.replace('language-', '') : '';
+        const content = String(children).replace(/\s+$/, '');
+        if (!inline && language === 'mermaid') {
+          return <MermaidChart chart={content} />;
+        }
+        return (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        );
+      },
+      pre({ node, children, ...props }: any) {
+        const firstChild: any = node.children?.[0];
+        const className = Array.isArray(firstChild?.properties?.className)
+          ? firstChild.properties.className.join(' ')
+          : firstChild?.properties?.className;
+        if (className?.includes('language-mermaid')) {
+          return <div {...props}>{children}</div>;
+        }
+        return <pre {...props}>{children}</pre>;
+      }
+    }),
+    []
+  );
 
   useEffect(() => {
     loadReports();
   }, [teamId]);
 
-  // 監聽 ESC 鍵關閉表格 Modal
+  useEffect(() => {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'loose',
+      theme: 'neutral'
+    });
+  }, []);
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedTable) {
-        closeTableModal();
+      if (e.key === 'Escape' && previewContent) {
+        setPreviewContent(null);
       }
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [selectedTable]);
+  }, [previewContent]);
+
+  useEffect(() => {
+    setReports((prev) => sortReports(prev, sortDirection));
+  }, [sortDirection]);
+
+  useEffect(() => {
+    setPreviewContent(null);
+  }, [selectedReport]);
 
   const loadReports = async () => {
     try {
       setLoading(true);
       const data = await api.getWeeklyReports(teamId);
-      setReports(data);
+      setReports(sortReports(data, sortDirection));
     } catch (error: any) {
       console.error('Load reports error:', error);
       setError(error.response?.data?.error || '載入週報失敗');
@@ -194,17 +305,41 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
     });
   };
 
-  // 處理表格點擊放大
-  const handleTableClick = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
+  // 處理報表內圖表／表格的點擊互動
+  const handleVisualizationClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!reportContentRef.current) return;
+    const target = e.target as Element | null;
+    if (!target || !reportContentRef.current.contains(target)) {
+      return;
+    }
+
     const table = target.closest('table');
-    if (table && table.parentElement?.classList.contains('markdown-content')) {
-      setSelectedTable(table.cloneNode(true) as HTMLTableElement);
+    if (table) {
+      setPreviewContent({
+        html: table.outerHTML,
+        type: 'table',
+        title: '表格'
+      });
+      return;
+    }
+
+    const chartElement = target.closest('svg, img, canvas');
+    if (chartElement) {
+      const container =
+        chartElement.parentElement && chartElement.parentElement !== reportContentRef.current
+          ? chartElement.parentElement
+          : chartElement;
+
+      setPreviewContent({
+        html: (container as Element).outerHTML,
+        type: 'chart',
+        title: '圖表'
+      });
     }
   };
 
-  const closeTableModal = () => {
-    setSelectedTable(null);
+  const closePreviewModal = () => {
+    setPreviewContent(null);
   };
 
   // 處理報表內容顯示（防止顯示 JSON 字串）
@@ -223,6 +358,101 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
     
     return content;
   };
+
+  const handleDownloadPdf = async () => {
+    if (!selectedReport) {
+      alert('請先選擇要匯出的報表');
+      return;
+    }
+
+    if (!reportContentRef.current) {
+      setError('找不到報表內容區塊，請重新整理頁面後再試');
+      return;
+    }
+
+    let printable: HTMLElement | null = null;
+
+    try {
+      setDownloading(true);
+      const source = reportContentRef.current;
+      printable = source.cloneNode(true) as HTMLElement;
+      printable.style.maxHeight = 'none';
+      printable.style.overflow = 'visible';
+      printable.style.height = 'auto';
+      printable.style.width = `${source.offsetWidth}px`;
+      printable.style.position = 'absolute';
+      printable.style.left = '-9999px';
+      printable.style.top = '0';
+      printable.style.backgroundColor = '#ffffff';
+      const hiddenElements = printable.querySelectorAll('[data-export-hidden="true"]');
+      hiddenElements.forEach((element) => element.remove());
+      document.body.appendChild(printable);
+
+      const canvas = await html2canvas(printable, {
+        scale: window.devicePixelRatio > 1 ? window.devicePixelRatio : 2,
+        backgroundColor: '#ffffff',
+        useCORS: true
+      });
+
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const marginX = 32;
+      const marginY = 32;
+      const usableWidth = pageWidth - marginX * 2;
+      const usableHeight = pageHeight - marginY * 2;
+      const pdfScale = usableWidth / canvas.width;
+      const sliceHeight = usableHeight / pdfScale;
+      const totalHeight = canvas.height;
+
+      for (let offset = 0, pageIndex = 0; offset < totalHeight; offset += sliceHeight, pageIndex++) {
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        const pageHeightPx = Math.min(sliceHeight, totalHeight - offset);
+        pageCanvas.height = Math.max(1, Math.floor(pageHeightPx));
+        const pageContext = pageCanvas.getContext('2d');
+        if (!pageContext) {
+          continue;
+        }
+
+        pageContext.drawImage(
+          canvas,
+          0,
+          offset,
+          canvas.width,
+          pageHeightPx,
+          0,
+          0,
+          canvas.width,
+          pageCanvas.height
+        );
+
+        const imgHeight = pageCanvas.height * pdfScale;
+        if (pageIndex > 0) {
+          pdf.addPage();
+        }
+        pdf.addImage(pageCanvas.toDataURL('image/png'), 'PNG', marginX, marginY, usableWidth, imgHeight);
+      }
+
+      const safeName = (selectedReport.report_name || 'weekly-report').replace(/[\\/:*?"<>|]/g, '_');
+      pdf.save(`${safeName}.pdf`);
+    } catch (error) {
+      console.error('Download PDF error:', error);
+      setError('PDF 下載失敗，請稍後再試');
+    } finally {
+      if (printable?.parentNode) {
+        printable.parentNode.removeChild(printable);
+      }
+      setDownloading(false);
+    }
+  };
+
+  const toggleSortDirection = () => {
+    setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+  };
+
+  const sortDirectionLabel = sortDirection === 'desc' ? '由新到舊' : '由舊到新';
+  const nextSortButtonLabel = sortDirection === 'desc' ? '改為舊→新' : '改為新→舊';
 
   return (
     <div className="app-container">
@@ -276,10 +506,23 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
               <div style={{ 
                 padding: '16px', 
                 borderBottom: '1px solid #e5e7eb',
-                backgroundColor: '#f9fafb',
-                fontWeight: 600
+                backgroundColor: '#f9fafb'
               }}>
-                歷史報表
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontWeight: 600 }}>歷史報表</span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={toggleSortDirection}
+                  >
+                    <ArrowDownUp size={14} />
+                    {nextSortButtonLabel}
+                  </button>
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#6b7280' }}>
+                  排列方向：{sortDirectionLabel}
+                </div>
               </div>
               
               {loading && reports.length === 0 ? (
@@ -404,6 +647,15 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                       {generating ? '產生中...' : '重新產生'}
                     </button>
                     <button 
+                      className="btn btn-secondary"
+                      onClick={handleDownloadPdf}
+                      disabled={downloading}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Download size={16} />
+                      {downloading ? '匯出中...' : '下載 PDF'}
+                    </button>
+                    <button 
                       className="btn"
                       style={{ 
                         backgroundColor: '#ef4444', 
@@ -419,7 +671,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
 
                 <div 
                   className="markdown-content" 
-                  onClick={handleTableClick}
+                  ref={reportContentRef}
+                  onClick={handleVisualizationClick}
                   style={{
                     maxHeight: 'calc(100vh - 300px)',
                     overflowY: 'auto',
@@ -428,9 +681,26 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                     borderRadius: '8px'
                   }}
                 >
+                  <div
+                    data-export-hidden="true"
+                    style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: '#4b5563',
+                    backgroundColor: '#e0f2fe',
+                    borderRadius: '6px',
+                    padding: '8px 12px',
+                    marginBottom: '16px'
+                  }}>
+                    <Maximize2 size={14} />
+                    <span>表格與圖表可點擊放大檢視，點擊外部或按 ESC 可關閉</span>
+                  </div>
                   <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeRaw]}
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                    components={markdownComponents}
                   >
                     {getReportContent(selectedReport.report_content)}
                   </ReactMarkdown>
@@ -587,11 +857,11 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
           </div>
         )}
 
-        {/* 表格放大 Modal */}
-        {selectedTable && (
+        {/* 視覺化放大 Modal */}
+        {previewContent && (
           <div 
             className="table-modal-overlay"
-            onClick={closeTableModal}
+            onClick={closePreviewModal}
           >
             <div 
               className="table-modal-content"
@@ -599,18 +869,22 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
             >
               <button 
                 className="table-modal-close"
-                onClick={closeTableModal}
+                onClick={closePreviewModal}
                 title="關閉"
               >
                 ×
               </button>
-              <div dangerouslySetInnerHTML={{ __html: selectedTable.outerHTML }} />
+              <div style={{ marginBottom: '12px', fontWeight: 600, color: '#111827' }}>
+                放大檢視：{previewContent.title}
+              </div>
+              <div dangerouslySetInnerHTML={{ __html: previewContent.html }} />
               <div className="table-modal-hint">
-                💡 點擊外部區域或按 ESC 鍵關閉
+                {previewContent.type === 'chart' ? '圖表' : '表格'}可點擊外部或按 ESC 關閉，也可以使用滑鼠滾輪調整大小
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );

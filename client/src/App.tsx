@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import 'katex/dist/katex.min.css';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import TeamSelect from './pages/TeamSelect';

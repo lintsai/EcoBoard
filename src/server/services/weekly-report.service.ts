@@ -24,6 +24,374 @@ export interface WeeklyReportParams {
   userId: number;
 }
 
+interface ProductivitySummary {
+  totalMembers: number;
+  totalWorkItems: number;
+  totalUpdates: number;
+  completedItems: number;
+  completionRate: number;
+  avgUpdatesPerItem: number;
+}
+
+interface ProductivityMemberMetric {
+  memberId: number;
+  member: string;
+  username: string;
+  ownedItems: number;
+  completedItems: number;
+  activeItems: number;
+  blockedItems: number;
+  updatesAuthored: number;
+  completionRate: number;
+  avgUpdatesPerItem: number;
+  focusScore: number;
+  lastUpdate: string | null;
+}
+
+interface ProductivityRecentUpdate {
+  member: string;
+  workItem: string;
+  status: string;
+  updatedAt: string;
+}
+
+interface ProductivityMetrics {
+  summary: ProductivitySummary;
+  memberMetrics: ProductivityMemberMetric[];
+  workloadBalance: Array<{
+    member: string;
+    ownedItems: number;
+    activeItems: number;
+    blockedItems: number;
+  }>;
+  recentUpdates: ProductivityRecentUpdate[];
+}
+
+interface BurndownTimelineEntry {
+  date: string;
+  plannedRemaining: number;
+  actualRemaining: number;
+  completedToday: number;
+  completedToDate: number;
+}
+
+interface BurndownData {
+  totalWorkItems: number;
+  totalCompleted: number;
+  completionRate: number;
+  timeline: BurndownTimelineEntry[];
+  scopeChanges: Array<{ date: string; newItems: number }>;
+}
+
+const formatDateOnly = (value: string | Date) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const isMemberOwner = (item: any, memberId: number) => {
+  if (!item) return false;
+  if (item.user_id === memberId) return true;
+  if (item.handlers?.primary?.user_id === memberId) return true;
+  return (item.handlers?.co_handlers || []).some((handler: any) => handler.user_id === memberId);
+};
+
+const summarizeWorkItemsForPrompt = (items: any[]) => {
+  return items.map((item: any) => ({
+    id: item.id,
+    title: item.ai_title || (item.content ? String(item.content).substring(0, 80) : '未命名工作項目'),
+    owner: item.handlers?.primary?.display_name || item.display_name || '未指派',
+    coOwners: (item.handlers?.co_handlers || []).map((handler: any) => handler.display_name),
+    priority: item.priority || 3,
+    status: item.current_status,
+    createdDate: item.checkin_date,
+    lastUpdateTime: item.last_update_time
+  }));
+};
+
+const summarizeUpdatesForPrompt = (updates: any[]) => {
+  return updates.map((update: any) => ({
+    member: update.display_name,
+    workItem:
+      update.work_item_title ||
+      (update.work_item_content ? String(update.work_item_content).substring(0, 80) : '未命名工作項目'),
+    status: update.progress_status || 'in_progress',
+    updatedAt: update.updated_at
+  }));
+};
+
+const buildProductivityMetrics = (data: any): ProductivityMetrics => {
+  const ownershipMap = new Map<number, any[]>();
+  data.workItems.forEach((item: any) => {
+    const owners = new Set<number>();
+    if (item.user_id) owners.add(item.user_id);
+    if (item.handlers?.primary?.user_id) owners.add(item.handlers.primary.user_id);
+    (item.handlers?.co_handlers || []).forEach((handler: any) => owners.add(handler.user_id));
+    owners.forEach((ownerId) => {
+      if (!ownershipMap.has(ownerId)) {
+        ownershipMap.set(ownerId, []);
+      }
+      ownershipMap.get(ownerId)!.push(item);
+    });
+  });
+
+  const updatesByUser = new Map<number, any[]>();
+  data.updates.forEach((update: any) => {
+    if (!updatesByUser.has(update.user_id)) {
+      updatesByUser.set(update.user_id, []);
+    }
+    updatesByUser.get(update.user_id)!.push(update);
+  });
+
+  const totalWorkItems = data.workItems.length;
+  const completedItems = data.workItems.filter((item: any) => item.current_status === 'completed').length;
+
+  const memberMetrics: ProductivityMemberMetric[] = data.teamMembers.map((member: any) => {
+    const ownedItems = ownershipMap.get(member.id) || [];
+    const completed = ownedItems.filter((item: any) => item.current_status === 'completed').length;
+    const blocked = ownedItems.filter((item: any) => item.current_status === 'blocked').length;
+    const active = ownedItems.filter(
+      (item: any) => !['completed', 'cancelled'].includes(item.current_status)
+    ).length;
+    const memberUpdates = updatesByUser.get(member.id) || [];
+    const denominator = ownedItems.length || 1;
+    const fallbackDenominator = Math.max(totalWorkItems, 1);
+    const focusNumerator = completed * 2 + memberUpdates.length - blocked;
+    const computedFocus = ownedItems.length
+      ? focusNumerator / denominator
+      : memberUpdates.length / fallbackDenominator;
+    const focusScore = Number(computedFocus.toFixed(2));
+
+    const lastUpdate = memberUpdates.reduce<string | null>((latest, update) => {
+      if (!latest) return update.updated_at;
+      return new Date(update.updated_at) > new Date(latest) ? update.updated_at : latest;
+    }, null);
+
+    return {
+      memberId: member.id,
+      member: member.display_name,
+      username: member.username,
+      ownedItems: ownedItems.length,
+      completedItems: completed,
+      activeItems: active,
+      blockedItems: blocked,
+      updatesAuthored: memberUpdates.length,
+      completionRate: ownedItems.length ? Number(((completed / denominator) * 100).toFixed(1)) : 0,
+      avgUpdatesPerItem: ownedItems.length ? Number((memberUpdates.length / denominator).toFixed(2)) : 0,
+      focusScore,
+      lastUpdate: lastUpdate ? formatDateOnly(lastUpdate) : null
+    };
+  });
+
+  const summary: ProductivitySummary = {
+    totalMembers: data.teamMembers.length,
+    totalWorkItems,
+    totalUpdates: data.updates.length,
+    completedItems,
+    completionRate: totalWorkItems ? Number(((completedItems / totalWorkItems) * 100).toFixed(1)) : 0,
+    avgUpdatesPerItem: totalWorkItems ? Number((data.updates.length / totalWorkItems).toFixed(2)) : 0
+  };
+
+  const workloadBalance = memberMetrics.map((metric) => ({
+    member: metric.member,
+    ownedItems: metric.ownedItems,
+    activeItems: metric.activeItems,
+    blockedItems: metric.blockedItems
+  }));
+
+  const recentUpdates: ProductivityRecentUpdate[] = [...data.updates]
+    .sort(
+      (a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    )
+    .slice(0, 15)
+    .map((update: any) => ({
+      member: update.display_name,
+      workItem:
+        update.work_item_title ||
+        (update.work_item_content ? String(update.work_item_content).substring(0, 80) : '未命名工作項目'),
+      status: update.progress_status || 'in_progress',
+      updatedAt: update.updated_at
+    }));
+
+  return {
+    summary,
+    memberMetrics,
+    workloadBalance,
+    recentUpdates
+  };
+};
+
+const buildBurndownData = (data: any, startDate: string, endDate: string): BurndownData => {
+  const completionDates = new Map<number, string>();
+  data.updates.forEach((update: any) => {
+    if (update.progress_status === 'completed') {
+      completionDates.set(update.work_item_id, formatDateOnly(update.updated_at));
+    }
+  });
+
+  data.workItems.forEach((item: any) => {
+    if (item.current_status === 'completed' && !completionDates.has(item.id)) {
+      const fallbackDate = item.last_update_time || item.checkin_date || endDate;
+      completionDates.set(item.id, formatDateOnly(fallbackDate));
+    }
+  });
+
+  const createdByDate: Record<string, number> = {};
+  data.workItems.forEach((item: any) => {
+    const created = formatDateOnly(item.checkin_date);
+    if (!created) return;
+    createdByDate[created] = (createdByDate[created] || 0) + 1;
+  });
+
+  const completedByDate: Record<string, number> = {};
+  completionDates.forEach((date) => {
+    if (!date) return;
+    completedByDate[date] = (completedByDate[date] || 0) + 1;
+  });
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const days: string[] = [];
+
+  if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      days.push(formatDateOnly(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  if (days.length === 0) {
+    days.push(formatDateOnly(startDate || new Date()));
+  }
+
+  const totalWorkItems = data.workItems.length;
+  const plannedStep = days.length > 1 ? totalWorkItems / (days.length - 1) : totalWorkItems;
+
+  let cumulativeCompleted = 0;
+  const timeline: BurndownTimelineEntry[] = days.map((date, index) => {
+    const completedToday = completedByDate[date] || 0;
+    cumulativeCompleted += completedToday;
+    const actualRemaining = Math.max(totalWorkItems - cumulativeCompleted, 0);
+    const plannedRemaining = Math.max(Math.round(totalWorkItems - plannedStep * index), 0);
+    return {
+      date,
+      plannedRemaining,
+      actualRemaining,
+      completedToday,
+      completedToDate: Math.min(cumulativeCompleted, totalWorkItems)
+    };
+  });
+
+  const scopeChanges = days.map((date) => ({
+    date,
+    newItems: createdByDate[date] || 0
+  }));
+
+  return {
+    totalWorkItems,
+    totalCompleted: Math.min(cumulativeCompleted, totalWorkItems),
+    completionRate: totalWorkItems ? Number(((cumulativeCompleted / totalWorkItems) * 100).toFixed(1)) : 0,
+    timeline,
+    scopeChanges
+  };
+};
+
+const buildBurndownVisualizationMarkdown = (burndown: BurndownData) => {
+  if (!burndown.timeline.length) {
+    return '';
+  }
+
+  const width = 640;
+  const height = 280;
+  const margin = { top: 20, right: 20, bottom: 40, left: 60 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  const maxValue =
+    Math.max(...burndown.timeline.map((entry) => Math.max(entry.plannedRemaining, entry.actualRemaining)), 1) || 1;
+
+  const getX = (index: number) => {
+    if (burndown.timeline.length === 1) {
+      return margin.left;
+    }
+    return margin.left + (index / (burndown.timeline.length - 1)) * chartWidth;
+  };
+
+  const getY = (value: number) => margin.top + chartHeight - (value / maxValue) * chartHeight;
+
+  const plannedPath = burndown.timeline
+    .map(
+      (entry, index) =>
+        `${index === 0 ? 'M' : 'L'} ${getX(index).toFixed(2)} ${getY(entry.plannedRemaining).toFixed(2)}`
+    )
+    .join(' ');
+
+  const actualPath = burndown.timeline
+    .map((entry, index) => `${index === 0 ? 'M' : 'L'} ${getX(index).toFixed(2)} ${getY(entry.actualRemaining).toFixed(2)}`)
+    .join(' ');
+
+  const yTicks = Array.from({ length: 5 }, (_, idx) => {
+    const value = Math.round((maxValue / 4) * idx);
+    const y = getY(value);
+    return `<g>
+      <line x1="${margin.left}" y1="${y.toFixed(2)}" x2="${width - margin.right}" y2="${y.toFixed(2)}" stroke="#e5e7eb" stroke-width="1" />
+      <text x="${margin.left - 10}" y="${(y + 4).toFixed(2)}" text-anchor="end" font-size="10" fill="#6b7280">${value}</text>
+    </g>`;
+  }).join('');
+
+  const xLabels = burndown.timeline
+    .map((entry, index) => {
+      const x = getX(index);
+      return `<text x="${x.toFixed(2)}" y="${height - 10}" text-anchor="middle" font-size="10" fill="#6b7280">${entry.date.slice(
+        5
+      )}</text>`;
+    })
+    .join('');
+
+  const svg = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="260" role="img" aria-label="燃盡圖">
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff" stroke="#e5e7eb"/>
+    ${yTicks}
+    ${xLabels}
+    <path d="${plannedPath}" fill="none" stroke="#f97316" stroke-width="2" />
+    <path d="${actualPath}" fill="none" stroke="#2563eb" stroke-width="2" />
+  </svg>`;
+
+  const tableRows = burndown.timeline
+    .map(
+      (entry) =>
+        `| ${entry.date} | ${entry.plannedRemaining} | ${entry.actualRemaining} | ${entry.completedToday} | ${entry.completedToDate} |`
+    )
+    .join('\n');
+
+  return `
+### 燃盡圖視覺化
+
+- 總工作項目數：${burndown.totalWorkItems}
+- 已完成：${burndown.totalCompleted}
+- 完成率：${burndown.completionRate.toFixed(1)}%
+
+<div style="margin:16px 0;">
+  ${svg}
+</div>
+
+| 日期 | 預期剩餘 | 實際剩餘 | 當日完成 | 累積完成 |
+| --- | --- | --- | --- | --- |
+${tableRows}
+`;
+};
+
+const appendVisualization = (content: string, visualization: string) => {
+  if (!visualization.trim()) {
+    return content;
+  }
+  return `${content}\n\n${visualization}`;
+};
+
 // 取得團隊週報列表
 export const getWeeklyReports = async (teamId: number, limit: number = 50) => {
   try {
@@ -194,6 +562,9 @@ const generateReportWithAI = async (
 
   let systemPrompt = '';
   let userPrompt = '';
+  const workItemPromptData = summarizeWorkItemsForPrompt(data.workItems || []);
+  const updatePromptData = summarizeUpdatesForPrompt(data.updates || []);
+  let visualizationAppendix = '';
 
   switch (reportType) {
     case 'statistics':
@@ -238,56 +609,239 @@ ${JSON.stringify(data.updates.map((update: any) => ({
 }`;
       break;
 
-    case 'analysis':
-      systemPrompt = '你是一個專業的團隊管理顧問，擅長深度分析團隊績效和工作模式。';
-      userPrompt = `請根據以下數據產生 ${startDate} 至 ${endDate} 的週報分析報表：
+    case 'analysis': {
 
-[數據同上...]
+      const productivitySnapshot = buildProductivityMetrics(data);
+
+      const recentUpdates = updatePromptData.slice(-40);
+
+      systemPrompt = '你是一位資深的專案顧問，擅長根據真實工作紀錄提出洞察與風險評估。';
+
+      userPrompt = `請根據以下數據產出 ${startDate} 至 ${endDate} 的週報分析報告：
+
+
+
+## 核心統計
+
+- 團隊成員數：${data.teamMembers.length}
+
+- 工作項目數：${data.workItems.length}
+
+- 更新紀錄數：${data.updates.length}
+
+
+
+## 成員工作負載
+
+${JSON.stringify(
+
+  productivitySnapshot.memberMetrics.map((metric) => ({
+
+    成員: metric.member,
+
+    任務數量: metric.ownedItems,
+
+    已完成: metric.completedItems,
+
+    進行中: metric.activeItems,
+
+    阻塞: metric.blockedItems
+
+  })),
+
+  null,
+
+  2
+
+)}
+
+
+
+## 工作項目詳情
+
+${JSON.stringify(workItemPromptData, null, 2)}
+
+
+
+## 最近工作更新
+
+${JSON.stringify(recentUpdates, null, 2)}
+
+
+
+## 每日出勤統計
+
+${JSON.stringify(data.dailyCheckins, null, 2)}
+
+
 
 請提供：
-1. 報表名稱（20字以內）
-2. 深度分析報表（包含：工作模式分析、效率評估、團隊協作狀況、問題識別、改善建議等，使用 Markdown 格式）
 
-回傳 JSON 格式：
+1. 報表名稱（20 字以內）
+
+2. 以 Markdown 呈現的分析報告，內容需包含：團隊優勢、風險與阻礙、負載過重成員、低產能成員，以及可立即執行的改進建議
+
+
+
+需傳 JSON 物件：
+
 {
+
   "reportName": "報表名稱",
+
   "reportContent": "報表內容（Markdown 格式）"
+
 }`;
+
       break;
 
-    case 'burndown':
-      systemPrompt = '你是一個敏捷項目管理專家，擅長燃盡圖分析。';
-      userPrompt = `請根據以下數據產生 ${startDate} 至 ${endDate} 的燃盡圖報表：
+    }
 
-[數據同上...]
+
+
+    case 'burndown': {
+
+      const burndownMetrics = buildBurndownData(data, startDate, endDate);
+
+      systemPrompt = '你是一位敏捷專案管理專家，擅長以數據化方式解釋燃盡圖。';
+
+      userPrompt = `請根據以下數據產出 ${startDate} 至 ${endDate} 的燃盡圖報告：
+
+
+
+## 總覽
+
+${JSON.stringify(
+
+  {
+
+    totalWorkItems: burndownMetrics.totalWorkItems,
+
+    totalCompleted: burndownMetrics.totalCompleted,
+
+    completionRate: `${burndownMetrics.completionRate}%`
+
+  },
+
+  null,
+
+  2
+
+)}
+
+
+
+## 燃盡圖資料（Timeline）
+
+${JSON.stringify(burndownMetrics.timeline, null, 2)}
+
+
+
+## 工項新增情況
+
+${JSON.stringify(burndownMetrics.scopeChanges, null, 2)}
+
+
+
+## 工作項目詳情
+
+${JSON.stringify(workItemPromptData, null, 2)}
+
+
 
 請提供：
-1. 報表名稱（20字以內）
-2. 燃盡圖分析報表（包含：每日剩餘工作量、完成趨勢、預計完成日期、風險評估等，使用 Markdown 格式）
 
-回傳 JSON 格式：
+1. 報表名稱（20 字以內）
+
+2. 燃盡圖分析（必須包含一個 Markdown 表格呈現 timeline 數據、風險與建議）
+
+3. 對於落後或超前進度的解釋，以及下一步調整策略
+
+
+
+需傳 JSON 物件：
+
 {
+
   "reportName": "報表名稱",
+
   "reportContent": "報表內容（Markdown 格式）"
+
 }`;
+
+      visualizationAppendix = buildBurndownVisualizationMarkdown(burndownMetrics);
+
       break;
 
-    case 'productivity':
-      systemPrompt = '你是一個生產力分析專家，擅長評估團隊和個人的工作效率。';
-      userPrompt = `請根據以下數據產生 ${startDate} 至 ${endDate} 的生產力報告：
+    }
 
-[數據同上...]
+
+
+    case 'productivity': {
+
+      const productivityData = buildProductivityMetrics(data);
+
+      systemPrompt = '你是一位團隊效率專家，擅長評估個人與整體產出表現。';
+
+      userPrompt = `請根據以下真實數據產出 ${startDate} 至 ${endDate} 的生產力報告：
+
+
+
+## 團隊生產力總覽
+
+${JSON.stringify(productivityData.summary, null, 2)}
+
+
+
+## 成員生產力指標
+
+${JSON.stringify(productivityData.memberMetrics, null, 2)}
+
+
+
+## 工作負載概況
+
+${JSON.stringify(productivityData.workloadBalance, null, 2)}
+
+
+
+## 最近工作更新
+
+${JSON.stringify(productivityData.recentUpdates, null, 2)}
+
+
+
+## 工作項目詳情
+
+${JSON.stringify(workItemPromptData, null, 2)}
+
+
 
 請提供：
-1. 報表名稱（20字以內）
-2. 生產力報告（包含：個人產出統計、效率指標、時間分配分析、生產力趨勢等，使用 Markdown 格式）
 
-回傳 JSON 格式：
+1. 報表名稱（20 字以內）
+
+2. 使用 Markdown 表格列出頂尖與需要協助的成員，並包含完成數、活躍工項、更新頻率等指標
+
+3. 專注力 / 產能趨勢分析與下一步建議
+
+
+
+需傳 JSON 物件：
+
 {
+
   "reportName": "報表名稱",
+
   "reportContent": "報表內容（Markdown 格式）"
+
 }`;
+
       break;
+
+    }
+
+
 
     case 'task_distribution':
       systemPrompt = '你是一個資源配置專家，擅長分析任務分配的合理性。';
@@ -357,7 +911,7 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
         if (result.reportName && result.reportContent) {
           return {
             reportName: result.reportName,
-            reportContent: result.reportContent
+            reportContent: appendVisualization(result.reportContent, visualizationAppendix || '')
           };
         }
       }
@@ -366,10 +920,10 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
       console.error('AI Response:', aiResponse);
     }
 
-    // Fallback：如果無法解析，直接使用 AI 回應作為內容
+    // Fallback：若無法解析 JSON，直接使用 AI 產出作為內容
     return {
       reportName: `週報 ${startDate} - ${endDate}`,
-      reportContent: aiResponse
+      reportContent: appendVisualization(aiResponse, visualizationAppendix || '')
     };
   } catch (error) {
     console.error('AI report generation error:', error);

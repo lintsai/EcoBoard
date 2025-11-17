@@ -1189,37 +1189,21 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                       ⚠️ 未完成項目 ({incompleteItems.length})
                     </h3>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ fontSize: '13px', color: '#92400e' }}>排序：</span>
-                        <button
-                          onClick={() => setSortBy('priority')}
-                          style={{
-                            padding: '4px 12px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: sortBy === 'priority' ? '1px solid #f59e0b' : '1px solid #fbbf24',
-                            backgroundColor: sortBy === 'priority' ? '#f59e0b' : '#fff',
-                            color: sortBy === 'priority' ? '#fff' : '#92400e',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          優先級
-                        </button>
-                        <button
-                          onClick={() => setSortBy('estimated_date')}
-                          style={{
-                            padding: '4px 12px',
-                            fontSize: '12px',
-                            borderRadius: '4px',
-                            border: sortBy === 'estimated_date' ? '1px solid #f59e0b' : '1px solid #fbbf24',
-                            backgroundColor: sortBy === 'estimated_date' ? '#f59e0b' : '#fff',
-                            color: sortBy === 'estimated_date' ? '#fff' : '#92400e',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          預計時間
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority')}
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '12px',
+                          borderRadius: '4px',
+                          border: '1px solid #f59e0b',
+                          backgroundColor: '#f59e0b',
+                          color: '#fff',
+                          cursor: 'pointer'
+                        }}
+                        title="點擊切換排序方式"
+                      >
+                        {sortBy === 'priority' ? '🔢 優先級' : '📅 預計時間'}
+                      </button>
                       <button
                         onClick={() => setShowIncomplete(!showIncomplete)}
                         style={{
