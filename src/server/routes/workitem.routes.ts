@@ -1,9 +1,11 @@
-import { Router, Response } from 'express';
+﻿import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 import * as workItemService from '../services/workitem.service';
+import { notifyStandupUpdateForCheckin, notifyStandupUpdateForWorkItem } from '../websocket/standup';
 
 const router = Router();
+const getActorName = (req: AuthRequest) => req.user?.displayName || req.user?.username || '成員';
 
 // 新增工作項目
 router.post(
@@ -25,6 +27,7 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
+      const actorName = getActorName(req);
       const { checkinId, content, itemType, sessionId, aiSummary, aiTitle, priority } = req.body;
       const workItem = await workItemService.createWorkItem(
         checkinId,
@@ -36,6 +39,16 @@ router.post(
         aiTitle,
         priority
       );
+
+      notifyStandupUpdateForCheckin(workItem.checkin_id, {
+        action: 'workitem-created',
+        actorId: req.user!.id,
+        itemId: workItem.id,
+        metadata: {
+          actorName,
+          itemType: itemType || 'task'
+        }
+      });
 
       res.status(201).json(workItem);
     } catch (error) {
@@ -97,6 +110,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const itemId = parseInt(req.params.itemId);
+      const actorName = getActorName(req);
       const { content, aiSummary, aiTitle, priority, estimatedDate, sessionId } = req.body;
       
       const workItem = await workItemService.updateWorkItem(
@@ -109,6 +123,15 @@ router.put(
         estimatedDate,
         sessionId
       );
+
+      notifyStandupUpdateForCheckin(workItem.checkin_id, {
+        action: 'workitem-updated',
+        actorId: req.user!.id,
+        itemId: workItem.id,
+        metadata: {
+          actorName
+        }
+      });
 
       res.json(workItem);
     } catch (error: any) {
@@ -135,6 +158,7 @@ router.patch(
   async (req: AuthRequest, res: Response) => {
     try {
       const itemId = parseInt(req.params.itemId);
+      const actorName = getActorName(req);
       const { content, aiSummary, aiTitle, priority, estimated_date, sessionId } = req.body;
       
       const workItem = await workItemService.updateWorkItem(
@@ -147,6 +171,15 @@ router.patch(
         estimated_date,
         sessionId
       );
+
+      notifyStandupUpdateForCheckin(workItem.checkin_id, {
+        action: 'workitem-updated',
+        actorId: req.user!.id,
+        itemId: workItem.id,
+        metadata: {
+          actorName
+        }
+      });
 
       res.json(workItem);
     } catch (error: any) {
@@ -175,12 +208,23 @@ router.put(
 
       const itemId = parseInt(req.params.itemId);
       const { userId } = req.body;
+      const actorName = getActorName(req);
       
       const workItem = await workItemService.reassignWorkItem(
         itemId,
         userId,
         req.user!.id
       );
+
+      notifyStandupUpdateForCheckin(workItem.checkin_id, {
+        action: 'workitem-reassigned',
+        actorId: req.user!.id,
+        itemId: workItem.id,
+        metadata: {
+          actorName,
+          newOwnerId: userId
+        }
+      });
 
       res.json(workItem);
     } catch (error: any) {
@@ -210,6 +254,7 @@ router.post(
 
       const itemId = parseInt(req.params.itemId);
       const { updateContent, progressStatus } = req.body;
+      const actorName = getActorName(req);
       
       const update = await workItemService.createWorkUpdate(
         itemId,
@@ -217,6 +262,15 @@ router.post(
         updateContent,
         progressStatus
       );
+
+      notifyStandupUpdateForWorkItem(itemId, {
+        action: 'workitem-progress',
+        actorId: req.user!.id,
+        metadata: {
+          actorName,
+          progressStatus
+        }
+      });
 
       res.status(201).json(update);
     } catch (error) {
@@ -281,11 +335,21 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const itemId = parseInt(req.params.itemId);
+      const actorName = getActorName(req);
       
       const workItem = await workItemService.moveWorkItemToToday(
         itemId,
         req.user!.id
       );
+
+      notifyStandupUpdateForCheckin(workItem.checkin_id, {
+        action: 'workitem-moved-to-today',
+        actorId: req.user!.id,
+        itemId: workItem.id,
+        metadata: {
+          actorName
+        }
+      });
 
       res.json(workItem);
     } catch (error: any) {
@@ -305,18 +369,28 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     try {
       const itemId = parseInt(req.params.itemId);
-      await workItemService.deleteWorkItem(itemId, req.user!.id);
-      res.json({ message: '工作項目已刪除' });
+      const actorName = getActorName(req);
+      const deletedItem = await workItemService.deleteWorkItem(itemId, req.user!.id);
+
+      if (deletedItem?.checkin_id) {
+        notifyStandupUpdateForCheckin(deletedItem.checkin_id, {
+          action: 'workitem-deleted',
+          actorId: req.user!.id,
+          itemId,
+          metadata: { actorName }
+        });
+      }
+
+      res.json({ message: "工作項目已刪除" });
     } catch (error: any) {
       console.error('Delete work item error:', error);
-      res.status(error.message.includes('無權限') ? 403 : 500).json({ 
-        error: error.message || '刪除工作項目失敗' 
+      res.status(error.message.includes("無權限") ? 403 : 500).json({ 
+        error: error.message || "刪除工作項目失敗" 
       });
     }
   }
 );
 
-// 添加共同處理人
 router.post(
   '/:itemId/co-handlers',
   authenticate,
@@ -332,12 +406,22 @@ router.post(
 
       const itemId = parseInt(req.params.itemId);
       const { userId } = req.body;
+      const actorName = getActorName(req);
       
       const handler = await workItemService.addCoHandler(
         itemId,
         userId,
         req.user!.id
       );
+
+      notifyStandupUpdateForWorkItem(itemId, {
+        action: 'workitem-cohandler-added',
+        actorId: req.user!.id,
+        metadata: {
+          actorName,
+          targetUserId: userId
+        }
+      });
 
       res.status(201).json(handler);
     } catch (error: any) {
@@ -358,12 +442,22 @@ router.delete(
     try {
       const itemId = parseInt(req.params.itemId);
       const userId = parseInt(req.params.userId);
+      const actorName = getActorName(req);
       
       await workItemService.removeCoHandler(
         itemId,
         userId,
         req.user!.id
       );
+
+      notifyStandupUpdateForWorkItem(itemId, {
+        action: 'workitem-cohandler-removed',
+        actorId: req.user!.id,
+        metadata: {
+          actorName,
+          targetUserId: userId
+        }
+      });
 
       res.json({ message: '共同處理人已移除' });
     } catch (error: any) {
@@ -377,3 +471,4 @@ router.delete(
 );
 
 export default router;
+

@@ -437,7 +437,7 @@ ${JSON.stringify(workloadSummary, null, 2)}
         
         // 重新分配建議
         if (parsedResult.redistributionSuggestions && parsedResult.redistributionSuggestions.length > 0) {
-          analysisText += `### � 工作重新分配建議\n\n`;
+          analysisText += `### 👩‍⚕️ 工作重新分配建議\n\n`;
           analysisText += `| 從 | 到 | 建議任務 | 原因 |\n`;
           analysisText += `|-----|-----|----------|------|\n`;
           parsedResult.redistributionSuggestions.forEach((s: any) => {

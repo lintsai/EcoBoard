@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 import * as checkinService from '../services/checkin.service';
+import { notifyStandupUpdateForTeam } from '../websocket/standup';
 
 const router = Router();
 
@@ -22,6 +23,16 @@ router.post(
         teamId,
         req.user!.id
       );
+
+      const actorName = req.user?.displayName || req.user?.username;
+      notifyStandupUpdateForTeam(teamId, {
+        action: 'checkin-created',
+        actorId: req.user!.id,
+        checkinId: checkin.id,
+        metadata: {
+          actorName
+        }
+      });
 
       res.status(201).json(checkin);
     } catch (error: any) {

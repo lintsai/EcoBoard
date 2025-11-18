@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -21,9 +21,17 @@ interface CheckinRecord {
   status: string;
 }
 
+interface WorkItemHandler {
+  user_id: number;
+  username: string;
+  display_name: string;
+}
+
 interface WorkItem {
   id: number;
   user_id: number;
+  checkin_id?: number | null;
+  checkin_date?: string;
   username: string;
   display_name: string;
   content: string;
@@ -36,20 +44,103 @@ interface WorkItem {
   ai_title?: string;
   progress_status?: string;
   handlers?: {
-    primary: {
-      user_id: number;
-      username: string;
-      display_name: string;
-    } | null;
-    co_handlers: Array<{
-      user_id: number;
-      username: string;
-      display_name: string;
-    }>;
+    primary: WorkItemHandler | null;
+    co_handlers: WorkItemHandler[];
   };
 }
 
-function StandupReview({ user, teamId }: any) {
+interface StandupSessionInfo {
+  startTime: number;
+  durationMs: number;
+  startedBy?: string;
+  requiredParticipants: number | null;
+}
+
+type ToastVariant = 'info' | 'success' | 'warning';
+
+interface ToastMessage {
+  id: number;
+  message: string;
+  variant: ToastVariant;
+}
+
+type SocketStatus = 'connecting' | 'connected' | 'disconnected';
+
+interface StandupReviewProps {
+  user: any;
+  teamId: number;
+  onLogout?: () => void;
+}
+
+const describeRealtimeEvent = (event: any) => {
+  const actorName = event?.metadata?.actorName || '系統';
+  switch (event?.action) {
+    case 'checkin-created':
+      return `${actorName} 完成打卡`;
+    case 'workitem-created':
+      return `${actorName} 建立了一個工作項目`;
+    case 'workitem-updated':
+      return `${actorName} 更新了工作項目內容`;
+    case 'workitem-progress':
+      return `${actorName} 更新了工作項目進度`;
+    case 'workitem-reassigned':
+      return `${actorName} 重新指派了工作項目`;
+    case 'workitem-moved-to-today':
+      return `${actorName} 將 Backlog 項目加入今日清單`;
+    case 'workitem-deleted':
+      return `${actorName} 刪除了工作項目`;
+    case 'workitem-cohandler-added':
+      return `${actorName} 新增了共同負責人`;
+    case 'workitem-cohandler-removed':
+      return `${actorName} 移除了共同負責人`;
+    case 'backlog-promoted':
+      return `${actorName} 推進了一個 Backlog 項目`;
+    case 'standup-session-started':
+      return `${actorName} 開始了 15 分鐘站立會議`;
+    case 'standup-session-warning': {
+      const over = event?.metadata?.overMinutes ?? 0;
+      if (over <= 0) {
+        return '站立會議時間已用盡';
+      }
+      return `站立會議已超時 ${over} 分鐘`;
+    }
+    case 'standup-session-ended':
+      return `${actorName} 結束了站立會議`;
+    case 'standup-participant-joined':
+      return `${actorName} 加入了站立會議`;
+    case 'standup-participant-left':
+      return `${actorName} 離開了站立會議`;
+    default:
+      return `${actorName} 更新了站立會議資訊`;
+  }
+};
+
+// Helper function to get priority badge
+const getPriorityBadge = (priority: number = 3) => {
+  const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
+    1: { label: '最高', emoji: '🔴', color: '#dc2626' },
+    2: { label: '高', emoji: '🟠', color: '#ea580c' },
+    3: { label: '中', emoji: '🟡', color: '#ca8a04' },
+    4: { label: '低', emoji: '🟢', color: '#16a34a' },
+    5: { label: '最低', emoji: '🔵', color: '#2563eb' }
+  };
+
+  const config = priorityConfig[priority] || priorityConfig[3];
+  return (
+    <span style={{ 
+      fontSize: '11px', 
+      color: config.color,
+      fontWeight: '600',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '2px'
+    }}>
+      {config.emoji} {config.label}
+    </span>
+  );
+};
+
+function StandupReview({ user, teamId }: StandupReviewProps) {
   const navigate = useNavigate();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [checkins, setCheckins] = useState<CheckinRecord[]>([]);
@@ -57,67 +148,187 @@ function StandupReview({ user, teamId }: any) {
   const [incompleteItems, setIncompleteItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analysis, setAnalysis] = useState<string>('');
+  const [analysis, setAnalysis] = useState('');
   const [analysisData, setAnalysisData] = useState<any>(null);
   const [error, setError] = useState('');
   const [expandedMembers, setExpandedMembers] = useState<Set<number>>(new Set());
+  const [expandedWorkItems, setExpandedWorkItems] = useState<Set<string | number>>(new Set());
   const [showAllWorkItems, setShowAllWorkItems] = useState(true);
   const [showIncompleteItems, setShowIncompleteItems] = useState(true);
   const [assigningItem, setAssigningItem] = useState<number | null>(null);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
-  const [expandedWorkItems, setExpandedWorkItems] = useState<Set<number | string>>(new Set());
   const [showHandlerModal, setShowHandlerModal] = useState(false);
   const [showPriorityModal, setShowPriorityModal] = useState(false);
   const [editingWorkItem, setEditingWorkItem] = useState<WorkItem | null>(null);
   const [selectedPrimaryHandler, setSelectedPrimaryHandler] = useState<number | null>(null);
   const [selectedCoHandlers, setSelectedCoHandlers] = useState<number[]>([]);
-  const [selectedPriority, setSelectedPriority] = useState<number>(3);
+  const [selectedPriority, setSelectedPriority] = useState(3);
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
+  const [participantStats, setParticipantStats] = useState({ required: 0, current: 0 });
+  const [sessionInfo, setSessionInfo] = useState<StandupSessionInfo | null>(null);
+  const [countdownMs, setCountdownMs] = useState<number | null>(null);
+  const [overdueMinutes, setOverdueMinutes] = useState<number | null>(null);
+  const [lastRealtimeEvent, setLastRealtimeEvent] = useState<string | null>(null);
+  const [lastRealtimeTimestamp, setLastRealtimeTimestamp] = useState<string | null>(null);
+  const [socketStatus, setSocketStatus] = useState<SocketStatus>('disconnected');
+  const [forcingStart, setForcingStart] = useState(false);
+  const [forcingStop, setForcingStop] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // 排序函數
+  const toastIdRef = useRef(0);
+  const toastTimeoutsRef = useRef<Record<number, number>>({});
+  const serverTimeOffsetRef = useRef(0);
+  const countdownIntervalRef = useRef<number | null>(null);
+  const lastOverdueToastRef = useRef<number | null>(null);
+  const twoMinuteWarningShownRef = useRef(false);
+  const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+
+  const socketStatusLabel =
+    socketStatus === 'connected'
+      ? '已連線'
+      : socketStatus === 'connecting'
+        ? '連線中'
+        : '已中斷';
+
+  const socketStatusColor =
+    socketStatus === 'connected'
+      ? '#10b981'
+      : socketStatus === 'connecting'
+        ? '#f59e0b'
+        : '#ef4444';
+
+  const isCountdownReady = typeof countdownMs === 'number';
+  const isCountdownPositive = isCountdownReady && countdownMs > 0;
+  const isCountdownExpired = isCountdownReady && countdownMs <= 0;
+
   const sortItems = (items: WorkItem[]) => {
     if (sortBy === 'priority') {
       return [...items].sort((a, b) => (a.priority || 3) - (b.priority || 3));
-    } else {
-      // Sort by estimated_date: items without date go to bottom
-      return [...items].sort((a, b) => {
-        if (!a.estimated_date && !b.estimated_date) return (a.priority || 3) - (b.priority || 3);
-        if (!a.estimated_date) return 1;
-        if (!b.estimated_date) return -1;
-        return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
-      });
+    }
+    return [...items].sort((a, b) => {
+      if (!a.estimated_date && !b.estimated_date) {
+        return (a.priority || 3) - (b.priority || 3);
+      }
+      if (!a.estimated_date) {
+        return 1;
+      }
+      if (!b.estimated_date) {
+        return -1;
+      }
+      return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+    });
+  };
+
+  const formatCountdown = (ms?: number | null) => {
+    if (typeof ms !== 'number' || Number.isNaN(ms)) {
+      return '--:--';
+    }
+    if (ms <= 0) {
+      return '00:00';
+    }
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const removeToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    if (toastTimeoutsRef.current[id]) {
+      window.clearTimeout(toastTimeoutsRef.current[id]);
+      delete toastTimeoutsRef.current[id];
+    }
+  }, []);
+
+  const showToast = useCallback(
+    (message: string, variant: 'info' | 'success' | 'warning' = 'info') => {
+      const id = toastIdRef.current + 1;
+      toastIdRef.current = id;
+      setToasts((prev) => [...prev, { id, message, variant }]);
+      toastTimeoutsRef.current[id] = window.setTimeout(() => removeToast(id), 4500);
+    },
+    [removeToast]
+  );
+
+  const syncServerTime = (serverTimestamp?: number) => {
+    if (typeof serverTimestamp === 'number' && Number.isFinite(serverTimestamp)) {
+      serverTimeOffsetRef.current = Date.now() - serverTimestamp;
     }
   };
 
-  // Helper function to get priority badge
-  const getPriorityBadge = (priority: number = 3) => {
-    const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
-      1: { label: '最高', emoji: '🔴', color: '#dc2626' },
-      2: { label: '高', emoji: '🟠', color: '#ea580c' },
-      3: { label: '中', emoji: '🟡', color: '#ca8a04' },
-      4: { label: '低', emoji: '🟢', color: '#16a34a' },
-      5: { label: '最低', emoji: '🔵', color: '#2563eb' }
+  const buildSessionInfoFromPayload = (payload: any): StandupSessionInfo => {
+    const durationMs = payload?.durationMs || 15 * 60 * 1000;
+    const startTime =
+      typeof payload?.startTime === 'number' && Number.isFinite(payload.startTime)
+        ? payload.startTime
+        : (() => {
+            const serverTimestamp =
+              typeof payload?.serverTimestamp === 'number'
+                ? payload.serverTimestamp
+                : Date.now() - serverTimeOffsetRef.current;
+            const remaining =
+              typeof payload?.remainingMs === 'number' && Number.isFinite(payload.remainingMs)
+                ? payload.remainingMs
+                : durationMs;
+            return serverTimestamp - (durationMs - remaining);
+          })();
+    return {
+      startTime,
+      durationMs,
+      startedBy: payload?.startedBy,
+      requiredParticipants:
+        typeof payload?.requiredParticipants === 'number' ? payload.requiredParticipants : null
     };
-    
-    const config = priorityConfig[priority] || priorityConfig[3];
-    return (
-      <span style={{ 
-        fontSize: '11px', 
-        color: config.color,
-        fontWeight: '600',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '2px'
-      }}>
-        {config.emoji} {config.label}
-      </span>
-    );
   };
+
+const loadStandupData = useCallback(
+  async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options;
+
+    if (!silent) {
+      setLoading(true);
+      setError('');
+    }
+    
+    try {
+      const [membersData, checkinsData, workItemsData, incompleteItemsData] = await Promise.all([
+        api.getTeamMembers(teamId),
+        api.getTodayTeamCheckins(teamId),
+        api.getTodayTeamWorkItems(teamId),
+        api.getIncompleteTeamWorkItems(teamId)
+      ]);
+
+      setTeamMembers(membersData);
+      setCheckins(checkinsData);
+      setWorkItems(workItemsData);
+      setIncompleteItems(incompleteItemsData);
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || '載入站立會議資料失敗，請稍後再試';
+      if (silent) {
+        showToast(message, 'warning');
+      } else {
+        setError(message);
+      }
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  },
+  [teamId, showToast]
+);
 
   useEffect(() => {
     if (teamId) {
       loadStandupData();
     }
+  }, [teamId, loadStandupData]);
+
+  useEffect(() => {
+    setParticipantStats({ required: 0, current: 0 });
+    setSessionInfo(null);
+    setOverdueMinutes(null);
   }, [teamId]);
 
   useEffect(() => {
@@ -150,62 +361,314 @@ function StandupReview({ user, teamId }: any) {
   }, []);
 
   useEffect(() => {
-    // 默認展開所有成員
+    // 暺?撅??????
     if (teamMembers.length > 0) {
       setExpandedMembers(new Set(teamMembers.map(m => m.user_id)));
     }
   }, [teamMembers]);
 
-  const loadStandupData = async () => {
-    setLoading(true);
+  useEffect(() => () => {
+    Object.values(toastTimeoutsRef.current).forEach((timeoutId) => {
+      window.clearTimeout(timeoutId);
+    });
+    toastTimeoutsRef.current = {};
+  }, []);
+  useEffect(() => {
+    if (countdownIntervalRef.current) {
+      window.clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+
+    if (!sessionInfo) {
+      setCountdownMs(null);
+      twoMinuteWarningShownRef.current = false;
+      return;
+    }
+
+    twoMinuteWarningShownRef.current = false;
+
+    const updateCountdown = () => {
+      const serverNow = Date.now() - serverTimeOffsetRef.current;
+      const elapsed = serverNow - sessionInfo.startTime;
+      setCountdownMs(sessionInfo.durationMs - elapsed);
+    };
+
+    updateCountdown();
+    countdownIntervalRef.current = window.setInterval(updateCountdown, 1000);
+
+    return () => {
+      if (countdownIntervalRef.current) {
+        window.clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, [sessionInfo]);
+
+  useEffect(() => {
+    if (!sessionInfo || typeof countdownMs !== 'number') {
+      setOverdueMinutes((prev) => (prev !== null ? null : prev));
+      return;
+    }
+
+    if (countdownMs > 0) {
+      setOverdueMinutes((prev) => (prev !== null ? null : prev));
+      return;
+    }
+
+    const minutesOver = Math.max(0, Math.floor(Math.abs(countdownMs) / 60000));
+    setOverdueMinutes((prev) => (prev === minutesOver ? prev : minutesOver));
+  }, [countdownMs, sessionInfo]);
+
+
+  useEffect(() => {
+    if (typeof overdueMinutes === 'number') {
+      if (lastOverdueToastRef.current !== overdueMinutes) {
+        const message =
+          overdueMinutes === 0
+            ? '站立會議時間已到，請儘速進入結尾。'
+            : `站立會議已超過 ${overdueMinutes} 分鐘，請盡快收斂。`;
+        showToast(message, 'warning');
+        lastOverdueToastRef.current = overdueMinutes;
+      }
+    } else {
+      lastOverdueToastRef.current = null;
+    }
+  }, [overdueMinutes, showToast]);
+
+  useEffect(() => {
+    if (!sessionInfo || typeof countdownMs !== 'number') {
+      twoMinuteWarningShownRef.current = false;
+      return;
+    }
+
+    if (countdownMs <= 0) {
+      twoMinuteWarningShownRef.current = true;
+      return;
+    }
+
+    if (!twoMinuteWarningShownRef.current && countdownMs <= 2 * 60 * 1000) {
+      showToast('站立會議還有 2 分鐘，請儘速收斂討論。', 'warning');
+      twoMinuteWarningShownRef.current = true;
+    }
+  }, [sessionInfo, countdownMs, showToast]);
+
+  useEffect(() => {
+    if (!teamId) {
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      return;
+    }
+
+    setLastRealtimeEvent(null);
+    setLastRealtimeTimestamp(null);
+
+    let cancelled = false;
+    let reconnectDelay = 2000;
+
+    const resolveSocketUrl = () => {
+      const override = import.meta.env.VITE_WS_URL;
+      const encodedToken = encodeURIComponent(token);
+      if (override) {
+        const trimmed = override.endsWith('/') ? override.slice(0, -1) : override;
+        return `${trimmed}/ws/standup?teamId=${teamId}&token=${encodedToken}`;
+      }
+
+      const apiBase = import.meta.env.VITE_API_URL;
+      if (apiBase && apiBase.startsWith('http')) {
+        const apiUrl = new URL(apiBase);
+        const wsProtocol = apiUrl.protocol === 'https:' ? 'wss' : 'ws';
+        return `${wsProtocol}://${apiUrl.host}/ws/standup?teamId=${teamId}&token=${encodedToken}`;
+      }
+
+      const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      const originHost = typeof window !== 'undefined' ? window.location.host : 'localhost';
+      return `${isHttps ? 'wss' : 'ws'}://${originHost}/ws/standup?teamId=${teamId}&token=${encodedToken}`;
+    };
+
+    const connect = () => {
+      if (cancelled) {
+        return;
+      }
+
+      setSocketStatus('connecting');
+
+      try {
+        const socket = new WebSocket(resolveSocketUrl());
+        socketRef.current = socket;
+
+        socket.onopen = () => {
+          setSocketStatus('connected');
+          reconnectDelay = 2000;
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+
+            if (payload?.type === 'standup:session-status' && Number(payload.teamId) === Number(teamId)) {
+              syncServerTime(payload.serverTimestamp);
+              setParticipantStats({
+                required: Number(payload.requiredParticipants) || 0,
+                current: Number(payload.currentParticipants) || 0
+              });
+
+              if (payload.active) {
+                syncServerTime(payload.serverTimestamp);
+                setSessionInfo(buildSessionInfoFromPayload(payload));
+                setOverdueMinutes(null);
+                lastOverdueToastRef.current = null;
+              } else {
+                setSessionInfo(null);
+                setOverdueMinutes(null);
+                lastOverdueToastRef.current = null;
+              }
+              return;
+            }
+
+            if (payload?.type === 'standup:update' && Number(payload.teamId) === Number(teamId)) {
+              const metadata = payload.metadata || {};
+              setParticipantStats((prev) => ({
+                required: typeof metadata.requiredParticipants === 'number'
+                  ? metadata.requiredParticipants
+                  : prev.required,
+                current: typeof metadata.currentParticipants === 'number'
+                  ? metadata.currentParticipants
+                  : prev.current
+              }));
+
+              let shouldRefreshData = true;
+
+              if (payload.action === 'standup-session-started' && metadata.startTime) {
+                syncServerTime(metadata.serverTimestamp);
+                setSessionInfo(buildSessionInfoFromPayload(metadata));
+                setOverdueMinutes(null);
+                lastOverdueToastRef.current = null;
+                shouldRefreshData = false;
+              } else if (payload.action === 'standup-session-warning') {
+                syncServerTime(metadata.serverTimestamp);
+                setOverdueMinutes(
+                  typeof metadata.overMinutes === 'number'
+                    ? metadata.overMinutes
+                    : 0
+                );
+                shouldRefreshData = false;
+              } else if (payload.action === 'standup-participant-left' || payload.action === 'standup-participant-joined') {
+                shouldRefreshData = false;
+              } else if (payload.action === 'standup-session-ended') {
+                syncServerTime(metadata.serverTimestamp);
+                setSessionInfo(null);
+                setOverdueMinutes(null);
+                lastOverdueToastRef.current = null;
+                showToast(
+                  `${metadata.actorName || '系統'} 結束了站立會議`,
+                  'warning'
+                );
+                shouldRefreshData = false;
+              }
+
+              setLastRealtimeEvent(describeRealtimeEvent(payload));
+              setLastRealtimeTimestamp(new Date().toLocaleTimeString());
+
+              if (shouldRefreshData) {
+                loadStandupData({ silent: true });
+              }
+              return;
+            }
+          } catch (err) {
+            console.error('Standup WS message parse error:', err);
+          }
+        };
+
+        socket.onerror = (event) => {
+          console.error('Standup WS error:', event);
+        };
+
+        socket.onclose = () => {
+          setSocketStatus('disconnected');
+          if (cancelled) {
+            return;
+          }
+          reconnectTimerRef.current = window.setTimeout(() => {
+            connect();
+          }, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+      } catch (error) {
+        console.error('Standup WS connection error:', error);
+        reconnectTimerRef.current = window.setTimeout(() => {
+          connect();
+        }, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+      }
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      setSocketStatus('disconnected');
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (socketRef.current) {
+        try {
+          socketRef.current.close(1000, 'component-unmount');
+        } catch {
+          // ignore close errors
+        }
+        socketRef.current = null;
+      }
+    };
+  }, [teamId, loadStandupData]);
+
+
+
+  const handleForceStartStandup = async () => {
+    if (!teamId || forcingStart) {
+      return;
+    }
     setError('');
-    
+    setForcingStart(true);
     try {
-      const [membersData, checkinsData, workItemsData, incompleteItemsData] = await Promise.all([
-        api.getTeamMembers(teamId),
-        api.getTodayTeamCheckins(teamId),
-        api.getTodayTeamWorkItems(teamId),
-        api.getIncompleteTeamWorkItems(teamId)
-      ]);
-
-      console.log('=== Standup Review Debug ===');
-      console.log('Team members:', membersData);
-      console.log('Today checkins:', checkinsData);
-      console.log('Today work items:', workItemsData);
-      console.log('Incomplete items:', incompleteItemsData);
-      console.log('Today date (client):', new Date().toISOString().split('T')[0]);
-      
-      // 檢查數據匹配
-      membersData.forEach((member: any) => {
-        const hasCheckin = checkinsData.find((c: any) => c.user_id === member.user_id);
-        const todayWorkItemCount = workItemsData.filter((item: any) => item.user_id === member.user_id).length;
-        const incompleteCount = incompleteItemsData.filter((item: any) => item.user_id === member.user_id).length;
-        console.log(`${member.display_name || member.username} (ID: ${member.user_id}):`, {
-          hasCheckin: !!hasCheckin,
-          checkinTime: hasCheckin?.checkin_time,
-          todayWorkItems: todayWorkItemCount,
-          incompleteItems: incompleteCount
-        });
-      });
-      console.log('===========================');
-
-      setTeamMembers(membersData);
-      setCheckins(checkinsData);
-      setWorkItems(workItemsData);
-      setIncompleteItems(incompleteItemsData);
+      await api.forceStartStandup(teamId);
+      setLastRealtimeEvent('已發送強制開始站立會議的請求');
+      setLastRealtimeTimestamp(new Date().toLocaleTimeString());
     } catch (err: any) {
-      setError(err.message || '載入站立會議資料失敗');
+      console.error('Force start standup error:', err);
+      setError(err.response?.data?.error || '強制開始站立會議失敗，請稍後再試');
     } finally {
-      setLoading(false);
+      setForcingStart(false);
     }
   };
 
+  const handleForceStopStandup = async () => {
+    if (!teamId || forcingStop) {
+      return;
+    }
+    setError('');
+    setForcingStop(true);
+    try {
+      await api.forceStopStandup(teamId);
+      showToast('站立會議已被強制結束', 'warning');
+    } catch (err: any) {
+      console.error('Force stop standup error:', err);
+      setError(err.response?.data?.error || '強制結束站立會議失敗，請稍後再試');
+    } finally {
+      setForcingStop(false);
+    }
+  };
+
+
   const handleAnalyzeWorkItems = async () => {
-    // 合併今日項目和未完成項目進行分析
+    // ?蔥隞??摰???脰???
     const allItems = [...workItems, ...incompleteItems];
     
     if (allItems.length === 0) {
-      setError('目前沒有工作項目可以分析');
+      setError('目前沒有可以分析的工作項目');
       return;
     }
 
@@ -215,16 +678,14 @@ function StandupReview({ user, teamId }: any) {
     try {
       const result = await api.analyzeWorkItems(teamId, allItems);
       
-      // 確保有分析內容
       if (result.analysis) {
         setAnalysis(result.analysis);
-        setAnalysisData(result.data); // 保存結構化數據供後續使用
+        setAnalysisData(result.data);
       } else if (result.summary) {
-        // 如果是舊格式，轉換成文本
-        let analysisText = `## 📊 團隊工作分配分析\n\n### 總覽\n${result.summary}\n\n`;
+        let analysisText = `## AI 分析建議\n\n### 重點摘要\n${result.summary}\n\n`;
         
         if (result.keyTasks && result.keyTasks.length > 0) {
-          analysisText += `### 🎯 關鍵任務\n`;
+          analysisText += `### 建議優先處理項目\n`;
           result.keyTasks.forEach((task: string, index: number) => {
             analysisText += `${index + 1}. ${task}\n`;
           });
@@ -233,12 +694,12 @@ function StandupReview({ user, teamId }: any) {
         setAnalysis(analysisText);
         setAnalysisData(result);
       } else {
-        setAnalysis('分析完成，但沒有返回詳細資訊');
+        setAnalysis('AI 暫時沒有產出分析結果，請稍後再試');
         setAnalysisData(null);
       }
     } catch (err: any) {
       console.error('AI analyze error:', err);
-      setError(err.response?.data?.error || 'AI 分析失敗');
+      setError(err.response?.data?.error || 'AI 分析失敗，請稍後再試');
     } finally {
       setAnalyzing(false);
     }
@@ -252,13 +713,13 @@ function StandupReview({ user, teamId }: any) {
     return workItems
       .filter(item => item.user_id === userId)
       .sort((a, b) => {
-        // 優先按照優先級排序（數字越小越前面）
+        // ?芸???芸?蝝?摨??詨?頞?頞??ｇ?
         const aPriority = a.priority ?? 3;
         const bPriority = b.priority ?? 3;
         if (aPriority !== bPriority) {
           return aPriority - bPriority;
         }
-        // 優先級相同時按照創建時間排序（新的在前）
+        // ?芸?蝝????萄遣????嚗???
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   };
@@ -267,18 +728,18 @@ function StandupReview({ user, teamId }: any) {
     return incompleteItems
       .filter(item => item.user_id === userId)
       .sort((a, b) => {
-        // 優先按照優先級排序（數字越小越前面）
+        // ?芸???芸?蝝?摨??詨?頞?頞??ｇ?
         const aPriority = a.priority ?? 3;
         const bPriority = b.priority ?? 3;
         if (aPriority !== bPriority) {
           return aPriority - bPriority;
         }
-        // 優先級相同時按照創建時間排序（新的在前）
+        // ?芸?蝝????萄遣????嚗???
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   };
 
-  // 獲取用戶作為共同處理人的工作項目
+  // ?脣??冽雿?勗???鈭箇?撌乩??
   const getUserCoHandlerWorkItems = (userId: number) => {
     return workItems
       .filter(item => 
@@ -286,13 +747,13 @@ function StandupReview({ user, teamId }: any) {
         item.user_id !== userId
       )
       .sort((a, b) => {
-        // 優先按照優先級排序（數字越小越前面）
+        // ?芸???芸?蝝?摨??詨?頞?頞??ｇ?
         const aPriority = a.priority ?? 3;
         const bPriority = b.priority ?? 3;
         if (aPriority !== bPriority) {
           return aPriority - bPriority;
         }
-        // 優先級相同時按照創建時間排序（新的在前）
+        // ?芸?蝝????萄遣????嚗???
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   };
@@ -332,7 +793,7 @@ function StandupReview({ user, teamId }: any) {
         };
       case 'not_started':
         return {
-          text: '未開始',
+          text: '尚未開始',
           icon: <Clock size={12} />,
           color: '#374151',
           bgColor: '#f3f4f6'
@@ -346,7 +807,7 @@ function StandupReview({ user, teamId }: any) {
         };
       default:
         return {
-          text: '進行中',
+          text: '未知狀態',
           icon: <Clock size={12} />,
           color: '#92400e',
           bgColor: '#fef3c7'
@@ -379,14 +840,15 @@ function StandupReview({ user, teamId }: any) {
       await api.reassignWorkItem(itemId, newUserId);
       setAssigningItem(null);
       
-      // 重新加載數據
-      await loadStandupData();
+      // ????豢?
+      await loadStandupData({ silent: true });
       
-      alert('工作項目已重新分配！');
+      alert('工作項目指派成功');
     } catch (err: any) {
       console.error('Reassign work item error:', err);
-      setError(err.response?.data?.error || '重新分配工作項目失敗');
-      alert(err.response?.data?.error || '重新分配工作項目失敗');
+      const message = err.response?.data?.error || '重新指派工作項目失敗';
+      setError(message);
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -415,13 +877,13 @@ function StandupReview({ user, teamId }: any) {
       await api.updateWorkItem(editingWorkItem.id, {
         priority: selectedPriority
       });
-      await loadStandupData();
+      await loadStandupData({ silent: true });
       setShowPriorityModal(false);
       setEditingWorkItem(null);
-      alert('優先級已更新！');
+      alert('優先順序已更新');
     } catch (err: any) {
       console.error('Update priority error:', err);
-      alert(err.response?.data?.error || '更新優先級失敗');
+      alert(err.response?.data?.error || '更新優先順序失敗');
     } finally {
       setLoading(false);
     }
@@ -429,7 +891,7 @@ function StandupReview({ user, teamId }: any) {
 
   const handleSaveHandlers = async () => {
     if (!editingWorkItem || !selectedPrimaryHandler) {
-      alert('請選擇主要處理人');
+      alert('請先選擇主要負責人');
       return;
     }
 
@@ -439,30 +901,30 @@ function StandupReview({ user, teamId }: any) {
       const originalPrimaryId = editingWorkItem.handlers?.primary?.user_id || editingWorkItem.user_id;
       const currentCoHandlerIds = editingWorkItem.handlers?.co_handlers?.map(h => h.user_id) || [];
       
-      // 1. 先處理共同處理人的移除（在重新指派之前）
-      // 移除不再是共同處理人的用戶（但不包括即將成為新主要處理人的用戶）
+      // 1. ??????犖?宏?歹??券??唳?瘣曆???
+      // 蝘駁銝??臬???犖??塚?雿???喳???唬蜓閬??犖??塚?
       for (const userId of currentCoHandlerIds) {
         if (!selectedCoHandlers.includes(userId) && userId !== selectedPrimaryHandler) {
           await api.removeCoHandler(editingWorkItem.id, userId);
         }
       }
 
-      // 2. 重新指派主要處理人（如果改變了）
+      // 2. ??晷銝餉???鈭綽?憒??寡?鈭?
       if (selectedPrimaryHandler !== originalPrimaryId) {
         await api.reassignWorkItem(editingWorkItem.id, selectedPrimaryHandler);
       }
 
-      // 3. 添加新的共同處理人
-      // 需要排除：原主要處理人（可能還在 handlers 中）、新主要處理人、已經是共同處理人的
+      // 3. 瘛餃??啁??勗???鈭?
+      // ?閬??歹??蜓閬??犖嚗?賡???handlers 銝哨??銝餉???鈭箝歇蝬?勗???鈭箇?
       for (const userId of selectedCoHandlers) {
         if (userId !== selectedPrimaryHandler && userId !== originalPrimaryId) {
           if (!currentCoHandlerIds.includes(userId)) {
             try {
               await api.addCoHandler(editingWorkItem.id, userId);
             } catch (err: any) {
-              // 如果已經是處理人，忽略錯誤
+              // 憒?撌脩??航??犖嚗蕭?仿隤?
               console.log('Add co-handler warning:', err.response?.data?.error);
-              if (!err.response?.data?.error?.includes('已經是')) {
+              if (!err.response?.data?.error?.includes('已存在共同負責人')) {
                 throw err;
               }
             }
@@ -470,14 +932,14 @@ function StandupReview({ user, teamId }: any) {
         }
       }
 
-      // 重新加載數據
-      await loadStandupData();
+      // ????豢?
+      await loadStandupData({ silent: true });
       setShowHandlerModal(false);
       setEditingWorkItem(null);
-      alert('處理人設定已更新！');
+      alert('負責成員已更新');
     } catch (err: any) {
       console.error('Save handlers error:', err);
-      alert(err.response?.data?.error || '更新處理人失敗');
+      alert(err.response?.data?.error || '更新負責成員失敗');
     } finally {
       setLoading(false);
     }
@@ -491,27 +953,27 @@ function StandupReview({ user, teamId }: any) {
     }
   };
 
-  // 跳轉到原始項目（在主要處理人的區域）
+  // 頝唾??啣?憪??殷??其蜓閬??犖????
   const scrollToOriginalItem = (workItemId: number, primaryUserId: number) => {
-    // 先展開該成員的區域
+    // ???府?????
     const newExpanded = new Set(expandedMembers);
     newExpanded.add(primaryUserId);
     setExpandedMembers(newExpanded);
     
-    // 展開該工作項目
+    // 撅?閰脣極雿???
     const newExpandedItems = new Set(expandedWorkItems);
     newExpandedItems.add(workItemId);
     setExpandedWorkItems(newExpandedItems);
     
-    // 展開未完成項目區塊（如果原始項目在未完成項目中）
+    // 撅??芸????桀?憛?憒?????冽摰??銝哨?
     setShowIncompleteItems(true);
     
-    // 等待 DOM 更新後滾動
+    // 蝑? DOM ?湔敺遝??
     setTimeout(() => {
       const element = document.getElementById(`work-item-${workItemId}`);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // 添加高亮效果
+        // 瘛餃?擃漁??
         element.style.backgroundColor = '#fef3c7';
         setTimeout(() => {
           element.style.backgroundColor = '';
@@ -531,10 +993,42 @@ function StandupReview({ user, teamId }: any) {
     ? Math.round((checkins.length / teamMembers.length) * 100)
     : 0;
 
+  const toastStack = toasts.length > 0 ? (
+    <div
+      style={{
+        position: 'fixed',
+        top: '20px',
+        right: '20px',
+        zIndex: 1050,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px'
+      }}
+      aria-live="polite"
+    >
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          style={{
+            backgroundColor: toast.variant === 'warning' ? '#fee2e2' : '#dbeafe',
+            color: toast.variant === 'warning' ? '#b91c1c' : '#1d4ed8',
+            padding: '10px 14px',
+            borderRadius: '6px',
+            minWidth: '240px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+          }}
+        >
+          {toast.message}
+        </div>
+      ))}
+    </div>
+  ) : null;
+
   if (loading) {
     return (
       <div className="app-container">
         <div className="main-content">
+          {toastStack}
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <Loader2 size={40} className="spinner" />
             <p>載入中...</p>
@@ -547,9 +1041,10 @@ function StandupReview({ user, teamId }: any) {
   return (
     <div className="app-container">
       <div className="main-content">
+        {toastStack}
         <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={18} />
-          返回
+          返回儀表板
         </button>
 
         {/* Table Modal */}
@@ -561,7 +1056,7 @@ function StandupReview({ user, teamId }: any) {
               </button>
               <div dangerouslySetInnerHTML={{ __html: enlargedTable }} />
               <div className="table-modal-hint">
-                💡 點擊外部區域、按 ESC 鍵或 × 按鈕關閉
+                小提示：點擊外部或按下 ESC 可以關閉視窗
               </div>
             </div>
           </div>
@@ -569,15 +1064,15 @@ function StandupReview({ user, teamId }: any) {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
-            <h1>站立會議 Review</h1>
-            <p className="subtitle">查看團隊今日打卡狀況與工作項目，AI 分析並提供建議</p>
+            <h1>站立會議檢閱</h1>
+            <p className="subtitle">即時掌握團隊打卡與工作進度，並透過 AI 提供建議</p>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
               className="btn btn-secondary"
-              onClick={loadStandupData}
+              onClick={() => loadStandupData()}
               disabled={loading}
-              title="重新載入數據"
+              title="重新取得最新資料"
             >
               {loading ? (
                 <>
@@ -585,7 +1080,7 @@ function StandupReview({ user, teamId }: any) {
                   載入中...
                 </>
               ) : (
-                '🔄 重新整理'
+                '重新整理'
               )}
             </button>
             <button
@@ -601,12 +1096,157 @@ function StandupReview({ user, teamId }: any) {
               ) : (
                 <>
                   <Sparkles size={18} />
-                  AI 分析工作分配
+                  AI 建議
                 </>
               )}
             </button>
           </div>
         </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '15px' }}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#4b5563' }}>
+
+            <span
+
+              style={{
+
+                width: '10px',
+
+                height: '10px',
+
+                borderRadius: '50%',
+
+                display: 'inline-block',
+
+                backgroundColor: socketStatusColor
+
+              }}
+
+            />
+
+            <span>連線狀態：{socketStatusLabel}</span>
+
+          </div>
+
+          {lastRealtimeEvent && lastRealtimeTimestamp && (
+            <div style={{ fontSize: '12px', color: '#6b7280' }}>
+              {lastRealtimeTimestamp} · {lastRealtimeEvent}
+            </div>
+          )}
+
+          {!sessionInfo && participantStats.required > 0 && participantStats.current < participantStats.required && (
+
+            <button
+
+              className="btn btn-primary"
+
+              onClick={handleForceStartStandup}
+
+              disabled={forcingStart}
+
+            >
+
+              {forcingStart ? '處理中...' : '強制開始'}
+
+            </button>
+
+          )}
+
+          {sessionInfo && (
+
+            <button
+
+              className="btn btn-danger"
+
+              onClick={handleForceStopStandup}
+
+              disabled={forcingStop}
+
+            >
+
+              {forcingStop ? '結束中...' : '強制結束'}
+
+            </button>
+
+          )}
+
+        </div>
+
+
+
+        {!sessionInfo && participantStats.required > 0 && participantStats.current < participantStats.required && (
+          <div className="alert alert-info" style={{ marginBottom: '16px' }}>
+            <AlertCircle size={18} />
+            目前僅 {participantStats.current}/{participantStats.required} 人到齊，尚未達到自動開始條件
+          </div>
+        )}
+
+
+
+        {sessionInfo && (
+
+          <div
+
+            className="card"
+
+            style={{
+
+              marginBottom: '16px',
+
+              backgroundColor: '#f9fafb',
+
+              borderLeft: isCountdownPositive ? '4px solid #0ea5e9' : '4px solid #dc2626'
+
+            }}
+
+          >
+
+            <div style={{ fontSize: '14px', color: '#0f172a', marginBottom: '6px', fontWeight: 600 }}>
+              站立會議計時
+            </div>
+
+            <div style={{ fontSize: '32px', fontWeight: 700, color: isCountdownPositive ? '#0ea5e9' : '#dc2626' }}>
+
+              {formatCountdown(countdownMs)}
+
+            </div>
+
+            <div style={{ fontSize: '13px', color: '#475569', marginTop: '6px' }}>
+
+              由 {sessionInfo.startedBy || '系統'} 發起，時長 15 分鐘
+
+            </div>
+
+            <div style={{ fontSize: '13px', color: '#475569' }}>
+              出席人數：{participantStats.current}/
+              {sessionInfo.requiredParticipants || participantStats.required || participantStats.current}
+            </div>
+
+            {isCountdownExpired && (
+
+              <div style={{ marginTop: '8px', color: '#b91c1c', fontSize: '13px' }}>
+                已超過預定時間，請盡速進入結尾
+              </div>
+
+            )}
+
+          </div>
+
+        )}
+
+
+
+        {typeof overdueMinutes === 'number' && (
+          <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
+            <AlertCircle size={18} />
+            {overdueMinutes === 0
+              ? '站立會議已達 15 分鐘，請開始收斂討論。'
+              : `站立會議已超過 ${overdueMinutes} 分鐘，請儘速結束。`}
+          </div>
+        )}
+
+
 
         {error && (
           <div className="alert alert-error">
@@ -615,14 +1255,14 @@ function StandupReview({ user, teamId }: any) {
           </div>
         )}
 
-        {/* 統計卡片 */}
+        {/* 指標卡片 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '20px' }}>
           <div className="stat-card">
             <div className="stat-icon" style={{ backgroundColor: '#e3f2fd' }}>
               <Users size={24} style={{ color: '#0066cc' }} />
             </div>
             <div className="stat-content">
-              <div className="stat-label">團隊人數</div>
+              <div className="stat-label">團隊成員</div>
               <div className="stat-value">{teamMembers.length}</div>
             </div>
           </div>
@@ -632,7 +1272,7 @@ function StandupReview({ user, teamId }: any) {
               <CheckCircle size={24} style={{ color: '#4caf50' }} />
             </div>
             <div className="stat-content">
-              <div className="stat-label">已打卡</div>
+              <div className="stat-label">今日打卡</div>
               <div className="stat-value">{checkins.length}</div>
             </div>
           </div>
@@ -642,7 +1282,7 @@ function StandupReview({ user, teamId }: any) {
               <Clock size={24} style={{ color: '#ff9800' }} />
             </div>
             <div className="stat-content">
-              <div className="stat-label">打卡率</div>
+              <div className="stat-label">今日打卡率</div>
               <div className="stat-value">{checkinRate}%</div>
             </div>
           </div>
@@ -652,7 +1292,7 @@ function StandupReview({ user, teamId }: any) {
               <TrendingUp size={24} style={{ color: '#9c27b0' }} />
             </div>
             <div className="stat-content">
-              <div className="stat-label">今日項目</div>
+              <div className="stat-label">今日工作數</div>
               <div className="stat-value">{workItems.length}</div>
             </div>
           </div>
@@ -663,33 +1303,33 @@ function StandupReview({ user, teamId }: any) {
                 <AlertCircle size={24} style={{ color: '#f59e0b' }} />
               </div>
               <div className="stat-content">
-                <div className="stat-label">未完成項目</div>
+                <div className="stat-label">未完成工作</div>
                 <div className="stat-value">{incompleteItems.length}</div>
               </div>
             </div>
           )}
         </div>
 
-        {/* AI 分析結果 */}
+        {/* AI 分析 */}
         {analysis && (
           <div className="card" style={{ marginBottom: '20px', backgroundColor: '#f0f8ff', borderLeft: '4px solid #0066cc' }}>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
               <Sparkles size={20} style={{ color: '#0066cc' }} />
-              AI 分析與建議
+              AI 分析建議
             </h3>
             <div className="markdown-content" style={{ fontSize: '14px', lineHeight: '1.8' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis}</ReactMarkdown>
             </div>
             
-            {/* 快速執行重新分配建議 */}
+            {/* AI 建議的重新分配 */}
             {analysisData?.redistributionSuggestions && analysisData.redistributionSuggestions.length > 0 && (
               <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #d0e8ff' }}>
                 <h4 style={{ fontSize: '15px', marginBottom: '12px', color: '#0066cc' }}>
-                  ⚡ 快速執行重新分配
+                  建議的工作重新分配
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {analysisData.redistributionSuggestions.map((suggestion: any, index: number) => {
-                    // 找到對應的工作項目和成員
+                    // ?曉撠??極雿??桀??
                     const fromMember = teamMembers.find(m => 
                       (m.display_name || m.username).includes(suggestion.from) || 
                       suggestion.from.includes(m.display_name || m.username)
@@ -701,7 +1341,7 @@ function StandupReview({ user, teamId }: any) {
                     
                     if (!fromMember || !toMember) return null;
                     
-                    // 找到該成員的工作項目（可能需要部分匹配）
+                    // ?曉閰脫??∠?撌乩??嚗?賡?閬???
                     const workItem = workItems.find(item => 
                       item.user_id === fromMember.user_id && 
                       (item.ai_title?.includes(suggestion.task) || item.content.includes(suggestion.task))
@@ -709,7 +1349,7 @@ function StandupReview({ user, teamId }: any) {
                     
                     if (!workItem) return null;
                     
-                    // 取得優先級資訊
+                    // ???芸?蝝?閮?
                     const priority = suggestion.priority || workItem.priority || 3;
                     
                     return (
@@ -733,16 +1373,16 @@ function StandupReview({ user, teamId }: any) {
                             </span>
                           </div>
                           <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-                            從 <strong>{suggestion.from}</strong> 分配給 <strong>{suggestion.to}</strong>
+                            建議由 <strong>{suggestion.from}</strong> 調整給 <strong>{suggestion.to}</strong>
                           </div>
                           {suggestion.reason && (
                             <div style={{ fontSize: '12px', color: '#888', fontStyle: 'italic' }}>
-                              原因：{suggestion.reason}
+                              理由：{suggestion.reason}
                             </div>
                           )}
                           {workItem.handlers?.co_handlers && workItem.handlers.co_handlers.length > 0 && (
                             <div style={{ fontSize: '11px', color: '#0066cc', marginTop: '4px' }}>
-                              💡 當前有 {workItem.handlers.co_handlers.length} 位共同處理人
+                              目前已有 {workItem.handlers.co_handlers.length} 位共同負責人
                             </div>
                           )}
                         </div>
@@ -750,12 +1390,12 @@ function StandupReview({ user, teamId }: any) {
                           className="btn btn-primary"
                           style={{ fontSize: '13px', padding: '6px 12px' }}
                           onClick={async () => {
-                            if (window.confirm(`確定要將「${suggestion.task}」從 ${suggestion.from} 重新分配給 ${suggestion.to} 嗎？`)) {
+                            if (window.confirm(`確定將「${suggestion.task}」改由 ${suggestion.to} 處理嗎？`)) {
                               await handleAssignWorkItem(workItem.id, toMember.user_id);
                             }
                           }}
                         >
-                          執行分配
+                          套用建議
                         </button>
                       </div>
                     );
@@ -766,17 +1406,17 @@ function StandupReview({ user, teamId }: any) {
           </div>
         )}
 
-        {/* 團隊成員打卡狀況 */}
+        {/* 今日打卡與進度 */}
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h3 style={{ margin: 0 }}>團隊成員打卡狀況</h3>
+            <h3 style={{ margin: 0 }}>今日打卡總覽</h3>
             <div style={{ fontSize: '13px', color: '#666' }}>
-              已打卡: <strong style={{ color: '#4caf50' }}>{checkins.length}</strong> / 
-              未打卡: <strong style={{ color: '#999' }}>{teamMembers.length - checkins.length}</strong>
+              已打卡 <strong style={{ color: '#4caf50' }}>{checkins.length}</strong> / 
+              未打卡 <strong style={{ color: '#999' }}>{teamMembers.length - checkins.length}</strong>
             </div>
           </div>
           {teamMembers.length === 0 ? (
-            <p style={{ color: '#666', marginTop: '15px' }}>團隊暫無成員</p>
+            <p style={{ color: '#666', marginTop: '15px' }}>尚未建立任何團隊成員</p>
           ) : (
             <div style={{ marginTop: '15px' }}>
               {teamMembers.map((member) => {
@@ -851,7 +1491,7 @@ function StandupReview({ user, teamId }: any) {
                       </div>
                     </div>
 
-                    {/* 工作項目區域 - 始終顯示 */}
+                    {/* Member work items */}
                     <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e0e0e0' }}>
                       {/* 今日工作項目 */}
                       {memberWorkItems.length > 0 ? (
@@ -884,9 +1524,9 @@ function StandupReview({ user, teamId }: any) {
                                   color: '#fff',
                                   cursor: 'pointer'
                                 }}
-                                title="點擊切換排序方式"
+                                title="切換排序方式"
                               >
-                                {sortBy === 'priority' ? '🔢' : '📅'}
+                                {sortBy === 'priority' ? '優先順序' : '預計時間'}
                               </button>
                             </div>
                             {expandedMembers.has(member.user_id) ? (
@@ -897,7 +1537,7 @@ function StandupReview({ user, teamId }: any) {
                           </div>
                           {expandedMembers.has(member.user_id) && (
                           <div style={{ marginTop: '8px' }}>
-                            {sortItems(memberWorkItems).map((item) => {
+                            {sortItems(memberWorkItems).map((item: WorkItem) => {
                               const isItemExpanded = expandedWorkItems.has(item.id);
                               
                               return (
@@ -944,13 +1584,14 @@ function StandupReview({ user, teamId }: any) {
                                       </div>
                                       {getPriorityBadge(item.priority)}
                                       <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
-                                        📅 {item.estimated_date 
+                                        📅 預計時間：
+                                        {item.estimated_date 
                                           ? (() => {
                                               const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
                                                 ? item.estimated_date.split('T')[0] 
                                                 : item.estimated_date;
                                               const [year, month, day] = dateStr.split('-');
-                                              return `${parseInt(month)}/${parseInt(day)}`;
+                                              return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
                                             })()
                                           : '未設定'}
                                       </span>
@@ -988,9 +1629,9 @@ function StandupReview({ user, teamId }: any) {
                                             e.stopPropagation();
                                             openPriorityModal(item);
                                           }}
-                                          title="設定優先級"
+                                          title="調整優先順序"
                                         >
-                                          🎯
+                                          調整優先
                                         </button>
                                         <button
                                           className="btn btn-secondary"
@@ -999,7 +1640,7 @@ function StandupReview({ user, teamId }: any) {
                                             e.stopPropagation();
                                             openHandlerModal(item);
                                           }}
-                                          title="設定處理人"
+                                          title="管理共同負責人"
                                         >
                                           <UserPlus size={12} />
                                         </button>
@@ -1029,7 +1670,7 @@ function StandupReview({ user, teamId }: any) {
                                           onChange={async (e) => {
                                             e.stopPropagation();
                                             try {
-                                              // 確保日期格式正確（YYYY-MM-DD），不受時區影響
+                                              // 蝣箔??交??澆?甇?Ⅱ嚗YYY-MM-DD嚗?銝???敶梢
                                               const dateValue = e.target.value ? e.target.value : null;
                                               const token = localStorage.getItem('token');
                                               const response = await fetch(`/api/workitems/${item.id}`, {
@@ -1044,33 +1685,33 @@ function StandupReview({ user, teamId }: any) {
                                               if (!response.ok) {
                                                 const error = await response.json();
                                                 console.error('更新預計時間失敗:', error);
-                                                alert(error.error || '更新失敗');
+                                                alert(error.error || '更新預計時間失敗，請稍後再試');
                                                 return;
                                               }
-                                              await loadStandupData();
+                                              await loadStandupData({ silent: true });
                                             } catch (error) {
                                               console.error('更新預計時間失敗:', error);
-                                              alert('更新失敗，請稍後再試');
+                                              alert('更新預計時間失敗，請稍後再試');
                                             }
                                           }}
                                           style={{ maxWidth: '200px' }}
                                         />
                                       </div>
-                                      {/* 處理人信息 */}
+                                      {/* 負責人資訊 */}
                                       <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
                                         <div style={{ marginBottom: '4px' }}>
-                                          <strong style={{ color: '#667eea' }}>主要處理人：</strong>
+                                          <strong style={{ color: '#667eea' }}>主要負責人</strong>
                                           {item.handlers?.primary ? (
                                             <span style={{ marginLeft: '4px' }}>
                                               {item.handlers.primary.display_name || item.handlers.primary.username}
                                             </span>
                                           ) : (
-                                            <span style={{ marginLeft: '4px', color: '#999' }}>未指定</span>
+                                            <span style={{ marginLeft: '4px', color: '#999' }}>尚未指派</span>
                                           )}
                                         </div>
                                         {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
                                           <div>
-                                            <strong style={{ color: '#667eea' }}>共同處理人：</strong>
+                                            <strong style={{ color: '#667eea' }}>共同負責人</strong>
                                             <span style={{ marginLeft: '4px' }}>
                                               {item.handlers.co_handlers.map(h => h.display_name || h.username).join(', ')}
                                             </span>
@@ -1087,7 +1728,7 @@ function StandupReview({ user, teamId }: any) {
                                         }}>
                                           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
                                             <Sparkles size={12} style={{ color: '#7c3aed', marginRight: '4px' }} />
-                                            <span style={{ fontSize: '11px', fontWeight: '600', color: '#7c3aed' }}>AI 摘要</span>
+                                            <span style={{ fontSize: '11px', fontWeight: '600', color: '#7c3aed' }}>AI 建議</span>
                                           </div>
                                           <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
@@ -1104,11 +1745,11 @@ function StandupReview({ user, teamId }: any) {
                         </>
                       ) : (
                         <div style={{ fontSize: '13px', color: '#999', padding: '10px 0' }}>
-                          尚未分配今日工作項目
+                          尚未建立今日工作項目
                         </div>
                       )}
                       
-                      {/* 未完成項目區塊 - 獨立顯示，不受今日工作項目影響 */}
+                      {/* Member incomplete items */}
                       {(() => {
                         const memberIncompleteItems = getUserIncompleteItems(member.user_id);
                         if (memberIncompleteItems.length === 0) return null;
@@ -1131,7 +1772,7 @@ function StandupReview({ user, teamId }: any) {
                             >
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <div style={{ fontSize: '13px', fontWeight: 500, color: '#92400e' }}>
-                                      ⚠️ 未完成項目 ({memberIncompleteItems.length})
+                                      未完成工作 ({memberIncompleteItems.length})
                                     </div>
                                     <button
                                       onClick={(e) => {
@@ -1147,9 +1788,9 @@ function StandupReview({ user, teamId }: any) {
                                         color: '#fff',
                                         cursor: 'pointer'
                                       }}
-                                      title="點擊切換排序方式"
+                                      title="切換排序方式"
                                     >
-                                      {sortBy === 'priority' ? '🔢' : '📅'}
+                                      {sortBy === 'priority' ? '優先順序' : '預計時間'}
                                     </button>
                                   </div>
                                   {showIncompleteItems ? (
@@ -1160,7 +1801,7 @@ function StandupReview({ user, teamId }: any) {
                                 </div>
                                 {showIncompleteItems && (
                                   <div style={{ marginTop: '8px' }}>
-                                    {sortItems(memberIncompleteItems).map((item: any) => {
+                                    {sortItems(memberIncompleteItems).map((item: WorkItem) => {
                                       const isItemExpanded = expandedWorkItems.has(item.id);
                                       const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
                                       
@@ -1206,13 +1847,14 @@ function StandupReview({ user, teamId }: any) {
                                               </div>
                                               {getPriorityBadge(item.priority)}
                                               <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
-                                                📅 {item.estimated_date 
+                                                📅 預計時間：
+                                                {item.estimated_date 
                                                   ? (() => {
                                                       const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
                                                         ? item.estimated_date.split('T')[0] 
                                                         : item.estimated_date;
                                                       const [year, month, day] = dateStr.split('-');
-                                                      return `${parseInt(month)}/${parseInt(day)}`;
+                                                      return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
                                                     })()
                                                   : '未設定'}
                                               </span>
@@ -1240,7 +1882,7 @@ function StandupReview({ user, teamId }: any) {
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                               <div style={{ fontSize: '11px', color: '#92400e' }}>
-                                                📅 {itemDate}
+                                                紀錄日期：{itemDate}
                                               </div>
                                               <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
                                                 <button
@@ -1250,9 +1892,9 @@ function StandupReview({ user, teamId }: any) {
                                                     e.stopPropagation();
                                                     openPriorityModal(item);
                                                   }}
-                                                  title="設定優先級"
+                                                  title="調整優先順序"
                                                 >
-                                                  🎯
+                                                  調整優先
                                                 </button>
                                                 <button
                                                   className="btn btn-secondary"
@@ -1261,7 +1903,7 @@ function StandupReview({ user, teamId }: any) {
                                                     e.stopPropagation();
                                                     openHandlerModal(item);
                                                   }}
-                                                  title="設定處理人"
+                                                  title="管理共同負責人"
                                                 >
                                                   <UserPlus size={12} />
                                                 </button>
@@ -1290,7 +1932,7 @@ function StandupReview({ user, teamId }: any) {
                                                   onChange={async (e) => {
                                                     e.stopPropagation();
                                                     try {
-                                                      // 確保日期格式正確（YYYY-MM-DD），不受時區影響
+                                                      // 蝣箔??交??澆?甇?Ⅱ嚗YYY-MM-DD嚗?銝???敶梢
                                                       const dateValue = e.target.value ? e.target.value : null;
                                                       const token = localStorage.getItem('token');
                                                       const response = await fetch(`/api/workitems/${item.id}`, {
@@ -1302,36 +1944,36 @@ function StandupReview({ user, teamId }: any) {
                                                         credentials: 'include',
                                                         body: JSON.stringify({ estimated_date: dateValue })
                                                       });
-                                                      if (!response.ok) {
-                                                        const error = await response.json();
-                                                        console.error('更新預計時間失敗:', error);
-                                                        alert(error.error || '更新失敗');
-                                                        return;
-                                                      }
-                                                      await loadStandupData();
-                                                    } catch (error) {
-                                                      console.error('更新預計時間失敗:', error);
-                                                      alert('更新失敗，請稍後再試');
-                                                    }
-                                                  }}
+                                              if (!response.ok) {
+                                                const error = await response.json();
+                                                console.error('更新預計時間失敗:', error);
+                                                alert(error.error || '更新預計時間失敗，請稍後再試');
+                                                return;
+                                              }
+                                              await loadStandupData({ silent: true });
+                                            } catch (error) {
+                                              console.error('更新預計時間失敗:', error);
+                                              alert('更新預計時間失敗，請稍後再試');
+                                            }
+                                          }}
                                                   style={{ maxWidth: '200px' }}
                                                 />
                                               </div>
-                                              {/* 處理人信息 */}
+                                              {/* 負責人資訊 */}
                                               <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
                                                 <div style={{ marginBottom: '4px' }}>
-                                                  <strong style={{ color: '#f59e0b' }}>主要處理人：</strong>
+                                                  <strong style={{ color: '#f59e0b' }}>主要負責人</strong>
                                                   {item.handlers?.primary ? (
                                                     <span style={{ marginLeft: '4px' }}>
                                                       {item.handlers.primary.display_name || item.handlers.primary.username}
                                                     </span>
                                                   ) : (
-                                                    <span style={{ marginLeft: '4px', color: '#999' }}>未指定</span>
+                                                    <span style={{ marginLeft: '4px', color: '#999' }}>尚未指派</span>
                                                   )}
                                                 </div>
                                                 {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
                                                   <div>
-                                                    <strong style={{ color: '#f59e0b' }}>共同處理人：</strong>
+                                                    <strong style={{ color: '#f59e0b' }}>共同負責人</strong>
                                                     <span style={{ marginLeft: '4px' }}>
                                                       {item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ')}
                                                     </span>
@@ -1348,7 +1990,7 @@ function StandupReview({ user, teamId }: any) {
                                                 }}>
                                                   <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
                                                     <Sparkles size={12} style={{ color: '#f59e0b', marginRight: '4px' }} />
-                                                    <span style={{ fontSize: '11px', fontWeight: '600', color: '#f59e0b' }}>AI 摘要</span>
+                                                    <span style={{ fontSize: '11px', fontWeight: '600', color: '#f59e0b' }}>AI 建議</span>
                                                   </div>
                                                   <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5', color: '#92400e' }}>
                                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
@@ -1366,7 +2008,7 @@ function StandupReview({ user, teamId }: any) {
                             );
                           })()}
                           
-                          {/* 共同處理項目區塊 */}
+                          {/* Co-handler items */}
                           {(() => {
                             const coHandlerTodayItems = getUserCoHandlerWorkItems(member.user_id);
                             const coHandlerIncompleteItems = getUserCoHandlerIncompleteItems(member.user_id);
@@ -1374,7 +2016,7 @@ function StandupReview({ user, teamId }: any) {
                             
                             if (totalCoHandlerItems === 0) return null;
                             
-                            // 使用負數 ID 來區分共同處理項目的展開狀態
+                            // 雿輻鞎 ID 靘???????桃?撅????
                             const coHandlerExpandId = -(member.user_id * 1000);
                             
                             return (
@@ -1408,7 +2050,7 @@ function StandupReview({ user, teamId }: any) {
                                       <ChevronDown size={16} style={{ color: '#0066cc' }} />
                                     }
                                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#0066cc' }}>
-                                      共同處理項目
+                                      共同負責項目
                                     </span>
                                     <span style={{ fontSize: '12px', color: '#0066cc', backgroundColor: '#dbeafe', padding: '2px 6px', borderRadius: '10px' }}>
                                       {totalCoHandlerItems}
@@ -1418,14 +2060,14 @@ function StandupReview({ user, teamId }: any) {
                                 
                                 {expandedWorkItems.has(coHandlerExpandId) && (
                                   <div style={{ paddingLeft: '10px', marginBottom: '10px' }}>
-                                    {/* 今日共同處理項目 */}
+                                    {/* 今日協辦任務 */}
                                     {coHandlerTodayItems.length > 0 && (
                                       <div style={{ marginBottom: '8px' }}>
                                         <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '600' }}>
-                                          今日項目 ({coHandlerTodayItems.length})
+                                          今日協辦任務 ({coHandlerTodayItems.length})
                                         </div>
                                         {coHandlerTodayItems.map((item) => {
-                                          // 共同處理項目使用不同的展開 ID，避免與原始項目連動
+                                          // ?勗????雿輻銝?????ID嚗????????
                                           const coHandlerExpandKey = `co-handler-${item.id}`;
                                           const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
                                           const primaryUser = item.handlers?.primary;
@@ -1461,7 +2103,7 @@ function StandupReview({ user, teamId }: any) {
                                                   } else {
                                                     newExpanded.add(coHandlerExpandKey);
                                                   }
-                                                  // 只展開/收起共同處理項目本身，不影響原始項目
+                                                  // ?芸????嗉絲?勗?????祈澈嚗?敶梢???
                                                   setExpandedWorkItems(newExpanded);
                                                 }}
                                               >
@@ -1513,32 +2155,32 @@ function StandupReview({ user, teamId }: any) {
                                                     alignItems: 'center',
                                                     gap: '2px'
                                                   }}
-                                                  title="跳轉到原始項目"
+                                                  title="檢視原始項目"
                                                 >
-                                                  📍 定位
+                                                  前往原卡片
                                                 </button>
                                               </div>
                                               
                                               {isItemExpanded && (
                                                 <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #e5e7eb', marginTop: '6px' }}>
-                                                  {/* 處理人資訊 */}
+                                                  {/* 負責人摘要 */}
                                                   <div style={{ marginBottom: '8px', fontSize: '12px' }}>
                                                     <div style={{ marginBottom: '4px', color: '#0066cc' }}>
-                                                      <strong>主要處理人：</strong>
+                                                      <strong>主要負責人</strong>
                                                       <span style={{ marginLeft: '4px' }}>
-                                                        {primaryUser?.display_name || primaryUser?.username || '未指定'}
+                                                        {primaryUser?.display_name || primaryUser?.username || '尚未指派'}
                                                       </span>
                                                     </div>
                                                     {otherCoHandlers.length > 0 && (
                                                       <div style={{ color: '#0066cc' }}>
-                                                        <strong>其他共同處理人：</strong>
+                                                        <strong>其他共同負責人</strong>
                                                         <span style={{ marginLeft: '4px' }}>
                                                           {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
                                                         </span>
                                                       </div>
                                                     )}
                                                   </div>
-                                                  {/* 工作內容 */}
+                                                  {/* 項目內容 */}
                                                   <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#555' }}>
                                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                       {item.ai_summary || item.content}
@@ -1552,14 +2194,14 @@ function StandupReview({ user, teamId }: any) {
                                       </div>
                                     )}
                                     
-                                    {/* 未完成共同處理項目 */}
+                                    {/* 未完成的協辦項目 */}
                                     {coHandlerIncompleteItems.length > 0 && (
                                       <div>
                                         <div style={{ fontSize: '12px', color: '#f59e0b', marginBottom: '6px', fontWeight: '600' }}>
-                                          未完成項目 ({coHandlerIncompleteItems.length})
+                                          未完成協辦任務 ({coHandlerIncompleteItems.length})
                                         </div>
                                         {coHandlerIncompleteItems.map((item: any) => {
-                                          // 共同處理項目使用不同的展開 ID，避免與原始項目連動
+                                          // ?勗????雿輻銝?????ID嚗????????
                                           const coHandlerExpandKey = `co-handler-${item.id}`;
                                           const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
                                           const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : new Date(item.created_at).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
@@ -1596,7 +2238,7 @@ function StandupReview({ user, teamId }: any) {
                                                   } else {
                                                     newExpanded.add(coHandlerExpandKey);
                                                   }
-                                                  // 只展開/收起共同處理項目本身，不影響原始項目
+                                                  // ?芸????嗉絲?勗?????祈澈嚗?敶梢???
                                                   setExpandedWorkItems(newExpanded);
                                                 }}
                                               >
@@ -1628,7 +2270,7 @@ function StandupReview({ user, teamId }: any) {
                                                     );
                                                   })()}
                                                   <div style={{ fontSize: '11px', color: '#f59e0b', whiteSpace: 'nowrap', marginLeft: '6px' }}>
-                                                    📅 {itemDate}
+                                                    紀錄日期：{itemDate}
                                                   </div>
                                                 </div>
                                                 <button
@@ -1652,32 +2294,32 @@ function StandupReview({ user, teamId }: any) {
                                                     gap: '2px',
                                                     marginLeft: '6px'
                                                   }}
-                                                  title="跳轉到原始項目"
+                                                  title="檢視原始項目"
                                                 >
-                                                  📍 定位
+                                                  前往原卡片
                                                 </button>
                                               </div>
                                               
                                               {isItemExpanded && (
                                                 <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #fef3c7', marginTop: '6px' }}>
-                                                  {/* 處理人資訊 */}
+                                                  {/* 負責人摘要 */}
                                                   <div style={{ marginBottom: '8px', fontSize: '12px' }}>
                                                     <div style={{ marginBottom: '4px', color: '#f59e0b' }}>
-                                                      <strong>主要處理人：</strong>
+                                                      <strong>主要負責人</strong>
                                                       <span style={{ marginLeft: '4px' }}>
-                                                        {primaryUser?.display_name || primaryUser?.username || '未指定'}
+                                                        {primaryUser?.display_name || primaryUser?.username || '尚未指派'}
                                                       </span>
                                                     </div>
                                                     {otherCoHandlers.length > 0 && (
                                                       <div style={{ color: '#f59e0b' }}>
-                                                        <strong>其他共同處理人：</strong>
+                                                        <strong>其他共同負責人</strong>
                                                         <span style={{ marginLeft: '4px' }}>
                                                           {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
                                                         </span>
                                                       </div>
                                                     )}
                                                   </div>
-                                                  {/* 工作內容 */}
+                                                  {/* 項目內容 */}
                                                   <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#92400e' }}>
                                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                       {item.ai_summary || item.content}
@@ -1703,18 +2345,18 @@ function StandupReview({ user, teamId }: any) {
           )}
         </div>
 
-        {/* 使用提示 */}
+        {/* 協作說明 */}
         <div className="card" style={{ marginTop: '20px', backgroundColor: '#f8f9fa' }}>
-          <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>💡 使用提示</h3>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>協作小提醒</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#666' }}>
-            <li>查看團隊成員今日打卡狀況與工作項目</li>
-            <li>點擊「AI 分析工作分配」讓 AI 分析團隊工作負載</li>
-            <li>AI 會提供工作分配建議、識別潛在問題和優先級建議</li>
-            <li>適合在每日站立會議時使用，快速了解團隊狀況</li>
+            <li>簡潔說明今日進度與阻塞，讓大家快速掌握狀況。</li>
+            <li>若需要協助，歡迎在站立會議直接指派或建立 Backlog。</li>
+            <li>AI 建議僅供參考，最終決策仍以團隊共識為主。</li>
+            <li>超過會議時限時請盡快結尾，留待會後再深入討論。</li>
           </ul>
         </div>
 
-        {/* 處理人設定 Modal */}
+        {/* 主要負責人設定 Modal */}
         {showHandlerModal && editingWorkItem && (
           <div 
             className="modal-overlay" 
@@ -1744,10 +2386,10 @@ function StandupReview({ user, teamId }: any) {
               onClick={(e) => e.stopPropagation()}
             >
               <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
-                設定處理人：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
+                調整負責人：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
               </h3>
 
-              {/* 主要處理人 */}
+              {/* 主要負責人 */}
               <div style={{ marginBottom: '24px' }}>
                 <label style={{ 
                   display: 'block', 
@@ -1756,7 +2398,7 @@ function StandupReview({ user, teamId }: any) {
                   fontSize: '14px',
                   color: '#333'
                 }}>
-                  主要處理人
+                  主要負責人
                 </label>
                 <select
                   className="input"
@@ -1764,7 +2406,7 @@ function StandupReview({ user, teamId }: any) {
                   onChange={(e) => setSelectedPrimaryHandler(parseInt(e.target.value))}
                   style={{ width: '100%' }}
                 >
-                  <option value="">請選擇主要處理人</option>
+                  <option value="">請選擇主要負責人</option>
                   {teamMembers.map(member => (
                     <option key={member.user_id} value={member.user_id}>
                       {member.display_name || member.username}
@@ -1773,7 +2415,7 @@ function StandupReview({ user, teamId }: any) {
                 </select>
               </div>
 
-              {/* 共同處理人 */}
+              {/* 共同負責人 */}
               <div style={{ marginBottom: '24px' }}>
                 <label style={{ 
                   display: 'block', 
@@ -1782,7 +2424,7 @@ function StandupReview({ user, teamId }: any) {
                   fontSize: '14px',
                   color: '#333'
                 }}>
-                  共同處理人（可選多人）
+                  共同負責人（可複選）
                 </label>
                 <div style={{ 
                   border: '1px solid #ddd', 
@@ -1817,13 +2459,13 @@ function StandupReview({ user, teamId }: any) {
                     ))}
                   {teamMembers.filter(m => m.user_id !== selectedPrimaryHandler).length === 0 && (
                     <div style={{ color: '#999', fontSize: '14px' }}>
-                      請先選擇主要處理人
+                      暫無可選的共同負責人
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* 按鈕 */}
+              {/* 按鈕群組 */}
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                 <button
                   className="btn btn-secondary"
@@ -1843,7 +2485,7 @@ function StandupReview({ user, teamId }: any) {
           </div>
         )}
 
-        {/* 優先級設定 Modal */}
+        {/* 優先順序 Modal */}
         {showPriorityModal && editingWorkItem && (
           <div 
             className="modal-overlay" 
@@ -1871,7 +2513,7 @@ function StandupReview({ user, teamId }: any) {
               onClick={(e) => e.stopPropagation()}
             >
               <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
-                設定優先級：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
+                調整優先順序：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
               </h3>
 
               <div style={{ marginBottom: '24px' }}>
@@ -1882,7 +2524,7 @@ function StandupReview({ user, teamId }: any) {
                   fontSize: '14px',
                   color: '#333'
                 }}>
-                  優先級
+                  優先順序
                 </label>
                 <select
                   className="input"
@@ -1898,7 +2540,7 @@ function StandupReview({ user, teamId }: any) {
                 </select>
               </div>
 
-              {/* 按鈕 */}
+              {/* 按鈕群組 */}
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                 <button
                   className="btn btn-secondary"
@@ -1922,3 +2564,6 @@ function StandupReview({ user, teamId }: any) {
 }
 
 export default StandupReview;
+
+
+

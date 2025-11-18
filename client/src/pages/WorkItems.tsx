@@ -58,12 +58,38 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [showIncomplete, setShowIncomplete] = useState(true);
   const [showBacklog, setShowBacklog] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
+  const currentUserId = user?.id as number | undefined;
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [showCoHandlerDialog, setShowCoHandlerDialog] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
   const [searchQuery, setSearchQuery] = useState('');
   const [backlogSearchQuery, setBacklogSearchQuery] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const isBacklogOwner = (item: { user_id?: number }) =>
+    typeof currentUserId === 'number' && typeof item?.user_id === 'number' && item.user_id === currentUserId;
+
+  const getBacklogOwnerLabel = (item: { user_id?: number; display_name?: string; username?: string }) => {
+    if (isBacklogOwner(item)) {
+      return '你';
+    }
+    if (item.display_name || item.username) {
+      return item.display_name || item.username || '';
+    }
+    return typeof item.user_id === 'number' ? `成員 #${item.user_id}` : '未指定';
+  };
+
+  const getWorkItemOwnerLabel = (item: any) => {
+    const primary = item?.handlers?.primary;
+    if (primary && typeof currentUserId === 'number' && primary.user_id === currentUserId) {
+      return '你';
+    }
+    if (primary) {
+      const fallback = typeof primary.user_id === 'number' ? `成員 #${primary.user_id}` : '未指定';
+      return primary.display_name || primary.username || fallback;
+    }
+    return '未指定';
+  };
 
   // Helper function to get priority badge
   const getPriorityBadge = (priority: number = 3) => {
@@ -530,6 +556,11 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
   // 從 Backlog 加入今日工作項目（會用標題開啟 AI 對談）
   const handleAddBacklogToToday = async (backlogItem: any) => {
+    if (typeof currentUserId === 'number' && backlogItem.user_id !== currentUserId) {
+      alert('僅限建立者可以操作這個 Backlog 項目');
+      return;
+    }
+
     if (!checkinId) {
       alert('請先完成打卡');
       return;
@@ -1230,6 +1261,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                     {sortItems(incompleteItems).map((item: any) => {
                       const isExpanded = expandedItems.has(item.id);
                       const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
+                      const ownerLabel = getWorkItemOwnerLabel(item);
                       
                       return (
                         <div
@@ -1280,6 +1312,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   }}>
                                     {item.ai_title || item.content.substring(0, 50) + '...'}
                                   </h4>
+                                  <span style={{ fontSize: '12px', color: '#0369a1', whiteSpace: 'nowrap' }}>
+                                    👤 {ownerLabel}
+                                  </span>
                                   {getPriorityBadge(item.priority)}
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
@@ -1487,125 +1522,131 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                     </p>
                   ) : (
                     sortItems(filterBacklogItems(backlogItems)).map((item: any) => {
-                    const isExpanded = expandedItems.has(item.id);
-                    const estimatedDate = item.estimated_date 
-                      ? (() => {
-                          const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                            ? item.estimated_date.split('T')[0] 
-                            : item.estimated_date;
-                          const [year, month, day] = dateStr.split('-');
-                          return `${parseInt(month)}/${parseInt(day)}`;
-                        })()
-                      : '未設定';
-                    
-                    return (
-                      <div
-                        key={item.id}
-                        style={{
-                          marginBottom: '10px',
-                          border: '1px solid #bae6fd',
-                          borderRadius: '8px',
-                          backgroundColor: '#e0f2fe',
-                          transition: 'all 0.2s',
-                          overflow: 'hidden'
-                        }}
-                      >
-                        {/* Header */}
+                      const isExpanded = expandedItems.has(item.id);
+                      const estimatedDate = item.estimated_date
+                        ? (() => {
+                            const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                              ? item.estimated_date.split('T')[0]
+                              : item.estimated_date;
+                            const [year, month, day] = dateStr.split('-');
+                            return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
+                          })()
+                        : '未設定';
+                      const ownerLabel = getBacklogOwnerLabel(item);
+                      const canManageBacklog = isBacklogOwner(item);
+                      
+                      return (
                         <div
+                          key={item.id}
                           style={{
-                            padding: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            cursor: 'pointer',
-                            backgroundColor: isExpanded ? '#bae6fd' : 'transparent'
-                          }}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const newExpanded = new Set(expandedItems);
-                            if (isExpanded) {
-                              newExpanded.delete(item.id);
-                            } else {
-                              newExpanded.add(item.id);
-                            }
-                            setExpandedItems(newExpanded);
+                            marginBottom: '10px',
+                            border: '1px solid #bae6fd',
+                            borderRadius: '8px',
+                            backgroundColor: '#e0f2fe',
+                            transition: 'all 0.2s',
+                            overflow: 'hidden'
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                <h4 style={{ 
-                                  fontWeight: '600', 
-                                  fontSize: '14px', 
-                                  margin: 0,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: isExpanded ? 'normal' : 'nowrap',
-                                  flex: 1
+                          {/* Header */}
+                          <div
+                            style={{
+                              padding: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              cursor: 'pointer',
+                              backgroundColor: isExpanded ? '#bae6fd' : 'transparent'
+                            }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const newExpanded = new Set(expandedItems);
+                              if (isExpanded) {
+                                newExpanded.delete(item.id);
+                              } else {
+                                newExpanded.add(item.id);
+                              }
+                              setExpandedItems(newExpanded);
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                  <h4 style={{ 
+                                    fontWeight: '600', 
+                                    fontSize: '14px', 
+                                    margin: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: isExpanded ? 'normal' : 'nowrap',
+                                    flex: 1
+                                  }}>
+                                    {item.ai_title || item.content}
+                                  </h4>
+                                  {getPriorityBadge(item.priority)}
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '11px', color: '#0369a1' }}>
+                                  <span style={{ whiteSpace: 'nowrap' }}>👤 {ownerLabel}</span>
+                                  <span style={{ color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
+                                    📅 {estimatedDate}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Expanded Content */}
+                          {isExpanded && (
+                            <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #bae6fd' }}>
+                              {item.content && (
+                                <div className="markdown-content" style={{ 
+                                  fontSize: '13px', 
+                                  color: '#0369a1', 
+                                  marginTop: '12px', 
+                                  marginBottom: '12px',
+                                  overflowX: 'auto',
+                                  wordWrap: 'break-word',
+                                  wordBreak: 'break-word'
                                 }}>
-                                  {item.ai_title || item.content}
-                                </h4>
-                                {getPriorityBadge(item.priority)}
-                                <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
-                                  📅 {estimatedDate}
-                                </span>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                                </div>
+                              )}
+                              
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                                <div style={{ fontSize: '11px', color: '#0369a1' }}>
+                                  建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
+                                    month: '2-digit', 
+                                    day: '2-digit', 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                  })}
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAddBacklogToToday(item);
+                                  }}
+                                  className="btn btn-primary"
+                                  style={{
+                                    padding: '6px 12px',
+                                    fontSize: '13px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                  disabled={loading || !canManageBacklog}
+                                  title={canManageBacklog ? '加入今日工作項目' : '僅限建立者可操作'}
+                                >
+                                  <Send size={14} />
+                                  加入今日 (AI 對談)
+                                </button>
                               </div>
                             </div>
-                          </div>
+                          )}
                         </div>
-                        
-                        {/* Expanded Content */}
-                        {isExpanded && (
-                          <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #bae6fd' }}>
-                            {item.content && (
-                              <div className="markdown-content" style={{ 
-                                fontSize: '13px', 
-                                color: '#0369a1', 
-                                marginTop: '12px', 
-                                marginBottom: '12px',
-                                overflowX: 'auto',
-                                wordWrap: 'break-word',
-                                wordBreak: 'break-word'
-                              }}>
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                              </div>
-                            )}
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
-                              <div style={{ fontSize: '11px', color: '#0369a1' }}>
-                                建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
-                                  month: '2-digit', 
-                                  day: '2-digit', 
-                                  hour: '2-digit', 
-                                  minute: '2-digit' 
-                                })}
-                              </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddBacklogToToday(item);
-                                }}
-                                className="btn btn-primary"
-                                style={{
-                                  padding: '6px 12px',
-                                  fontSize: '13px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '6px'
-                                }}
-                                disabled={loading}
-                              >
-                                <Send size={14} />
-                                加入今日 (AI 對談)
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
+                      );
+                    })
                   )}
                 </div>
               )}

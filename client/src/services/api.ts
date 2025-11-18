@@ -268,8 +268,9 @@ class ApiService {
   }
 
   // Backlog Items
-  async createBacklogItem(title: string, content: string, priority?: number, estimatedDate?: string) {
+  async createBacklogItem(teamId: number, title: string, content: string, priority?: number, estimatedDate?: string) {
     const response = await this.api.post('/backlog', { 
+      teamId,
       title, 
       content, 
       priority, 
@@ -278,8 +279,8 @@ class ApiService {
     return response.data;
   }
 
-  async createBacklogItemsBatch(items: Array<{title: string; content: string; priority: number; estimatedDate?: string}>) {
-    const response = await this.api.post('/backlog/batch', { items });
+  async createBacklogItemsBatch(teamId: number, items: Array<{title: string; content: string; priority: number; estimatedDate?: string}>) {
+    const response = await this.api.post('/backlog/batch', { teamId, items });
     return response.data;
   }
 
@@ -295,7 +296,7 @@ class ApiService {
     return response.data;
   }
 
-  async updateBacklogItem(itemId: number, data: { title?: string; content?: string; priority?: number; estimatedDate?: string }) {
+  async updateBacklogItem(itemId: number, data: { title?: string; content?: string; priority?: number; estimatedDate?: string; teamId?: number }) {
     const response = await this.api.put(`/backlog/${itemId}`, data);
     return response.data;
   }
@@ -345,6 +346,16 @@ class ApiService {
 
   async deleteWeeklyReport(reportId: number, teamId: number) {
     const response = await this.api.delete(`/weekly-reports/${reportId}/team/${teamId}`);
+    return response.data;
+  }
+
+  async forceStartStandup(teamId: number) {
+    const response = await this.api.post(`/standup/team/${teamId}/force-start`);
+    return response.data;
+  }
+
+  async forceStopStandup(teamId: number) {
+    const response = await this.api.post(`/standup/team/${teamId}/force-stop`);
     return response.data;
   }
 }

@@ -6,6 +6,7 @@ import compression from 'compression';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
 import authRoutes from './routes/auth.routes';
 import teamRoutes from './routes/team.routes';
 import checkinRoutes from './routes/checkin.routes';
@@ -13,8 +14,10 @@ import workItemRoutes from './routes/workitem.routes';
 import aiRoutes from './routes/ai.routes';
 import backlogRoutes from './routes/backlog.routes';
 import weeklyReportRoutes from './routes/weekly-report.routes';
+import standupRoutes from './routes/standup.routes';
 import { errorHandler } from './middleware/error.middleware';
 import { initDatabase } from './database/init';
+import { initStandupSocket } from './websocket/standup';
 
 // Robust .env loader for IIS/iisnode and local
 (() => {
@@ -51,6 +54,7 @@ import { initDatabase } from './database/init';
 })();
 
 const app: Application = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 const SKIP_DB_INIT = (process.env.SKIP_DB_INIT || 'false').toLowerCase() === 'true';
 let DB_READY = false;
@@ -74,6 +78,7 @@ app.use('/api/workitems', workItemRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/backlog', backlogRoutes);
 app.use('/api/weekly-reports', weeklyReportRoutes);
+app.use('/api/standup', standupRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -104,7 +109,9 @@ const startServer = async () => {
     // Do not exit; allow app to start so health and static content still work
   }
 
-  app.listen(PORT, () => {
+  initStandupSocket(server);
+
+  server.listen(PORT, () => {
     console.log(`✓ Server is running on port ${PORT}`);
     console.log(`✓ Environment: ${process.env.NODE_ENV}`);
     console.log(`✓ DB status: ${SKIP_DB_INIT ? 'skipped' : (DB_READY ? 'ready' : 'error')}`);

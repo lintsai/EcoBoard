@@ -64,11 +64,36 @@ export const createWorkItem = async (
   priority: number = 3
 ) => {
   const result = await query(
-    `INSERT INTO work_items (checkin_id, user_id, content, item_type, session_id, ai_summary, ai_title, priority)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING *`,
+    `INSERT INTO work_items (
+      checkin_id,
+      team_id,
+      user_id,
+      content,
+      item_type,
+      session_id,
+      ai_summary,
+      ai_title,
+      priority
+    )
+    SELECT
+      $1,
+      c.team_id,
+      $2,
+      $3,
+      $4,
+      $5,
+      $6,
+      $7,
+      $8
+    FROM checkins c
+    WHERE c.id = $1
+    RETURNING *`,
     [checkinId, userId, content, itemType, sessionId, aiSummary, aiTitle, priority]
   );
+
+  if (result.rows.length === 0) {
+    throw new Error('找不到對應的打卡記錄，無法建立工作項目');
+  }
 
   const workItem = result.rows[0];
 

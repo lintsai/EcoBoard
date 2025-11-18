@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -14,6 +14,7 @@ interface BacklogProps {
 interface BacklogItem {
   id: number;
   user_id: number;
+  team_id?: number | null;
   content: string;
   item_type: string;
   ai_title?: string;
@@ -48,21 +49,84 @@ function Backlog({ user, teamId }: BacklogProps) {
   const [showParsedPreview, setShowParsedPreview] = useState(false);
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
   const [searchQuery, setSearchQuery] = useState('');
+  const [unassignedItems, setUnassignedItems] = useState<BacklogItem[]>([]);
+  const [teams, setTeams] = useState<any[]>([]);
+  const [assigningItemId, setAssigningItemId] = useState<number | null>(null);
+  const [unassignedTargets, setUnassignedTargets] = useState<Record<number, number | ''>>({});
+  const currentUserId = user?.id as number | undefined;
+
+  const isItemOwner = (item: BacklogItem) => typeof currentUserId === 'number' && item.user_id === currentUserId;
+
+  const requireOwnerPermission = (item: BacklogItem, actionLabel: string) => {
+    if (!isItemOwner(item)) {
+      alert(`只有建立者可以${actionLabel}這個項目`);
+      return false;
+    }
+    return true;
+  };
+
+  const getOwnerLabel = (item: BacklogItem) => {
+    if (isItemOwner(item)) {
+      return '你';
+    }
+    return item.display_name || item.username || `成員 #${item.user_id}`;
+  };
 
   useEffect(() => {
+    if (typeof teamId !== 'number') {
+      return;
+    }
     loadBacklogItems();
+  }, [teamId]);
+
+  useEffect(() => {
+    loadTeams();
   }, []);
+
+  useEffect(() => {
+    loadUnassignedItems();
+  }, [teamId]);
 
   const loadBacklogItems = async () => {
     try {
       setLoading(true);
-      const items = await api.getUserBacklogItems(teamId);
+      const items = teamId
+        ? await api.getTeamBacklogItems(teamId)
+        : await api.getUserBacklogItems();
       setBacklogItems(items);
     } catch (error) {
       console.error('Failed to load backlog items:', error);
-      alert('載入 Backlog 項目失敗');
+      alert('載入 Backlog 項目失敗，請稍後再試');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTeams = async () => {
+    try {
+      const teamList = await api.getTeams();
+      setTeams(Array.isArray(teamList) ? teamList : []);
+    } catch (error) {
+      console.error('Failed to load teams for backlog assignment:', error);
+    }
+  };
+
+  const loadUnassignedItems = async () => {
+    try {
+      const allItems = await api.getUserBacklogItems();
+      const legacyItems = allItems.filter((item: BacklogItem) => !item.team_id);
+      setUnassignedItems(legacyItems);
+      setUnassignedTargets(prev => {
+        const next: Record<number, number | ''> = {};
+        legacyItems.forEach((item: BacklogItem) => {
+          const existing = prev[item.id];
+          const fallback = typeof teamId === 'number' ? teamId : '';
+          next[item.id] = typeof existing === 'number' ? existing : fallback;
+        });
+        return next;
+      });
+    } catch (error) {
+      console.error('Failed to load unassigned backlog items:', error);
     }
   };
 
@@ -123,7 +187,7 @@ function Backlog({ user, teamId }: BacklogProps) {
 
   const handleSaveItem = async () => {
     if (!title.trim() || !content.trim()) {
-      alert('請填寫標題和內容');
+      alert('請輸入標題與內容');
       return;
     }
 
@@ -139,6 +203,7 @@ function Backlog({ user, teamId }: BacklogProps) {
         });
       } else {
         await api.createBacklogItem(
+          teamId,
           title,
           content,
           priority,
@@ -151,67 +216,71 @@ function Backlog({ user, teamId }: BacklogProps) {
       alert(editingItem ? '更新成功！' : '新增成功！');
     } catch (error: any) {
       console.error('Save backlog item error:', error);
-      alert(error.response?.data?.error || '儲存失敗');
+      alert(error.response?.data?.error || '儲存 Backlog 項目失敗');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteItem = async (itemId: number) => {
-    if (!confirm('確定要刪除此項目嗎？')) return;
+
+  const handleDeleteItem = async (item: BacklogItem) => {
+    if (!requireOwnerPermission(item, '刪除')) {
+      return;
+    }
+
+    if (!confirm('確定要刪除這個 Backlog 項目嗎？')) return;
 
     try {
       setLoading(true);
-      await api.deleteBacklogItem(itemId);
+      await api.deleteBacklogItem(item.id);
       await loadBacklogItems();
-      alert('刪除成功！');
+      alert('Backlog 項目已刪除');
     } catch (error: any) {
       console.error('Delete backlog item error:', error);
-      alert(error.response?.data?.error || '刪除失敗');
+      alert(error.response?.data?.error || '刪除 Backlog 項目失敗');
     } finally {
       setLoading(false);
     }
   };
 
   const handleMoveToToday = async (item: BacklogItem) => {
-    if (!confirm(`確定要將「${item.ai_title || item.content.substring(0, 30)}」加入今日工作項目嗎？\n\n此項目將會以標題進行第一次 AI 對談。`)) return;
+    if (!requireOwnerPermission(item, '移動')) {
+      return;
+    }
+
+    if (!confirm('確定要將這個 Backlog 項目移到今日工作嗎？\n\nAI 會協助重新整理內容，此操作無法復原。')) return;
 
     try {
       setLoading(true);
       await api.moveBacklogToWorkItem(item.id, teamId);
       await loadBacklogItems();
-      alert('已加入今日工作項目！');
-      
-      // 可選：自動跳轉到工作項目頁面
-      if (confirm('是否前往工作項目頁面查看？')) {
+      alert('已將 Backlog 項目加入今日工作');
+
+      if (confirm('需要立即前往「今日工作」頁面嗎？')) {
         navigate('/workitems');
       }
     } catch (error: any) {
       console.error('Move to today error:', error);
-      alert(error.response?.data?.error || '移動失敗');
+      alert(error.response?.data?.error || '移動到今日工作失敗');
     } finally {
       setLoading(false);
     }
   };
 
   const handleEditItem = (item: BacklogItem) => {
+    if (!requireOwnerPermission(item, '編輯')) {
+      return;
+    }
+
+    setShowBulkImport(false);
+    setShowAddForm(true);
     setEditingItem(item);
     setTitle(item.ai_title || '');
     setContent(item.content);
-    setPriority(item.priority);
-    // 轉換日期格式為 YYYY-MM-DD
-    setEstimatedDate(item.estimated_date ? item.estimated_date.split('T')[0] : '');
-    setShowAddForm(true);
-    setShowBulkImport(false);
-    // 滾動到表單區域
-    setTimeout(() => {
-      const formElement = document.querySelector('.card');
-      if (formElement) {
-        formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 100);
-    setShowBulkImport(false);
+    setPriority(item.priority || 3);
+    setEstimatedDate(item.estimated_date || '');
   };
+
 
   const resetForm = () => {
     setTitle('');
@@ -223,12 +292,9 @@ function Backlog({ user, teamId }: BacklogProps) {
   };
 
   const handleToggleAddForm = useCallback(() => {
-    console.log('手動新增按鈕被點擊', { currentShowAddForm: showAddForm, loading });
     setShowAddForm(prev => {
-      console.log('切換狀態:', prev, '->', !prev);
       const newState = !prev;
       if (newState) {
-        // 開啟表單，清空並關閉批次匯入
         setTitle('');
         setContent('');
         setPriority(3);
@@ -238,11 +304,11 @@ function Backlog({ user, teamId }: BacklogProps) {
       }
       return newState;
     });
-  }, [showAddForm, loading]);
+  }, []);
 
   const handleParseTable = async () => {
     if (!tableText.trim()) {
-      alert('請貼上表格內容');
+      alert('請貼上要解析的表格內容');
       return;
     }
 
@@ -253,7 +319,7 @@ function Backlog({ user, teamId }: BacklogProps) {
       setShowParsedPreview(true);
     } catch (error: any) {
       console.error('Parse table error:', error);
-      alert(error.response?.data?.error || '解析表格失敗');
+      alert(error.response?.data?.error || '解析表格失敗，請確認格式是否正確');
     } finally {
       setLoading(false);
     }
@@ -261,18 +327,20 @@ function Backlog({ user, teamId }: BacklogProps) {
 
   const handleSaveParsedItems = async () => {
     if (parsedItems.length === 0) {
-      alert('沒有可儲存的項目');
+      alert('沒有可匯入的項目');
       return;
     }
 
     try {
       setLoading(true);
-      const itemsWithTeamId = parsedItems.map(item => ({
-        ...item,
-        teamId
+      const normalizedItems = parsedItems.map(item => ({
+        title: item.title,
+        content: item.content,
+        priority: item.priority || 3,
+        estimatedDate: item.estimatedDate
       }));
-      
-      await api.createBacklogItemsBatch(parsedItems);
+
+      await api.createBacklogItemsBatch(teamId, normalizedItems);
       await loadBacklogItems();
       
       // Reset bulk import
@@ -281,10 +349,10 @@ function Backlog({ user, teamId }: BacklogProps) {
       setShowParsedPreview(false);
       setShowBulkImport(false);
       
-      alert(`成功新增 ${parsedItems.length} 個項目！`);
+      alert(`已匯入 ${parsedItems.length} 筆 Backlog 項目`);
     } catch (error: any) {
       console.error('Save parsed items error:', error);
-      alert(error.response?.data?.error || '批量新增失敗');
+      alert(error.response?.data?.error || '匯入 Backlog 項目失敗');
     } finally {
       setLoading(false);
     }
@@ -300,6 +368,33 @@ function Backlog({ user, teamId }: BacklogProps) {
     setParsedItems(parsedItems.filter((_, i) => i !== index));
   };
 
+  const handleChangeUnassignedTarget = (itemId: number, value: string) => {
+    setUnassignedTargets(prev => ({
+      ...prev,
+      [itemId]: value ? Number(value) : ''
+    }));
+  };
+
+  const handleAssignUnassignedItem = async (itemId: number) => {
+    const targetTeam = unassignedTargets[itemId];
+    if (typeof targetTeam !== 'number') {
+      alert('請先選擇要指派的團隊');
+      return;
+    }
+
+    try {
+      setAssigningItemId(itemId);
+      await api.updateBacklogItem(itemId, { teamId: targetTeam });
+      await Promise.all([loadBacklogItems(), loadUnassignedItems()]);
+      alert('已指派團隊，此項目會顯示在對應團隊的 Backlog。');
+    } catch (error: any) {
+      console.error('Assign backlog team error:', error);
+      alert(error.response?.data?.error || '指派團隊失敗，請稍後再試');
+    } finally {
+      setAssigningItemId(null);
+    }
+  };
+
   return (
     <div className="app-container">
       <div className="main-content">
@@ -308,11 +403,11 @@ function Backlog({ user, teamId }: BacklogProps) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
             <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
               <ArrowLeft size={18} />
-              返回
+              返回儀表板
             </button>
             <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Calendar size={28} />
-              工作項目規劃（Backlog）
+              Backlog 工作規劃
             </h1>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -323,7 +418,7 @@ function Backlog({ user, teamId }: BacklogProps) {
               disabled={loading}
             >
               <Plus size={18} />
-              {showAddForm ? '取消新增' : '手動新增'}
+              {showAddForm ? '關閉表單' : '新增項目'}
             </button>
             <button
               type="button"
@@ -336,7 +431,7 @@ function Backlog({ user, teamId }: BacklogProps) {
               disabled={loading}
             >
               <Sparkles size={18} />
-              {showBulkImport ? '取消匯入' : 'AI 批量匯入'}
+              {showBulkImport ? '關閉批次匯入' : 'AI 批次匯入'}
             </button>
             <div style={{ fontSize: '14px', color: '#666' }}>
               {user.display_name || user.username}
@@ -344,12 +439,87 @@ function Backlog({ user, teamId }: BacklogProps) {
           </div>
         </div>
 
+        {unassignedItems.length > 0 && (
+          <div className="card" style={{ marginBottom: '20px', border: '1px solid #fcd34d', background: '#fffbeb' }}>
+            <div style={{ padding: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+                <AlertCircle size={20} style={{ color: '#d97706' }} />
+                <div style={{ fontSize: '14px', color: '#92400e' }}>
+                  偵測到 <strong>{unassignedItems.length}</strong> 筆 Backlog 項目尚未指定團隊，請指派至正確團隊後即可在該團隊中看到。
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {unassignedItems.map(item => {
+                  const selectedValue = unassignedTargets[item.id];
+                  const isAssigning = assigningItemId === item.id;
+                  const canAssign = typeof selectedValue === 'number';
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: '1px solid #fde68a',
+                        background: '#fff7ed',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: '#92400e' }}>
+                        {item.ai_title || item.content.substring(0, 50)}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#b45309' }}>
+                        建立於 {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+                        <select
+                          value={selectedValue === '' ? '' : String(selectedValue)}
+                          onChange={(e) => handleChangeUnassignedTarget(item.id, e.target.value)}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid #fbbf24',
+                            fontSize: '13px',
+                            minWidth: '180px'
+                          }}
+                        >
+                          <option value="">
+                            {teams.length > 0 ? '選擇要指派的團隊' : '尚未載入團隊'}
+                          </option>
+                          {teams.map((team) => (
+                            <option key={team.id} value={team.id}>
+                              {team.name}
+                              {team.id === teamId ? '（目前團隊）' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="btn btn-primary"
+                          style={{
+                            backgroundColor: '#f59e0b',
+                            borderColor: '#d97706'
+                          }}
+                          onClick={() => handleAssignUnassignedItem(item.id)}
+                          disabled={!canAssign || isAssigning}
+                        >
+                          {isAssigning ? '指派中...' : '指派團隊'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Add/Edit Form */}
         {showAddForm && (
           <div className="card" style={{ marginBottom: '20px' }}>
             <div style={{ padding: '20px' }}>
               <h3 style={{ marginBottom: '15px' }}>
-                {editingItem ? '編輯項目' : '新增項目'}
+                {editingItem ? '編輯 Backlog 項目' : '新增 Backlog 項目'}
               </h3>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -362,20 +532,20 @@ function Backlog({ user, teamId }: BacklogProps) {
                     className="input"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="簡短描述工作項目..."
+                    placeholder="輸入清楚的標題，方便團隊理解"
                     maxLength={500}
                   />
                 </div>
 
                 <div>
                   <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>
-                    詳細內容 *
+                    說明內容 *
                   </label>
                   <textarea
                     className="input"
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
-                    placeholder="詳細描述工作內容、目標、需求等..."
+                    placeholder="補充背景、工作重點、完成定義等資訊"
                     rows={5}
                     style={{ resize: 'vertical' }}
                   />
@@ -384,24 +554,24 @@ function Backlog({ user, teamId }: BacklogProps) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   <div>
                     <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>
-                      優先級
+                      優先順序
                     </label>
                     <select
                       value={priority}
                       onChange={(e) => setPriority(parseInt(e.target.value))}
                       className="form-control"
                     >
-                      <option value={1}>🔴 最高優先級 (1)</option>
-                      <option value={2}>🟠 高優先級 (2)</option>
-                      <option value={3}>🟡 中優先級 (3)</option>
-                      <option value={4}>🟢 低優先級 (4)</option>
-                      <option value={5}>🔵 最低優先級 (5)</option>
+                      <option value={1}>🔴 最高 (1)</option>
+                      <option value={2}>🟠 高 (2)</option>
+                      <option value={3}>🟡 中 (3)</option>
+                      <option value={4}>🟢 低 (4)</option>
+                      <option value={5}>🔵 最低 (5)</option>
                     </select>
                   </div>
 
                   <div>
                     <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>
-                      預計處理時間：
+                      預計時間（選填）
                     </label>
                     <input
                       type="date"
@@ -428,7 +598,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                     onClick={handleSaveItem}
                     disabled={loading}
                   >
-                    {editingItem ? '更新' : '新增'}
+                    {editingItem ? '儲存變更' : '新增項目'}
                   </button>
                 </div>
               </div>
@@ -442,7 +612,7 @@ function Backlog({ user, teamId }: BacklogProps) {
             <div style={{ padding: '20px' }}>
               <h3 style={{ marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Sparkles size={20} style={{ color: '#667eea' }} />
-                AI 批量匯入
+                AI 批次匯入
               </h3>
 
               {!showParsedPreview ? (
@@ -451,11 +621,11 @@ function Backlog({ user, teamId }: BacklogProps) {
                     <div style={{ display: 'flex', alignItems: 'start', gap: '8px' }}>
                       <AlertCircle size={18} style={{ color: '#3b82f6', marginTop: '2px', flexShrink: 0 }} />
                       <div style={{ fontSize: '13px', color: '#1e40af' }}>
-                        <strong>使用說明：</strong>
+                        <strong>使用說明</strong>
                         <ul style={{ marginTop: '8px', marginBottom: 0, paddingLeft: '20px' }}>
-                          <li>可直接貼上 Excel、Word 表格或純文字格式</li>
-                          <li>AI 會自動識別標題、內容、優先級、預計時間等欄位</li>
-                          <li>解析後可以手動修改每個項目再儲存</li>
+                          <li>從 Excel / Google Sheet 複製表格，欄位至少包含「標題、內容、優先、預計日期」。</li>
+                          <li>AI 會自動解析表格並建立 Backlog 草稿，可在匯入前進一步調整內容。</li>
+                          <li>優先順序請填 1-5，預計日期建議使用 YYYY-MM-DD 格式。</li>
                         </ul>
                       </div>
                     </div>
@@ -469,7 +639,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                       className="input"
                       value={tableText}
                       onChange={(e) => setTableText(e.target.value)}
-                      placeholder="貼上包含工作項目的表格...&#10;&#10;範例：&#10;標題           | 內容                     | 優先級 | 預計時間&#10;修復登入問題    | 用戶無法登入系統          | 高     | 2025-11-20&#10;優化查詢效能    | 資料庫查詢太慢            | 中     | 2025-11-25"
+                      placeholder={`標題 | 內容 | 優先 | 預計日期\\n調整報表流程 | 將新版報表節點整合進儀表板 | 2 | 2025-11-20\\n改善客服腳本 | 產出 3 個常見 QA 範本 | 3 | 2025-11-25`}
                       rows={10}
                       style={{ resize: 'vertical', fontFamily: 'monospace' }}
                     />
@@ -492,7 +662,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                       disabled={loading || !tableText.trim()}
                     >
                       <Sparkles size={18} />
-                      {loading ? '解析中...' : 'AI 解析'}
+                      {loading ? '解析中...' : 'AI 解析表格'}
                     </button>
                   </div>
                 </>
@@ -500,7 +670,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                 <>
                   <div style={{ marginBottom: '15px' }}>
                     <p style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>
-                      AI 已解析出 <strong style={{ color: '#667eea' }}>{parsedItems.length}</strong> 個工作項目，請確認或修改後儲存：
+                      AI 已解析 <strong style={{ color: '#667eea' }}>{parsedItems.length}</strong> 筆 Backlog 草稿，請確認後再匯入。
                     </p>
                   </div>
 
@@ -529,7 +699,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                               cursor: 'pointer',
                               padding: '4px'
                             }}
-                            title="移除此項目"
+                            title="移除這筆資料"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -565,7 +735,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                             <div>
                               <label style={{ display: 'block', fontSize: '12px', marginBottom: '3px', fontWeight: '500' }}>
-                                優先級
+                                優先順序
                               </label>
                               <select
                                 value={item.priority}
@@ -573,11 +743,11 @@ function Backlog({ user, teamId }: BacklogProps) {
                                 className="form-control"
                                 style={{ fontSize: '13px' }}
                               >
-                                <option value={1}>🔴 最高 (1)</option>
-                                <option value={2}>🟠 高 (2)</option>
-                                <option value={3}>🟡 中 (3)</option>
-                                <option value={4}>🟢 低 (4)</option>
-                                <option value={5}>🔵 最低 (5)</option>
+                                <option value={1}>🔴 最高</option>
+                                <option value={2}>🟠 高</option>
+                                <option value={3}>🟡 中</option>
+                                <option value={4}>🟢 低</option>
+                                <option value={5}>🔵 最低</option>
                               </select>
                             </div>
 
@@ -611,14 +781,14 @@ function Backlog({ user, teamId }: BacklogProps) {
                       }}
                       disabled={loading}
                     >
-                      重新解析
+                      回到貼上內容
                     </button>
                     <button
                       className="btn btn-success"
                       onClick={handleSaveParsedItems}
                       disabled={loading || parsedItems.length === 0}
                     >
-                      {loading ? '儲存中...' : `儲存全部 (${parsedItems.length})`}
+                      {loading ? '匯入中...' : `匯入 ${parsedItems.length} 筆`}
                     </button>
                   </div>
                 </>
@@ -632,7 +802,7 @@ function Backlog({ user, teamId }: BacklogProps) {
           <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
               <h3 style={{ margin: 0 }}>
-                待規劃項目 ({filterItems(backlogItems).length}{searchQuery && ` / ${backlogItems.length}`})
+                Backlog 項目（{filterItems(backlogItems).length}{searchQuery && ` / ${backlogItems.length}`}）
               </h3>
               {backlogItems.length > 0 && (
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -640,7 +810,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                     <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
                     <input
                       type="text"
-                      placeholder="搜尋標題或內容..."
+                      placeholder="搜尋 Backlog 項目..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       style={{
@@ -682,9 +852,9 @@ function Backlog({ user, teamId }: BacklogProps) {
                       color: '#fff',
                       cursor: 'pointer'
                     }}
-                    title="點擊切換排序方式"
+                    title="切換排序方式"
                   >
-                    {sortBy === 'priority' ? '🔢 優先級' : '📅 預計時間'}
+                    {sortBy === 'priority' ? '按優先順序' : '按預計日期'}
                   </button>
                 </div>
               )}
@@ -696,7 +866,7 @@ function Backlog({ user, teamId }: BacklogProps) {
               </p>
             ) : backlogItems.length === 0 ? (
               <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
-                還沒有規劃項目，點擊上方按鈕開始新增吧！
+                目前沒有 Backlog 項目，點擊「新增項目」開始規劃！
               </p>
             ) : filterItems(backlogItems).length === 0 ? (
               <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
@@ -704,92 +874,102 @@ function Backlog({ user, teamId }: BacklogProps) {
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {sortItems(filterItems(backlogItems)).map((item) => (
-                  <div
-                    key={item.id}
-                    style={{
-                      padding: '15px',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px',
-                      backgroundColor: '#fff',
-                      transition: 'box-shadow 0.2s',
-                      cursor: 'pointer'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
-                      <div style={{ flex: 1 }}>
-                        <h4 style={{ margin: 0, marginBottom: '5px', fontSize: '15px', fontWeight: '600' }}>
-                          {item.ai_title || item.content.substring(0, 50)}
-                        </h4>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#666' }}>
-                          {getPriorityBadge(item.priority)}
-                          <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
-                            📅 {item.estimated_date 
-                              ? (() => {
-                                  const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                                    ? item.estimated_date.split('T')[0] 
-                                    : item.estimated_date;
-                                  const [year, month, day] = dateStr.split('-');
-                                  return `${parseInt(month)}/${parseInt(day)}`;
-                                })()
-                              : '未設定'}
-                          </span>
-                          <span>
-                            建立於 {new Date(item.created_at).toLocaleDateString('zh-TW')}
-                          </span>
+                {sortItems(filterItems(backlogItems)).map((item) => {
+                  const canManage = isItemOwner(item);
+                  const ownerLabel = getOwnerLabel(item);
+                  const estimatedText = item.estimated_date
+                    ? (() => {
+                        const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                          ? item.estimated_date.split('T')[0]
+                          : item.estimated_date;
+                        const [year, month, day] = dateStr.split('-');
+                        return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
+                      })()
+                    : '未設定';
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        padding: '15px',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        backgroundColor: '#fff',
+                        transition: 'box-shadow 0.2s',
+                        cursor: 'pointer'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
+                        <div style={{ flex: 1 }}>
+                          <h4 style={{ margin: 0, marginBottom: '5px', fontSize: '15px', fontWeight: '600' }}>
+                            {item.ai_title || item.content.substring(0, 50)}
+                          </h4>
+                          <div style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>
+                            建立者：{ownerLabel}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#666' }}>
+                            {getPriorityBadge(item.priority)}
+                            <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                              預計：{estimatedText}
+                            </span>
+                            <span>
+                              建立於 {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                          <button
+                            onClick={() => handleMoveToToday(item)}
+                            className="btn btn-success"
+                            style={{ padding: '6px 12px', fontSize: '13px' }}
+                            disabled={loading || !canManage}
+                            title={canManage ? '加入今日工作' : '僅限建立者可以操作'}
+                          >
+                            <Send size={14} />
+                            加入今日
+                          </button>
+                          <button
+                            onClick={() => handleEditItem(item)}
+                            disabled={!canManage}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: canManage ? '#667eea' : '#cbd5f5',
+                              cursor: canManage ? 'pointer' : 'not-allowed',
+                              padding: '4px'
+                            }}
+                            title={canManage ? '編輯' : '僅限建立者可以操作'}
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteItem(item)}
+                            disabled={!canManage}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: canManage ? '#dc2626' : '#fecaca',
+                              cursor: canManage ? 'pointer' : 'not-allowed',
+                              padding: '4px'
+                            }}
+                            title={canManage ? '刪除' : '僅限建立者可以操作'}
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                        <button
-                          onClick={() => handleMoveToToday(item)}
-                          className="btn btn-success"
-                          style={{ padding: '6px 12px', fontSize: '13px' }}
-                          disabled={loading}
-                          title="加入今日工作項目"
-                        >
-                          <Send size={14} />
-                          加入今日
-                        </button>
-                        <button
-                          onClick={() => handleEditItem(item)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#667eea',
-                            cursor: 'pointer',
-                            padding: '4px'
-                          }}
-                          title="編輯"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteItem(item.id)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#dc2626',
-                            cursor: 'pointer',
-                            padding: '4px'
-                          }}
-                          title="刪除"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+
+                      <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '10px' }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
                       </div>
                     </div>
-
-                    <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '10px' }}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -800,3 +980,7 @@ function Backlog({ user, teamId }: BacklogProps) {
 }
 
 export default Backlog;
+
+
+
+

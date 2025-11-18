@@ -65,6 +65,7 @@ export const initDatabase = async () => {
       CREATE TABLE IF NOT EXISTS work_items (
         id SERIAL PRIMARY KEY,
         checkin_id INTEGER REFERENCES checkins(id) ON DELETE CASCADE,
+        team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         content TEXT NOT NULL,
         item_type VARCHAR(50) DEFAULT 'task',
@@ -86,6 +87,16 @@ export const initDatabase = async () => {
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 3 CHECK (priority >= 1 AND priority <= 5)`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS is_backlog BOOLEAN DEFAULT FALSE`);
     await client.query(`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS estimated_date DATE`);
+    await client.query(`
+      ALTER TABLE work_items
+      ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE
+    `);
+    await client.query(`
+      UPDATE work_items wi
+      SET team_id = c.team_id
+      FROM checkins c
+      WHERE wi.team_id IS NULL AND wi.checkin_id = c.id
+    `);
 
     // Daily standup meetings table
     await client.query(`
@@ -192,6 +203,7 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_checkins_date ON checkins(checkin_date);
       CREATE INDEX IF NOT EXISTS idx_checkins_team ON checkins(team_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_user ON work_items(user_id);
+      CREATE INDEX IF NOT EXISTS idx_work_items_team_id ON work_items(team_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_session ON work_items(session_id);
       CREATE INDEX IF NOT EXISTS idx_work_items_priority ON work_items(priority);
       CREATE INDEX IF NOT EXISTS idx_work_items_backlog ON work_items(is_backlog) WHERE is_backlog = TRUE;

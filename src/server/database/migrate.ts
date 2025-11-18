@@ -41,8 +41,8 @@ const runMigration = async () => {
     // Step 1: Initialize database schema
     await initDatabase();
     
-    // Step 2: Create weekly reports table
-    await runMigrationFile('011_create_weekly_reports.sql');
+    // Step 2: Add Team ID to Work Items
+    await runMigrationFile('012_add_team_id_to_work_items.sql');
     
     console.log('✓ Migration completed successfully');
     process.exit(0);
