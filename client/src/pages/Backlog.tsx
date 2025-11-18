@@ -244,10 +244,6 @@ function Backlog({ user, teamId }: BacklogProps) {
   };
 
   const handleMoveToToday = async (item: BacklogItem) => {
-    if (!requireOwnerPermission(item, '移動')) {
-      return;
-    }
-
     if (!confirm('確定要將這個 Backlog 項目移到今日工作嗎？\n\nAI 會協助重新整理內容，此操作無法復原。')) return;
 
     try {
@@ -927,8 +923,8 @@ function Backlog({ user, teamId }: BacklogProps) {
                             onClick={() => handleMoveToToday(item)}
                             className="btn btn-success"
                             style={{ padding: '6px 12px', fontSize: '13px' }}
-                            disabled={loading || !canManage}
-                            title={canManage ? '加入今日工作' : '僅限建立者可以操作'}
+                            disabled={loading}
+                            title="加入今日工作"
                           >
                             <Send size={14} />
                             加入今日

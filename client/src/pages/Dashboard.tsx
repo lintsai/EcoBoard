@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar, FileBarChart } from 'lucide-react';
+import api from '../services/api';
 
 interface DashboardProps {
   user: any;
@@ -9,6 +11,36 @@ interface DashboardProps {
 
 function Dashboard({ user, teamId, onLogout }: DashboardProps) {
   const navigate = useNavigate();
+  const [teamName, setTeamName] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadTeamName = async () => {
+      if (!teamId) {
+        setTeamName('');
+        return;
+      }
+
+      try {
+        const teams = await api.getTeams();
+        if (!isMounted) return;
+        const currentTeam = Array.isArray(teams) ? teams.find((team: any) => team.id === teamId) : null;
+        setTeamName(currentTeam?.name || '');
+      } catch (error) {
+        console.error('Failed to load team info:', error);
+        if (isMounted) {
+          setTeamName('');
+        }
+      }
+    };
+
+    loadTeamName();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [teamId]);
 
   const menuItems = [
     {
@@ -75,7 +107,10 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
         <div className="header">
           <div>
             <h1 style={{ marginBottom: '8px' }}>工作儀表板</h1>
-            <p style={{ color: '#6b7280' }}>歡迎，{user.displayName}</p>
+            <p style={{ color: '#6b7280' }}>
+              歡迎，{user.displayName}
+              {teamName && <> 來到{teamName}團隊</>}
+            </p>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
             <button className="btn btn-secondary" onClick={() => navigate('/teams')}>

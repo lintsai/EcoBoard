@@ -556,11 +556,6 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
   // 從 Backlog 加入今日工作項目（會用標題開啟 AI 對談）
   const handleAddBacklogToToday = async (backlogItem: any) => {
-    if (typeof currentUserId === 'number' && backlogItem.user_id !== currentUserId) {
-      alert('僅限建立者可以操作這個 Backlog 項目');
-      return;
-    }
-
     if (!checkinId) {
       alert('請先完成打卡');
       return;
@@ -1533,7 +1528,6 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           })()
                         : '未設定';
                       const ownerLabel = getBacklogOwnerLabel(item);
-                      const canManageBacklog = isBacklogOwner(item);
                       
                       return (
                         <div
@@ -1635,12 +1629,12 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                     alignItems: 'center',
                                     gap: '6px'
                                   }}
-                                  disabled={loading || !canManageBacklog}
-                                  title={canManageBacklog ? '加入今日工作項目' : '僅限建立者可操作'}
+                                  disabled={loading}
+                                  title="加入今日工作項目"
                                 >
-                                  <Send size={14} />
-                                  加入今日 (AI 對談)
-                                </button>
+                                    <Send size={14} />
+                                    加入今日 (AI 對談)
+                                  </button>
                               </div>
                             </div>
                           )}
