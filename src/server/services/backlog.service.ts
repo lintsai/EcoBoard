@@ -360,17 +360,18 @@ export const moveBacklogToWorkItem = async (
   userId: number,
   teamId: number
 ) => {
-  // 獲取 backlog 項目
+  // 取得 backlog 項目（不限制建立者）
   const backlogResult = await query(
     `SELECT wi.id, wi.checkin_id, wi.team_id, wi.user_id, wi.content, wi.item_type,
             wi.session_id, wi.ai_summary, wi.ai_title, wi.priority,
             TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
             wi.is_backlog, wi.created_at, wi.updated_at,
-            wih.handler_type
+            (SELECT user_id FROM work_item_handlers 
+             WHERE work_item_id = wi.id AND handler_type = 'primary'
+             LIMIT 1) as primary_handler_id
      FROM work_items wi
-     INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
-     WHERE wi.id = $1 AND wih.user_id = $2 AND wi.is_backlog = TRUE`,
-    [backlogItemId, userId]
+     WHERE wi.id = $1 AND wi.is_backlog = TRUE`,
+    [backlogItemId]
   );
 
   if (backlogResult.rows.length === 0) {
@@ -380,6 +381,10 @@ export const moveBacklogToWorkItem = async (
   const backlogItem = backlogResult.rows[0];
   const backlogTeamId: number | null = backlogItem.team_id;
   const effectiveTeamId = backlogTeamId ?? teamId;
+
+  if (!effectiveTeamId) {
+    throw new Error('Backlog 項目尚未指定團隊，無法加入今日工作');
+  }
 
   if (backlogTeamId && backlogTeamId !== teamId) {
     throw new Error('Backlog 項目不屬於此團隊，無權限操作');
@@ -412,14 +417,37 @@ export const moveBacklogToWorkItem = async (
   // 生成新的 session_id 用於 AI 對談
   const newSessionId = `session_${Date.now()}_${userId}`;
 
-  // 更新工作項目：綁定到今日 checkin，設定 is_backlog = false，並設置新的 session_id
+  // 更新工作項目：綁定到今日 checkin，設定 is_backlog = false，並設置新的 session_id 與負責人
   const result = await query(
     `UPDATE work_items 
-     SET checkin_id = $1, team_id = $2, is_backlog = FALSE, session_id = $3, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $4
+     SET checkin_id = $1, 
+         team_id = $2, 
+         user_id = $3,
+         is_backlog = FALSE, 
+         session_id = $4, 
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $5
      RETURNING *`,
-    [checkinId, effectiveTeamId, newSessionId, backlogItemId]
+    [checkinId, effectiveTeamId, userId, newSessionId, backlogItemId]
   );
 
-  return result.rows[0];
+  const updatedItem = result.rows[0];
+
+  // 更新 handlers：將既有主要處理人改為協同處理人，並設置目前使用者為主要處理人
+  await query(
+    `UPDATE work_item_handlers 
+     SET handler_type = 'co_handler'
+     WHERE work_item_id = $1 AND handler_type = 'primary' AND user_id <> $2`,
+    [backlogItemId, userId]
+  );
+
+  await query(
+    `INSERT INTO work_item_handlers (work_item_id, user_id, handler_type)
+     VALUES ($1, $2, 'primary')
+     ON CONFLICT (work_item_id, user_id)
+     DO UPDATE SET handler_type = 'primary'`,
+    [backlogItemId, userId]
+  );
+
+  return updatedItem;
 };
