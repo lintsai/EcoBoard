@@ -10,6 +10,12 @@ interface TokenPayload {
   displayName?: string;
 }
 
+interface ActiveParticipant {
+  userId: number;
+  username?: string;
+  displayName?: string;
+}
+
 export type StandupEventAction =
   | 'standup-refresh'
   | 'checkin-created'
@@ -34,6 +40,7 @@ export interface StandupBroadcastPayload {
   itemId?: number;
   checkinId?: number;
   metadata?: Record<string, unknown>;
+  participants?: ActiveParticipant[];
 }
 
 interface StandupClientMeta {
@@ -85,6 +92,51 @@ const getActorName = (meta: StandupClientMeta | StandupSession) => {
 
 const getTeamPresenceCount = (teamId: number) => teamUserPresence.get(teamId)?.size || 0;
 
+const resolveParticipantLabel = (participant: ActiveParticipant) =>
+  participant.displayName || participant.username || `成員#${participant.userId}`;
+
+const getActiveParticipants = (teamId: number): ActiveParticipant[] => {
+  const presence = teamUserPresence.get(teamId);
+  if (!presence || presence.size === 0) {
+    return [];
+  }
+
+  const clients = teamClients.get(teamId);
+  if (!clients || clients.size === 0) {
+    return [];
+  }
+
+  const participants: ActiveParticipant[] = [];
+  const presenceEntries = Array.from(presence.keys());
+
+  presenceEntries.forEach((userId) => {
+    let participant: ActiveParticipant | null = null;
+    clients.forEach((client) => {
+      if (participant) {
+        return;
+      }
+      const meta = clientMetadata.get(client);
+      if (meta?.userId === userId) {
+        participant = {
+          userId,
+          username: meta.username,
+          displayName: meta.displayName
+        };
+      }
+    });
+
+    participants.push(
+      participant || {
+        userId
+      }
+    );
+  });
+
+  return participants.sort((a, b) =>
+    resolveParticipantLabel(a).localeCompare(resolveParticipantLabel(b), 'zh-Hant')
+  );
+};
+
 const incrementTeamPresence = (meta: StandupClientMeta) => {
   let presence = teamUserPresence.get(meta.teamId);
   if (!presence) {
@@ -135,6 +187,7 @@ const getSessionPayload = (teamId: number, session: StandupSession) => {
     startedBy: session.startedBy,
     requiredParticipants: session.requiredParticipants ?? teamMemberCounts.get(teamId) ?? null,
     currentParticipants: getTeamPresenceCount(teamId),
+    participants: getActiveParticipants(teamId),
     serverTimestamp,
     remainingMs
   };
@@ -259,6 +312,7 @@ const sendSessionStatusToClient = (ws: WebSocket, teamId: number) => {
       active: false,
       currentParticipants: getTeamPresenceCount(teamId),
       requiredParticipants: teamMemberCounts.get(teamId) ?? null,
+      participants: getActiveParticipants(teamId),
       serverTimestamp: Date.now()
     });
   }
@@ -305,8 +359,10 @@ const removeClientFromTeam = (ws: WebSocket) => {
       metadata: {
         actorName: getActorName(meta),
         currentParticipants: getTeamPresenceCount(meta.teamId),
-        requiredParticipants: meta.teamSize || teamMemberCounts.get(meta.teamId) || null
-      }
+        requiredParticipants: meta.teamSize || teamMemberCounts.get(meta.teamId) || null,
+        participants: getActiveParticipants(meta.teamId)
+      },
+      participants: getActiveParticipants(meta.teamId)
     });
   }
 
@@ -389,8 +445,10 @@ export const initStandupSocket = (server: HttpServer) => {
             metadata: {
               actorName: getActorName(meta),
               currentParticipants: getTeamPresenceCount(meta.teamId),
-              requiredParticipants: meta.teamSize || teamMemberCounts.get(meta.teamId) || null
-            }
+              requiredParticipants: meta.teamSize || teamMemberCounts.get(meta.teamId) || null,
+              participants: getActiveParticipants(meta.teamId)
+            },
+            participants: getActiveParticipants(meta.teamId)
           });
         }
         broadcastSessionStatus(teamId);
@@ -468,6 +526,7 @@ export const broadcastStandupUpdate = (teamId: number, payload: StandupBroadcast
     type: 'standup:update',
     teamId,
     ...payload,
+    participants: payload.participants ?? getActiveParticipants(teamId),
     timestamp: new Date().toISOString()
   });
 

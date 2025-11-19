@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus } from 'lucide-react';
+import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -55,6 +55,23 @@ interface StandupSessionInfo {
   startedBy?: string;
   requiredParticipants: number | null;
 }
+
+interface ActiveParticipant {
+  userId: number;
+  username?: string;
+  displayName?: string;
+}
+
+const getParticipantDisplayName = (participant: ActiveParticipant) =>
+  participant.displayName || participant.username || `成員#${participant.userId}`;
+
+const getParticipantInitials = (participant: ActiveParticipant) => {
+  const label = getParticipantDisplayName(participant).replace(/\s+/g, '');
+  if (!label) {
+    return '成員';
+  }
+  return label.slice(0, 2).toUpperCase();
+};
 
 type ToastVariant = 'info' | 'success' | 'warning';
 
@@ -178,6 +195,10 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const [selectedPriority, setSelectedPriority] = useState(3);
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
   const [participantStats, setParticipantStats] = useState({ required: 0, current: 0 });
+  const [activeParticipants, setActiveParticipants] = useState<ActiveParticipant[]>([]);
+  const [participantPanelPosition, setParticipantPanelPosition] = useState<'top' | 'bottom'>('bottom');
+  const [participantPanelCollapsed, setParticipantPanelCollapsed] = useState(false);
+  const [participantPanelMinimized, setParticipantPanelMinimized] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<StandupSessionInfo | null>(null);
   const [countdownMs, setCountdownMs] = useState<number | null>(null);
   const [overdueMinutes, setOverdueMinutes] = useState<number | null>(null);
@@ -390,7 +411,53 @@ const loadStandupData = useCallback(
     setParticipantStats({ required: 0, current: 0 });
     setSessionInfo(null);
     setOverdueMinutes(null);
+    setActiveParticipants([]);
   }, [teamId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const storedPosition = window.localStorage.getItem('standupParticipantPanelPosition');
+    if (storedPosition === 'top' || storedPosition === 'bottom') {
+      setParticipantPanelPosition(storedPosition);
+    }
+    const storedCollapsed = window.localStorage.getItem('standupParticipantPanelCollapsed');
+    if (storedCollapsed === '1') {
+      setParticipantPanelCollapsed(true);
+    }
+    const storedMinimized = window.localStorage.getItem('standupParticipantPanelMinimized');
+    if (storedMinimized === '1') {
+      setParticipantPanelMinimized(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem('standupParticipantPanelPosition', participantPanelPosition);
+  }, [participantPanelPosition]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(
+      'standupParticipantPanelCollapsed',
+      participantPanelCollapsed ? '1' : '0'
+    );
+  }, [participantPanelCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(
+      'standupParticipantPanelMinimized',
+      participantPanelMinimized ? '1' : '0'
+    );
+  }, [participantPanelMinimized]);
 
   useEffect(() => {
     if (!logStorageKey || typeof window === 'undefined') {
@@ -605,6 +672,7 @@ const loadStandupData = useCallback(
                 required: Number(payload.requiredParticipants) || 0,
                 current: Number(payload.currentParticipants) || 0
               });
+              setActiveParticipants(Array.isArray(payload.participants) ? payload.participants : []);
 
               if (payload.active) {
                 syncServerTime(payload.serverTimestamp);
@@ -629,6 +697,11 @@ const loadStandupData = useCallback(
                   ? metadata.currentParticipants
                   : prev.current
               }));
+              if (Array.isArray(payload.participants)) {
+                setActiveParticipants(payload.participants);
+              } else if (Array.isArray(metadata.participants)) {
+                setActiveParticipants(metadata.participants);
+              }
 
               let shouldRefreshData = true;
 
@@ -1088,6 +1161,405 @@ const loadStandupData = useCallback(
     ? Math.round((checkins.length / teamMembers.length) * 100)
     : 0;
 
+  const targetParticipantCount =
+    sessionInfo?.requiredParticipants ||
+    participantStats.required ||
+    teamMembers.length ||
+    participantStats.current ||
+    activeParticipants.length ||
+    0;
+  const outstandingParticipants = Math.max(targetParticipantCount - activeParticipants.length, 0);
+  const hasParticipantData = targetParticipantCount > 0 || activeParticipants.length > 0;
+  const hasAutoStartWarning =
+    !sessionInfo && participantStats.required > 0 && participantStats.current < participantStats.required;
+  const autoStartWarning = hasAutoStartWarning
+    ? `目前僅 ${participantStats.current}/${participantStats.required} 人到齊，尚未達到自動開始條件`
+    : '';
+  const shouldShowFloatingPanel =
+    hasParticipantData ||
+    hasAutoStartWarning ||
+    connectionLogs.length > 0 ||
+    !!sessionInfo ||
+    participantStats.required > 0 ||
+    forcingStart ||
+    forcingStop;
+  const panelOffset = participantPanelMinimized ? 110 : participantPanelCollapsed ? 260 : 420;
+  const mainContentStyle = {
+    paddingBottom:
+      participantPanelPosition === 'bottom' && shouldShowFloatingPanel ? `${panelOffset}px` : undefined,
+    paddingTop:
+      participantPanelPosition === 'top' && shouldShowFloatingPanel ? `${panelOffset}px` : undefined
+  };
+
+  const participantPanel = shouldShowFloatingPanel ? (
+    <div
+      style={{
+        position: 'fixed',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: participantPanelMinimized ? 'min(420px, calc(100% - 32px))' : 'min(720px, calc(100% - 32px))',
+        backgroundColor: '#eef2ff',
+        border: '1px solid #c7d2fe',
+        borderRadius: participantPanelMinimized ? '999px' : '16px',
+        padding: participantPanelMinimized ? '10px 16px' : '18px',
+        boxShadow: '0 30px 55px rgba(79, 70, 229, 0.18)',
+        zIndex: 1040,
+        ...(participantPanelPosition === 'bottom' ? { bottom: '20px' } : { top: '20px' })
+      }}
+    >
+      {participantPanelMinimized ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '10px',
+            flexWrap: 'wrap',
+            position: 'relative'
+          }}
+        >
+          {sessionInfo && (
+            <div
+              style={{
+                position: 'absolute',
+                left: '-60px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '12px',
+                color: isCountdownPositive ? '#2563eb' : '#dc2626',
+                backgroundColor: isCountdownPositive ? '#e0f2fe' : '#fee2e2',
+                borderRadius: '999px',
+                padding: '4px 10px',
+                fontWeight: 600,
+                boxShadow: '0 4px 14px rgba(15, 23, 42, 0.15)'
+              }}
+            >
+              <Clock size={12} />
+              {formatCountdown(countdownMs)}
+            </div>
+          )}
+          <div>
+            <div style={{ fontWeight: 600, color: '#1e1b4b', fontSize: '14px' }}>
+              {hasParticipantData
+                ? `在線 ${activeParticipants.length}/${targetParticipantCount}`
+                : '站立會議監控面板'}
+            </div>
+            <div style={{ fontSize: '12px', color: '#4338ca' }}>
+              {autoStartWarning || `連線狀態：${socketStatusLabel}`}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '12px' }}
+              onClick={() =>
+                setParticipantPanelPosition((prev) => (prev === 'bottom' ? 'top' : 'bottom'))
+              }
+            >
+              {participantPanelPosition === 'bottom' ? '置頂' : '置底'}
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{ padding: '4px 12px', fontSize: '12px' }}
+              onClick={() => setParticipantPanelMinimized(false)}
+            >
+              展開資訊
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  backgroundColor: '#c7d2fe',
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '999px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#4338ca'
+                }}
+              >
+                <Users size={24} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, color: '#1e1b4b', fontSize: '15px' }}>
+                  {hasParticipantData
+                    ? `目前 ${activeParticipants.length}/${targetParticipantCount} 人在線`
+                    : '等待團隊成員加入'}
+                </div>
+                <div style={{ fontSize: '12px', color: '#4338ca' }}>
+                  {hasParticipantData ? (
+                    outstandingParticipants > 0
+                      ? `尚需 ${outstandingParticipants} 人即可自動開始`
+                      : '已達成自動啟動條件'
+                  ) : (
+                    '尚未有成員連線到站立會議'
+                  )}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                onClick={() =>
+                  setParticipantPanelPosition((prev) => (prev === 'bottom' ? 'top' : 'bottom'))
+                }
+              >
+                <ArrowUpDown size={14} />
+                {participantPanelPosition === 'bottom' ? '置頂' : '置底'}
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '4px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                onClick={() => setParticipantPanelCollapsed((prev) => !prev)}
+              >
+                {participantPanelCollapsed ? (
+                  <>
+                    展開列表
+                    <ChevronDown size={14} />
+                  </>
+                ) : (
+                  <>
+                    收合列表
+                    <ChevronUp size={14} />
+                  </>
+                )}
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+                onClick={() => setParticipantPanelMinimized(true)}
+              >
+                最小化
+              </button>
+            </div>
+          </div>
+          {autoStartWarning && (
+            <div
+              style={{
+                marginTop: '10px',
+                backgroundColor: '#fff7ed',
+                border: '1px solid #fdba74',
+                borderRadius: '10px',
+                padding: '8px 12px',
+                fontSize: '12px',
+                color: '#9a3412'
+              }}
+            >
+              {autoStartWarning}
+            </div>
+          )}
+          <div
+            style={{
+              marginTop: '12px',
+              padding: '12px',
+              borderRadius: '12px',
+              backgroundColor: '#fff',
+              border: '1px solid #e0e7ff',
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: '12px',
+              justifyContent: 'space-between'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px' }}>
+              <span
+                style={{
+                  width: '10px',
+                  height: '10px',
+                  borderRadius: '50%',
+                  display: 'inline-block',
+                  backgroundColor: socketStatusColor
+                }}
+              />
+              <span style={{ color: '#1e1b4b' }}>
+                連線狀態：{socketStatusLabel}
+                {lastRealtimeEvent && lastRealtimeTimestamp
+                  ? ` · ${lastRealtimeTimestamp} ${lastRealtimeEvent}`
+                  : ''}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {!sessionInfo && (
+                <button className="btn btn-primary" onClick={handleForceStartStandup} disabled={forcingStart}>
+                  {forcingStart ? '處理中...' : '強制開始'}
+                </button>
+              )}
+              {sessionInfo && (
+                <button className="btn btn-danger" onClick={handleForceStopStandup} disabled={forcingStop}>
+                  {forcingStop ? '結束中...' : '強制結束'}
+                </button>
+              )}
+            </div>
+          </div>
+          {sessionInfo && (
+            <div
+              style={{
+                marginTop: '12px',
+                padding: '14px',
+                borderRadius: '12px',
+                backgroundColor: '#eef2ff',
+                border: '1px solid #d4dcff'
+              }}
+            >
+              <div style={{ fontSize: '14px', color: '#312e81', marginBottom: '6px', fontWeight: 600 }}>
+                站立會議計時
+              </div>
+              <div
+                style={{
+                  fontSize: '32px',
+                  fontWeight: 700,
+                  color: isCountdownPositive ? '#0ea5e9' : '#dc2626'
+                }}
+              >
+                {formatCountdown(countdownMs)}
+              </div>
+              <div style={{ fontSize: '13px', color: '#4338ca', marginTop: '6px' }}>
+                由 {sessionInfo.startedBy || '系統'} 發起，時長 15 分鐘
+              </div>
+              <div style={{ fontSize: '13px', color: '#4338ca' }}>
+                出席人數：{participantStats.current}/
+                {sessionInfo.requiredParticipants || participantStats.required || participantStats.current}
+              </div>
+              {isCountdownExpired && (
+                <div style={{ marginTop: '8px', color: '#b91c1c', fontSize: '13px' }}>
+                  已超過預定時間，請盡速進入結尾
+                </div>
+              )}
+            </div>
+          )}
+          {!participantPanelCollapsed && (
+            <>
+              <div style={{ marginTop: '12px', maxHeight: '160px', overflowY: 'auto' }}>
+                {activeParticipants.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#4c1d95', margin: 0 }}>
+                    目前尚無成員連線，等待同仁加入中。
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: '8px'
+                    }}
+                  >
+                    {activeParticipants.map((participant) => (
+                      <div
+                        key={participant.userId}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          padding: '8px 12px',
+                          borderRadius: '10px',
+                          border: '1px solid #e0e7ff',
+                          backgroundColor: '#fff'
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '50%',
+                            backgroundColor: '#eef2ff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 600,
+                            color: '#4338ca',
+                            fontSize: '12px'
+                          }}
+                        >
+                          {getParticipantInitials(participant)}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, color: '#1e1b4b', fontSize: '13px' }}>
+                            {getParticipantDisplayName(participant)}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#4338ca' }}>線上</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ marginTop: '12px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '6px'
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: '14px', color: '#312e81' }}>站立會議即時紀錄</h3>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={clearConnectionLogs}
+                    disabled={connectionLogs.length === 0}
+                    style={{ padding: '4px 10px', fontSize: '12px' }}
+                  >
+                    清除紀錄
+                  </button>
+                </div>
+                <div
+                  style={{
+                    maxHeight: '140px',
+                    overflowY: 'auto',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '6px',
+                    padding: '8px 12px',
+                    backgroundColor: '#f5f3ff'
+                  }}
+                >
+                  {connectionLogs.length === 0 ? (
+                    <p style={{ fontSize: '12px', color: '#7c3aed', margin: 0 }}>
+                      目前尚無任何連線或操作紀錄。當成員加入、離開或更新資訊時，會顯示在這裡。
+                    </p>
+                  ) : (
+                    connectionLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        style={{
+                          display: 'flex',
+                          gap: '12px',
+                          padding: '6px 0',
+                          borderBottom: '1px dashed #ddd6fe'
+                        }}
+                      >
+                        <span style={{ fontSize: '11px', color: '#7c3aed', minWidth: '110px' }}>
+                          {log.timestamp}
+                        </span>
+                        <span style={{ fontSize: '12px', color: '#1f2937', flex: 1 }}>{log.message}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  ) : null;
+
   const toastStack = toasts.length > 0 ? (
     <div
       style={{
@@ -1122,7 +1594,7 @@ const loadStandupData = useCallback(
   if (loading) {
     return (
       <div className="app-container">
-        <div className="main-content">
+        <div className="main-content" style={mainContentStyle}>
           {toastStack}
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <Loader2 size={40} className="spinner" />
@@ -1135,7 +1607,7 @@ const loadStandupData = useCallback(
 
   return (
     <div className="app-container">
-      <div className="main-content">
+      <div className="main-content" style={mainContentStyle}>
         {toastStack}
         <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={18} />
@@ -1197,171 +1669,6 @@ const loadStandupData = useCallback(
             </button>
           </div>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '15px' }}>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#4b5563' }}>
-
-            <span
-
-              style={{
-
-                width: '10px',
-
-                height: '10px',
-
-                borderRadius: '50%',
-
-                display: 'inline-block',
-
-                backgroundColor: socketStatusColor
-
-              }}
-
-            />
-
-            <span>連線狀態：{socketStatusLabel}</span>
-
-          </div>
-
-          {lastRealtimeEvent && lastRealtimeTimestamp && (
-            <div style={{ fontSize: '12px', color: '#6b7280' }}>
-              {lastRealtimeTimestamp} · {lastRealtimeEvent}
-            </div>
-          )}
-
-          {!sessionInfo && participantStats.required > 0 && participantStats.current < participantStats.required && (
-
-            <button
-
-              className="btn btn-primary"
-
-              onClick={handleForceStartStandup}
-
-              disabled={forcingStart}
-
-            >
-
-              {forcingStart ? '處理中...' : '強制開始'}
-
-            </button>
-
-          )}
-
-          {sessionInfo && (
-
-            <button
-
-              className="btn btn-danger"
-
-              onClick={handleForceStopStandup}
-
-              disabled={forcingStop}
-
-            >
-
-              {forcingStop ? '結束中...' : '強制結束'}
-
-            </button>
-
-          )}
-
-        </div>
-
-        <div className="card" style={{ marginBottom: '20px' }}>
-          <div style={{ padding: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-              <h3 style={{ margin: 0, fontSize: '15px' }}>站立會議即時紀錄</h3>
-              <button
-                className="btn btn-secondary"
-                onClick={clearConnectionLogs}
-                disabled={connectionLogs.length === 0}
-                style={{ padding: '4px 10px', fontSize: '12px' }}
-              >
-                清除紀錄
-              </button>
-            </div>
-            <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px 12px', backgroundColor: '#f9fafb' }}>
-              {connectionLogs.length === 0 ? (
-                <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>
-                  目前尚無任何連線或操作紀錄。當成員加入、離開或更新資訊時，會顯示在這裡。
-                </p>
-              ) : (
-                connectionLogs.map((log) => (
-                  <div key={log.id} style={{ display: 'flex', gap: '12px', padding: '6px 0', borderBottom: '1px dashed #e5e7eb' }}>
-                    <span style={{ fontSize: '11px', color: '#94a3b8', minWidth: '110px' }}>{log.timestamp}</span>
-                    <span style={{ fontSize: '12px', color: '#1f2937', flex: 1 }}>{log.message}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-
-
-        {!sessionInfo && participantStats.required > 0 && participantStats.current < participantStats.required && (
-          <div className="alert alert-info" style={{ marginBottom: '16px' }}>
-            <AlertCircle size={18} />
-            目前僅 {participantStats.current}/{participantStats.required} 人到齊，尚未達到自動開始條件
-          </div>
-        )}
-
-
-
-        {sessionInfo && (
-
-          <div
-
-            className="card"
-
-            style={{
-
-              marginBottom: '16px',
-
-              backgroundColor: '#f9fafb',
-
-              borderLeft: isCountdownPositive ? '4px solid #0ea5e9' : '4px solid #dc2626'
-
-            }}
-
-          >
-
-            <div style={{ fontSize: '14px', color: '#0f172a', marginBottom: '6px', fontWeight: 600 }}>
-              站立會議計時
-            </div>
-
-            <div style={{ fontSize: '32px', fontWeight: 700, color: isCountdownPositive ? '#0ea5e9' : '#dc2626' }}>
-
-              {formatCountdown(countdownMs)}
-
-            </div>
-
-            <div style={{ fontSize: '13px', color: '#475569', marginTop: '6px' }}>
-
-              由 {sessionInfo.startedBy || '系統'} 發起，時長 15 分鐘
-
-            </div>
-
-            <div style={{ fontSize: '13px', color: '#475569' }}>
-              出席人數：{participantStats.current}/
-              {sessionInfo.requiredParticipants || participantStats.required || participantStats.current}
-            </div>
-
-            {isCountdownExpired && (
-
-              <div style={{ marginTop: '8px', color: '#b91c1c', fontSize: '13px' }}>
-                已超過預定時間，請盡速進入結尾
-              </div>
-
-            )}
-
-          </div>
-
-        )}
-
-
-
         {typeof overdueMinutes === 'number' && (
           <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
             <AlertCircle size={18} />
@@ -2684,6 +2991,7 @@ const loadStandupData = useCallback(
           </div>
         )}
       </div>
+      {participantPanel}
     </div>
   );
 }
