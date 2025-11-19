@@ -7,6 +7,39 @@ const getTodayDate = () => {
   return taiwanTime.toISOString().split('T')[0];
 };
 
+const normalizeDateValue = (value?: string | Date | null) => {
+  if (!value) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    if (value.includes('T')) {
+      return value.split('T')[0];
+    }
+    if (value.includes(' ')) {
+      return value.split(' ')[0];
+    }
+    return value;
+  }
+  try {
+    return value.toISOString().split('T')[0];
+  } catch {
+    return value as any;
+  }
+};
+
+const withNormalizedEstimatedDate = <T extends { estimated_date?: any }>(item: T): T => {
+  if (!item || item.estimated_date === undefined) {
+    return item;
+  }
+  return {
+    ...item,
+    estimated_date: item.estimated_date ? normalizeDateValue(item.estimated_date) : item.estimated_date
+  };
+};
+
+const normalizeEstimatedDateList = <T extends { estimated_date?: any }>(items: T[]): T[] =>
+  items.map(withNormalizedEstimatedDate);
+
 // 獲取工作項目的所有處理人
 const getWorkItemHandlers = async (workItemIds: number[]) => {
   if (workItemIds.length === 0) return {};
@@ -105,7 +138,7 @@ export const createWorkItem = async (
     [workItem.id, userId]
   );
 
-  return workItem;
+  return withNormalizedEstimatedDate(workItem);
 };
 
 export const getTodayUserWorkItems = async (
@@ -159,7 +192,7 @@ export const getTodayUserWorkItems = async (
     handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
   }));
   
-  return workItems;
+  return normalizeEstimatedDateList(workItems);
 };
 
 export const getTodayTeamWorkItems = async (teamId: number) => {
@@ -202,7 +235,7 @@ export const getTodayTeamWorkItems = async (teamId: number) => {
     handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
   }));
 
-  return workItems;
+  return normalizeEstimatedDateList(workItems);
 };
 
 export const updateWorkItem = async (
@@ -296,7 +329,7 @@ export const updateWorkItem = async (
     throw new Error('工作項目不存在');
   }
 
-  return result.rows[0];
+  return withNormalizedEstimatedDate(result.rows[0]);
 };
 
 // 重新分配工作項目給其他成員
@@ -401,7 +434,7 @@ export const reassignWorkItem = async (
 
   console.log('[reassignWorkItem] Updated handlers table');
 
-  return result.rows[0];
+  return withNormalizedEstimatedDate(result.rows[0]);
 };
 
 export const createWorkUpdate = async (
@@ -645,7 +678,7 @@ export const moveWorkItemToToday = async (
 
   console.log('[moveWorkItemToToday] Moved successfully');
 
-  return result.rows[0];
+  return withNormalizedEstimatedDate(result.rows[0]);
 };
 
 // 獲取用戶的未完成工作項目（不限日期，但排除已完成的和今日的項目）
@@ -701,8 +734,8 @@ export const getIncompleteUserWorkItems = async (
     ...row,
     handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
   }));
-  
-  return workItems;
+
+  return normalizeEstimatedDateList(workItems);
 };
 
 // 獲取團隊的未完成工作項目（供管理員查看，排除今日項目）
@@ -746,7 +779,7 @@ export const getIncompleteTeamWorkItems = async (teamId: number) => {
     handlers: handlersMap[row.id] || { primary: null, co_handlers: [] }
   }));
 
-  return workItems;
+  return normalizeEstimatedDateList(workItems);
 };
 
 export const deleteWorkItem = async (itemId: number, userId: number) => {
@@ -780,5 +813,5 @@ export const deleteWorkItem = async (itemId: number, userId: number) => {
     [itemId]
   );
 
-  return result.rows[0];
+  return withNormalizedEstimatedDate(result.rows[0]);
 };

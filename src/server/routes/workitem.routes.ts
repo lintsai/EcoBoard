@@ -6,6 +6,12 @@ import { notifyStandupUpdateForCheckin, notifyStandupUpdateForWorkItem } from '.
 
 const router = Router();
 const getActorName = (req: AuthRequest) => req.user?.displayName || req.user?.username || '成員';
+const preventCache = (res: Response) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+};
 
 // 新增工作項目
 router.post(
@@ -69,6 +75,7 @@ router.get(
         req.user!.id,
         teamId ? parseInt(teamId as string) : undefined
       );
+      preventCache(res);
       res.json(workItems);
     } catch (error) {
       console.error('Get work items error:', error);
@@ -88,6 +95,7 @@ router.get(
         req.user!.id,
         teamId ? parseInt(teamId as string) : undefined
       );
+      preventCache(res);
       res.json(workItems);
     } catch (error) {
       console.error('Get incomplete work items error:', error);
@@ -288,6 +296,7 @@ router.get(
     try {
       const itemId = parseInt(req.params.itemId);
       const updates = await workItemService.getWorkItemUpdates(itemId);
+      preventCache(res);
       res.json(updates);
     } catch (error) {
       console.error('Get work updates error:', error);
@@ -304,6 +313,7 @@ router.get(
     try {
       const teamId = parseInt(req.params.teamId);
       const workItems = await workItemService.getTodayTeamWorkItems(teamId);
+      preventCache(res);
       res.json(workItems);
     } catch (error) {
       console.error('Get team work items error:', error);
@@ -320,6 +330,7 @@ router.get(
     try {
       const teamId = parseInt(req.params.teamId);
       const workItems = await workItemService.getIncompleteTeamWorkItems(teamId);
+      preventCache(res);
       res.json(workItems);
     } catch (error) {
       console.error('Get team incomplete work items error:', error);

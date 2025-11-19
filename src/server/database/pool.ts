@@ -1,4 +1,9 @@
-import { Pool, PoolClient, PoolConfig } from 'pg';
+import { Pool, PoolClient, PoolConfig, types } from 'pg';
+
+// Force pg to return raw strings for date/timestamp fields so frontend can render exactly what was stored
+types.setTypeParser(types.builtins.DATE, (value: string) => value);
+types.setTypeParser(types.builtins.TIMESTAMP, (value: string) => value);
+types.setTypeParser(types.builtins.TIMESTAMPTZ, (value: string) => value);
 
 const normalize = (v: any) => (typeof v === 'string' ? v : (v == null ? undefined : String(v)));
 

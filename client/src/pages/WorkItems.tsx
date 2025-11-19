@@ -91,6 +91,13 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     return '未指定';
   };
 
+  const normalizeEstimatedDate = (value?: string | null) => {
+    if (!value) {
+      return null;
+    }
+    return value.includes('T') ? value.split('T')[0] : value;
+  };
+
   // Helper function to get priority badge
   const getPriorityBadge = (priority: number = 3) => {
     const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
@@ -150,10 +157,13 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     } else {
       // Sort by estimated_date: items without date go to bottom
       sorted.sort((a, b) => {
-        if (!a.estimated_date && !b.estimated_date) return (a.priority || 3) - (b.priority || 3);
-        if (!a.estimated_date) return 1;
-        if (!b.estimated_date) return -1;
-        return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+        const dateA = normalizeEstimatedDate(a.estimated_date || null);
+        const dateB = normalizeEstimatedDate(b.estimated_date || null);
+
+        if (!dateA && !dateB) return (a.priority || 3) - (b.priority || 3);
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateA.localeCompare(dateB);
       });
     }
     
@@ -161,17 +171,29 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   };
 
   useEffect(() => {
+    if (!teamId) {
+      setWorkItems([]);
+      setIncompleteItems([]);
+      setBacklogItems([]);
+      setTeamMembers([]);
+      return;
+    }
+
     loadTodayCheckin();
     loadWorkItems();
     loadIncompleteItems();
     loadBacklogItems();
     loadTeamMembers();
+    setSelectedItemId(null);
+    setSessionId('');
+    setCurrentItemAiSummary('');
+    setSelectedPriority(3);
     setMessages([{
       role: 'ai',
       content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
       timestamp: new Date().toISOString()
     }]);
-  }, []);
+  }, [teamId]);
 
   useEffect(() => {
     // Add table click handler
@@ -490,8 +512,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         sessionId: sessionId  // 關聯 AI 對話記錄
       });
 
-      // Reload work items list
-      await loadWorkItems();
+      // Reload both lists so the latest content appears in today's + incomplete sections
+      await Promise.all([loadWorkItems(), loadIncompleteItems()]);
       
       // Clear edit mode states
       setSessionId('');
@@ -1365,7 +1387,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                         alert(error.error || '更新失敗');
                                         return;
                                       }
-                                      await loadWorkItems();
+                                      // 未完成清單使用獨立狀態，更新後需重新載入以刷新畫面
+                                      await loadIncompleteItems();
                                     } catch (error) {
                                       console.error('更新預計時間失敗:', error);
                                       alert('更新失敗，請稍後再試');

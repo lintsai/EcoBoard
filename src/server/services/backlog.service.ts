@@ -15,6 +15,36 @@ export interface BacklogItem {
   updated_at: string;
 }
 
+const normalizeDateValue = (value?: string | Date | null) => {
+  if (!value) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    if (value.includes('T')) {
+      return value.split('T')[0];
+    }
+    if (value.includes(' ')) {
+      return value.split(' ')[0];
+    }
+    return value;
+  }
+  try {
+    return value.toISOString().split('T')[0];
+  } catch {
+    return value as any;
+  }
+};
+
+const withNormalizedEstimatedDate = <T extends { estimated_date?: any }>(item: T): T => {
+  if (!item || item.estimated_date === undefined) {
+    return item;
+  }
+  return {
+    ...item,
+    estimated_date: item.estimated_date ? normalizeDateValue(item.estimated_date) : item.estimated_date
+  };
+};
+
 const ensureTeamMembership = async (teamId: number, userId: number) => {
   const membership = await query(
     'SELECT 1 FROM team_members WHERE team_id = $1 AND user_id = $2 LIMIT 1',
@@ -24,6 +54,36 @@ const ensureTeamMembership = async (teamId: number, userId: number) => {
   if (membership.rows.length === 0) {
     throw new Error('你無權限操作此 Backlog');
   }
+};
+
+const ensureBacklogPermission = async (itemId: number, userId: number) => {
+  const result = await query(
+    `SELECT wi.id, wi.team_id, wi.user_id, wi.is_backlog,
+            wih.handler_type as requester_handler_type
+     FROM work_items wi
+     LEFT JOIN work_item_handlers wih 
+       ON wi.id = wih.work_item_id AND wih.user_id = $2
+     WHERE wi.id = $1`,
+    [itemId, userId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error('Backlog 項目不存在或無權限');
+  }
+
+  const item = result.rows[0];
+
+  if (!item.is_backlog) {
+    throw new Error('此項目不是 backlog 項目');
+  }
+
+  if (item.team_id) {
+    await ensureTeamMembership(item.team_id, userId);
+  } else if (!item.requester_handler_type) {
+    throw new Error('Backlog 項目不存在或無權限');
+  }
+
+  return item;
 };
 
 const fetchTeamBacklogItems = async (teamId: number) => {
@@ -101,7 +161,7 @@ export const createBacklogItem = async (
     [workItem.id, userId]
   );
 
-  return workItem;
+  return withNormalizedEstimatedDate(workItem);
 };
 
 // 批量創建 backlog 項目
@@ -227,38 +287,7 @@ export const updateBacklogItem = async (
     teamId?: number;
   }
 ) => {
-  // 檢查權限
-  const itemCheck = await query(
-    `SELECT wi.id, wi.checkin_id, wi.team_id, wi.user_id, wi.content, wi.item_type,
-            wi.session_id, wi.ai_summary, wi.ai_title, wi.priority,
-            TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
-            wi.is_backlog, wi.created_at, wi.updated_at,
-            wih.handler_type
-     FROM work_items wi
-     INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
-     WHERE wi.id = $1 AND wih.user_id = $2`,
-    [itemId, userId]
-  );
-
-  if (itemCheck.rows.length === 0) {
-    throw new Error('Backlog 項目不存在或無權限');
-  }
-
-  const item = itemCheck.rows[0];
-
-  // 確認是 backlog 項目
-  if (!item.is_backlog) {
-    throw new Error('此項目不是 backlog 項目');
-  }
-
-  // 只有主要處理人可以修改
-  if (item.handler_type !== 'primary') {
-    throw new Error('只有主要處理人可以修改此項目');
-  }
-
-  if (item.team_id) {
-    await ensureTeamMembership(item.team_id, userId);
-  }
+  const item = await ensureBacklogPermission(itemId, userId);
 
   const updateFields: string[] = [];
   const values: any[] = [];
@@ -305,39 +334,12 @@ export const updateBacklogItem = async (
      RETURNING *`;
 
   const result = await query(sql, values);
-  return result.rows[0];
+  return withNormalizedEstimatedDate(result.rows[0]);
 };
 
 // 刪除 backlog 項目
 export const deleteBacklogItem = async (itemId: number, userId: number) => {
-  // 檢查權限
-  const itemCheck = await query(
-    `SELECT wi.id, wi.checkin_id, wi.team_id, wi.user_id, wi.content, wi.item_type,
-            wi.session_id, wi.ai_summary, wi.ai_title, wi.priority,
-            TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
-            wi.is_backlog, wi.created_at, wi.updated_at,
-            wih.handler_type
-     FROM work_items wi
-     INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
-     WHERE wi.id = $1 AND wih.user_id = $2`,
-    [itemId, userId]
-  );
-
-  if (itemCheck.rows.length === 0) {
-    throw new Error('Backlog 項目不存在或無權限');
-  }
-
-  const item = itemCheck.rows[0];
-
-  // 確認是 backlog 項目
-  if (!item.is_backlog) {
-    throw new Error('此項目不是 backlog 項目');
-  }
-
-  // 只有主要處理人可以刪除
-  if (item.handler_type !== 'primary') {
-    throw new Error('只有主要處理人可以刪除此項目');
-  }
+  const item = await ensureBacklogPermission(itemId, userId);
 
   // 先刪除 handlers
   await query('DELETE FROM work_item_handlers WHERE work_item_id = $1', [itemId]);
@@ -351,7 +353,7 @@ export const deleteBacklogItem = async (itemId: number, userId: number) => {
     [itemId]
   );
 
-  return result.rows[0];
+  return withNormalizedEstimatedDate(result.rows[0]);
 };
 
 // 將 backlog 項目加入今日工作項目
@@ -449,5 +451,5 @@ export const moveBacklogToWorkItem = async (
     [backlogItemId, userId]
   );
 
-  return updatedItem;
+  return withNormalizedEstimatedDate(updatedItem);
 };

@@ -54,6 +54,7 @@ import { initStandupSocket } from './websocket/standup';
 })();
 
 const app: Application = express();
+app.set('etag', false);
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 const SKIP_DB_INIT = (process.env.SKIP_DB_INIT || 'false').toLowerCase() === 'true';

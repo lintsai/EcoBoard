@@ -64,6 +64,12 @@ interface ToastMessage {
   variant: ToastVariant;
 }
 
+interface RealtimeLogEntry {
+  id: string;
+  timestamp: string;
+  message: string;
+}
+
 type SocketStatus = 'connecting' | 'connected' | 'disconnected';
 
 interface StandupReviewProps {
@@ -140,6 +146,13 @@ const getPriorityBadge = (priority: number = 3) => {
   );
 };
 
+const normalizeEstimatedDate = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  return value.includes('T') ? value.split('T')[0] : value;
+};
+
 function StandupReview({ user, teamId }: StandupReviewProps) {
   const navigate = useNavigate();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -174,6 +187,8 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const [forcingStart, setForcingStart] = useState(false);
   const [forcingStop, setForcingStop] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [connectionLogs, setConnectionLogs] = useState<RealtimeLogEntry[]>([]);
+  const logStorageKey = typeof teamId === 'number' ? `standup-review-logs:${teamId}` : null;
 
   const toastIdRef = useRef(0);
   const toastTimeoutsRef = useRef<Record<number, number>>({});
@@ -207,16 +222,18 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
       return [...items].sort((a, b) => (a.priority || 3) - (b.priority || 3));
     }
     return [...items].sort((a, b) => {
-      if (!a.estimated_date && !b.estimated_date) {
+      const dateA = normalizeEstimatedDate(a.estimated_date || null);
+      const dateB = normalizeEstimatedDate(b.estimated_date || null);
+      if (!dateA && !dateB) {
         return (a.priority || 3) - (b.priority || 3);
       }
-      if (!a.estimated_date) {
+      if (!dateA) {
         return 1;
       }
-      if (!b.estimated_date) {
+      if (!dateB) {
         return -1;
       }
-      return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+      return dateA.localeCompare(dateB);
     });
   };
 
@@ -250,6 +267,50 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     },
     [removeToast]
   );
+
+  const persistLogs = useCallback((logs: RealtimeLogEntry[]) => {
+    if (!logStorageKey || typeof window === 'undefined') {
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(logStorageKey, JSON.stringify(logs));
+    } catch (error) {
+      console.error('Failed to persist standup logs', error);
+    }
+  }, [logStorageKey]);
+
+  const appendRealtimeLog = useCallback((message: string) => {
+    if (!message) {
+      return;
+    }
+    const timestamp = new Date().toLocaleTimeString('zh-TW', {
+      hour12: true,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    setLastRealtimeEvent(message);
+    setLastRealtimeTimestamp(timestamp);
+    setConnectionLogs((prev) => {
+      const entry: RealtimeLogEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        timestamp,
+        message
+      };
+      const next = [entry, ...prev].slice(0, 50);
+      persistLogs(next);
+      return next;
+    });
+  }, [persistLogs]);
+
+  const clearConnectionLogs = useCallback(() => {
+    setConnectionLogs([]);
+    setLastRealtimeEvent(null);
+    setLastRealtimeTimestamp(null);
+    if (logStorageKey && typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(logStorageKey);
+    }
+  }, [logStorageKey]);
 
   const syncServerTime = (serverTimestamp?: number) => {
     if (typeof serverTimestamp === 'number' && Number.isFinite(serverTimestamp)) {
@@ -323,13 +384,45 @@ const loadStandupData = useCallback(
     if (teamId) {
       loadStandupData();
     }
-  }, [teamId, loadStandupData]);
+  }, [teamId, loadStandupData, appendRealtimeLog, showToast]);
 
   useEffect(() => {
     setParticipantStats({ required: 0, current: 0 });
     setSessionInfo(null);
     setOverdueMinutes(null);
   }, [teamId]);
+
+  useEffect(() => {
+    if (!logStorageKey || typeof window === 'undefined') {
+      setConnectionLogs([]);
+      setLastRealtimeEvent(null);
+      setLastRealtimeTimestamp(null);
+      return;
+    }
+    try {
+      const stored = window.sessionStorage.getItem(logStorageKey);
+      if (stored) {
+        const parsed: RealtimeLogEntry[] = JSON.parse(stored);
+        setConnectionLogs(parsed);
+        if (parsed.length > 0) {
+          setLastRealtimeEvent(parsed[0].message);
+          setLastRealtimeTimestamp(parsed[0].timestamp);
+        } else {
+          setLastRealtimeEvent(null);
+          setLastRealtimeTimestamp(null);
+        }
+      } else {
+        setConnectionLogs([]);
+        setLastRealtimeEvent(null);
+        setLastRealtimeTimestamp(null);
+      }
+    } catch (error) {
+      console.error('Failed to load standup logs from sessionStorage', error);
+      setConnectionLogs([]);
+      setLastRealtimeEvent(null);
+      setLastRealtimeTimestamp(null);
+    }
+  }, [logStorageKey]);
 
   useEffect(() => {
     // Add table click handler
@@ -462,9 +555,6 @@ const loadStandupData = useCallback(
       return;
     }
 
-    setLastRealtimeEvent(null);
-    setLastRealtimeTimestamp(null);
-
     let cancelled = false;
     let reconnectDelay = 2000;
 
@@ -502,6 +592,7 @@ const loadStandupData = useCallback(
         socket.onopen = () => {
           setSocketStatus('connected');
           reconnectDelay = 2000;
+          appendRealtimeLog('已連線到站立會議伺服器');
         };
 
         socket.onmessage = (event) => {
@@ -569,8 +660,7 @@ const loadStandupData = useCallback(
                 shouldRefreshData = false;
               }
 
-              setLastRealtimeEvent(describeRealtimeEvent(payload));
-              setLastRealtimeTimestamp(new Date().toLocaleTimeString());
+              appendRealtimeLog(describeRealtimeEvent(payload));
 
               if (shouldRefreshData) {
                 loadStandupData({ silent: true });
@@ -584,6 +674,9 @@ const loadStandupData = useCallback(
 
         socket.onerror = (event) => {
           console.error('Standup WS error:', event);
+          if (!cancelled) {
+            appendRealtimeLog('站立會議連線發生錯誤，系統將重新嘗試。');
+          }
         };
 
         socket.onclose = () => {
@@ -591,6 +684,7 @@ const loadStandupData = useCallback(
           if (cancelled) {
             return;
           }
+          appendRealtimeLog('站立會議連線中斷，正在嘗試重新連線...');
           reconnectTimerRef.current = window.setTimeout(() => {
             connect();
           }, reconnectDelay);
@@ -598,6 +692,7 @@ const loadStandupData = useCallback(
         };
       } catch (error) {
         console.error('Standup WS connection error:', error);
+        appendRealtimeLog('無法連線到站立會議伺服器，將稍後重新嘗試。');
         reconnectTimerRef.current = window.setTimeout(() => {
           connect();
         }, reconnectDelay);
@@ -635,8 +730,7 @@ const loadStandupData = useCallback(
     setForcingStart(true);
     try {
       await api.forceStartStandup(teamId);
-      setLastRealtimeEvent('已發送強制開始站立會議的請求');
-      setLastRealtimeTimestamp(new Date().toLocaleTimeString());
+      appendRealtimeLog('已發送強制開始站立會議的請求');
     } catch (err: any) {
       console.error('Force start standup error:', err);
       setError(err.response?.data?.error || '強制開始站立會議失敗，請稍後再試');
@@ -654,6 +748,7 @@ const loadStandupData = useCallback(
     try {
       await api.forceStopStandup(teamId);
       showToast('站立會議已被強制結束', 'warning');
+      appendRealtimeLog('已發送強制結束站立會議的請求');
     } catch (err: any) {
       console.error('Force stop standup error:', err);
       setError(err.response?.data?.error || '強制結束站立會議失敗，請稍後再試');
@@ -1171,6 +1266,36 @@ const loadStandupData = useCallback(
 
           )}
 
+        </div>
+
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <div style={{ padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+              <h3 style={{ margin: 0, fontSize: '15px' }}>站立會議即時紀錄</h3>
+              <button
+                className="btn btn-secondary"
+                onClick={clearConnectionLogs}
+                disabled={connectionLogs.length === 0}
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+              >
+                清除紀錄
+              </button>
+            </div>
+            <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px 12px', backgroundColor: '#f9fafb' }}>
+              {connectionLogs.length === 0 ? (
+                <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>
+                  目前尚無任何連線或操作紀錄。當成員加入、離開或更新資訊時，會顯示在這裡。
+                </p>
+              ) : (
+                connectionLogs.map((log) => (
+                  <div key={log.id} style={{ display: 'flex', gap: '12px', padding: '6px 0', borderBottom: '1px dashed #e5e7eb' }}>
+                    <span style={{ fontSize: '11px', color: '#94a3b8', minWidth: '110px' }}>{log.timestamp}</span>
+                    <span style={{ fontSize: '12px', color: '#1f2937', flex: 1 }}>{log.message}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
 
 

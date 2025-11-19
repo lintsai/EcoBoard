@@ -91,6 +91,13 @@ function UpdateWork({ user, teamId }: any) {
     );
   };
 
+  const normalizeEstimatedDate = (value?: string | null) => {
+    if (!value) {
+      return null;
+    }
+    return value.includes('T') ? value.split('T')[0] : value;
+  };
+
   // Sorting function
   const sortItems = <T extends WorkItem>(items: T[]): T[] => {
     const sorted = [...items];
@@ -100,10 +107,13 @@ function UpdateWork({ user, teamId }: any) {
     } else {
       // Sort by estimated_date: items without date go to bottom
       sorted.sort((a, b) => {
-        if (!a.estimated_date && !b.estimated_date) return (a.priority || 3) - (b.priority || 3);
-        if (!a.estimated_date) return 1;
-        if (!b.estimated_date) return -1;
-        return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+        const dateA = normalizeEstimatedDate(a.estimated_date || null);
+        const dateB = normalizeEstimatedDate(b.estimated_date || null);
+
+        if (!dateA && !dateB) return (a.priority || 3) - (b.priority || 3);
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateA.localeCompare(dateB);
       });
     }
     
@@ -690,18 +700,19 @@ function UpdateWork({ user, teamId }: any) {
                               </span>
                             </div>
                           )}
-                          {item.estimated_date && (
-                            <div style={{ fontSize: '13px' }}>
-                              <strong style={{ color: '#0066cc' }}>預計處理時間：</strong>
-                              <span style={{ marginLeft: '6px', color: '#0891b2', fontWeight: '600' }}>
-                                {new Date(item.estimated_date).toLocaleDateString('zh-TW', { 
-                                  year: 'numeric',
-                                  month: '2-digit', 
-                                  day: '2-digit' 
-                                })}
-                              </span>
-                            </div>
-                          )}
+                          {(() => {
+                            const normalized = normalizeEstimatedDate(item.estimated_date || null);
+                            if (!normalized) return null;
+                            const [year, month, day] = normalized.split('-');
+                            return (
+                              <div style={{ fontSize: '13px' }}>
+                                <strong style={{ color: '#0066cc' }}>預計處理時間：</strong>
+                                <span style={{ marginLeft: '6px', color: '#0891b2', fontWeight: '600' }}>
+                                  {`${year}/${month}/${day}`}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </div>
                           
                         {/* 工作項目內容 */}

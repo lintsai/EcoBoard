@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -54,16 +54,9 @@ function Backlog({ user, teamId }: BacklogProps) {
   const [assigningItemId, setAssigningItemId] = useState<number | null>(null);
   const [unassignedTargets, setUnassignedTargets] = useState<Record<number, number | ''>>({});
   const currentUserId = user?.id as number | undefined;
+  const [selectedCreator, setSelectedCreator] = useState<'all' | number>('all');
 
   const isItemOwner = (item: BacklogItem) => typeof currentUserId === 'number' && item.user_id === currentUserId;
-
-  const requireOwnerPermission = (item: BacklogItem, actionLabel: string) => {
-    if (!isItemOwner(item)) {
-      alert(`只有建立者可以${actionLabel}這個項目`);
-      return false;
-    }
-    return true;
-  };
 
   const getOwnerLabel = (item: BacklogItem) => {
     if (isItemOwner(item)) {
@@ -77,6 +70,10 @@ function Backlog({ user, teamId }: BacklogProps) {
       return;
     }
     loadBacklogItems();
+  }, [teamId]);
+
+  useEffect(() => {
+    setSelectedCreator('all');
   }, [teamId]);
 
   useEffect(() => {
@@ -154,12 +151,39 @@ function Backlog({ user, teamId }: BacklogProps) {
     );
   };
 
+  const normalizeEstimatedDate = (value?: string | null) => {
+    if (!value) return null;
+    return value.includes('T') ? value.split('T')[0] : value;
+  };
+
+  const creatorOptions = useMemo(() => {
+    const optionsMap = new Map<number, string>();
+    backlogItems.forEach((item) => {
+      if (typeof item.user_id !== 'number') {
+        return;
+      }
+      const label =
+        typeof currentUserId === 'number' && item.user_id === currentUserId
+          ? '你'
+          : item.display_name || item.username || `成員 #${item.user_id}`;
+      optionsMap.set(item.user_id, label);
+    });
+    return Array.from(optionsMap.entries())
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh-TW'));
+  }, [backlogItems, currentUserId]);
+
   // Filter function for search
   const filterItems = (items: BacklogItem[]): BacklogItem[] => {
-    if (!searchQuery.trim()) return items;
+    let filtered = items;
+    if (selectedCreator !== 'all') {
+      filtered = filtered.filter((item) => item.user_id === selectedCreator);
+    }
+
+    if (!searchQuery.trim()) return filtered;
     
     const query = searchQuery.toLowerCase();
-    return items.filter(item => {
+    return filtered.filter(item => {
       const title = (item.ai_title || '').toLowerCase();
       const content = item.content.toLowerCase();
       return title.includes(query) || content.includes(query);
@@ -175,14 +199,26 @@ function Backlog({ user, teamId }: BacklogProps) {
     } else {
       // Sort by estimated_date: items without date go to bottom
       sorted.sort((a, b) => {
-        if (!a.estimated_date && !b.estimated_date) return a.priority - b.priority;
-        if (!a.estimated_date) return 1;
-        if (!b.estimated_date) return -1;
-        return new Date(a.estimated_date).getTime() - new Date(b.estimated_date).getTime();
+        const dateA = normalizeEstimatedDate(a.estimated_date || null);
+        const dateB = normalizeEstimatedDate(b.estimated_date || null);
+
+        if (!dateA && !dateB) return a.priority - b.priority;
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateA.localeCompare(dateB);
       });
     }
     
     return sorted;
+  };
+
+  const handleCreatorFilterChange = (value: string) => {
+    if (value === 'all') {
+      setSelectedCreator('all');
+      return;
+    }
+    const parsed = Number(value);
+    setSelectedCreator(Number.isNaN(parsed) ? 'all' : parsed);
   };
 
   const handleSaveItem = async () => {
@@ -224,10 +260,6 @@ function Backlog({ user, teamId }: BacklogProps) {
 
 
   const handleDeleteItem = async (item: BacklogItem) => {
-    if (!requireOwnerPermission(item, '刪除')) {
-      return;
-    }
-
     if (!confirm('確定要刪除這個 Backlog 項目嗎？')) return;
 
     try {
@@ -264,10 +296,6 @@ function Backlog({ user, teamId }: BacklogProps) {
   };
 
   const handleEditItem = (item: BacklogItem) => {
-    if (!requireOwnerPermission(item, '編輯')) {
-      return;
-    }
-
     setShowBulkImport(false);
     setShowAddForm(true);
     setEditingItem(item);
@@ -801,7 +829,28 @@ function Backlog({ user, teamId }: BacklogProps) {
                 Backlog 項目（{filterItems(backlogItems).length}{searchQuery && ` / ${backlogItems.length}`}）
               </h3>
               {backlogItems.length > 0 && (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {typeof teamId === 'number' && (
+                    <select
+                      value={selectedCreator === 'all' ? 'all' : String(selectedCreator)}
+                      onChange={(e) => handleCreatorFilterChange(e.target.value)}
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: '13px',
+                        borderRadius: '4px',
+                        border: '1px solid #d1d5db',
+                        backgroundColor: '#fff',
+                        minWidth: '160px'
+                      }}
+                    >
+                      <option value="all">全部建立者</option>
+                      {creatorOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <div style={{ position: 'relative' }}>
                     <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
                     <input
@@ -866,19 +915,16 @@ function Backlog({ user, teamId }: BacklogProps) {
               </p>
             ) : filterItems(backlogItems).length === 0 ? (
               <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
-                找不到符合「{searchQuery}」的項目
+                找不到符合目前篩選條件的項目
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {sortItems(filterItems(backlogItems)).map((item) => {
-                  const canManage = isItemOwner(item);
                   const ownerLabel = getOwnerLabel(item);
-                  const estimatedText = item.estimated_date
+                  const normalizedEstimate = normalizeEstimatedDate(item.estimated_date || null);
+                  const estimatedText = normalizedEstimate
                     ? (() => {
-                        const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
-                          ? item.estimated_date.split('T')[0]
-                          : item.estimated_date;
-                        const [year, month, day] = dateStr.split('-');
+                        const [year, month, day] = normalizedEstimate.split('-');
                         return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
                       })()
                     : '未設定';
@@ -931,29 +977,27 @@ function Backlog({ user, teamId }: BacklogProps) {
                           </button>
                           <button
                             onClick={() => handleEditItem(item)}
-                            disabled={!canManage}
                             style={{
                               background: 'none',
                               border: 'none',
-                              color: canManage ? '#667eea' : '#cbd5f5',
-                              cursor: canManage ? 'pointer' : 'not-allowed',
+                              color: '#667eea',
+                              cursor: 'pointer',
                               padding: '4px'
                             }}
-                            title={canManage ? '編輯' : '僅限建立者可以操作'}
+                            title="編輯這筆 Backlog"
                           >
                             <Edit2 size={16} />
                           </button>
                           <button
                             onClick={() => handleDeleteItem(item)}
-                            disabled={!canManage}
                             style={{
                               background: 'none',
                               border: 'none',
-                              color: canManage ? '#dc2626' : '#fecaca',
-                              cursor: canManage ? 'pointer' : 'not-allowed',
+                              color: '#dc2626',
+                              cursor: 'pointer',
                               padding: '4px'
                             }}
-                            title={canManage ? '刪除' : '僅限建立者可以操作'}
+                            title="刪除這筆 Backlog"
                           >
                             <Trash2 size={16} />
                           </button>
