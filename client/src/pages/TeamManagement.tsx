@@ -454,27 +454,27 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
             <div style={{ marginBottom: '10px' }}>
               <strong style={{ color: '#0066cc' }}>管理員權限：</strong>
               <ul style={{ paddingLeft: '20px', margin: '5px 0' }}>
-                <li>編輯團隊資訊（名稱、描述）</li>
-                <li>新增/移除團隊成員</li>
-                <li>升級/降級成員角色</li>
-                <li>刪除團隊（⚠️ 慎用）</li>
-                <li>查看所有成員的工作項目</li>
+                <li><strong style={{ color: '#0f172a' }}>編輯團隊資訊</strong>並設定管理員/成員角色。</li>
+                <li><strong style={{ color: '#2563eb' }}>新增或移除團隊成員</strong>，維持名單最新。</li>
+                <li>調整角色（升級/降級），<strong style={{ color: '#b91c1c' }}>至少保留 2 位管理員</strong>避免鎖團。</li>
+                <li>刪除團隊會清除所有相關資料（⚠️ 慎用）。</li>
+                <li>可查看所有成員的工作項目，方便站立會議整合。</li>
               </ul>
             </div>
             <div>
               <strong style={{ color: '#666' }}>一般成員權限：</strong>
               <ul style={{ paddingLeft: '20px', margin: '5px 0' }}>
-                <li>每日打卡和填寫工作項目</li>
-                <li>更新自己的工作進度</li>
-                <li>查看團隊成員和工作狀況</li>
+                <li>每日打卡、填寫工作項目並<strong style={{ color: '#2563eb' }}>更新自己的進度</strong>。</li>
+                <li>可查看團隊成員與工作狀況，<strong style={{ color: '#b91c1c' }}>無法變更他人資料</strong>。</li>
+                <li>如需邀請同事加入，請<strong style={{ color: '#2563eb' }}>聯繫管理員協助新增</strong>。</li>
               </ul>
             </div>
             <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#fff3cd', borderRadius: '4px', border: '1px solid #ffc107' }}>
               <strong style={{ color: '#856404' }}>⚠️ 注意事項：</strong>
               <ul style={{ paddingLeft: '20px', margin: '5px 0', color: '#856404' }}>
-                <li>一個團隊可以有多個管理員</li>
-                <li>無法移除自己（需由其他管理員操作）</li>
-                <li>刪除團隊將永久刪除所有相關資料</li>
+                <li><strong style={{ color: '#b45309' }}>保留至少 2 位管理員</strong>，避免單一管理員離職無法維護。</li>
+                <li>無法移除自己（需由其他管理員操作）。</li>
+                <li>刪除團隊將永久刪除所有相關資料，建議先<strong style={{ color: '#b91c1c' }}>匯出報表備份</strong>。</li>
               </ul>
             </div>
           </div>

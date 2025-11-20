@@ -1671,6 +1671,16 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
             )}
           </div>
         </div>
+
+        <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 工作項目小提示</h3>
+          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
+            <li><strong style={{ color: '#0f172a' }}>打卡後立刻填寫</strong>，AI 可依 Backlog 內容快速生成今日任務草稿。</li>
+            <li><strong style={{ color: '#b91c1c' }}>優先序 1–2</strong> 適合當天必做，<strong style={{ color: '#2563eb' }}>預計日期</strong>可和站立會議同步檢查。</li>
+            <li>需要協作時先建立卡片，再在站立 Review 頁面<strong style={{ color: '#0f172a' }}>指定共同負責人</strong>。</li>
+            <li>AI 摘要僅供參考，實際執行細節請在卡片內容<strong style={{ color: '#0f172a' }}>補充清楚</strong>。</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

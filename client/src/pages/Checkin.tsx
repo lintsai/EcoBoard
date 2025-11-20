@@ -133,6 +133,15 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
             </p>
           </div>
         )}
+
+        <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 打卡小提示</h3>
+          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
+            <li><strong style={{ color: '#0f172a' }}>打卡後自動導向「填寫工作項目」</strong>，可直接把 Backlog 轉成今日任務。</li>
+            <li>若忘記打卡，仍可在站立會議前補打，但請<strong style={{ color: '#b91c1c' }}>同步更新今日工作清單</strong>。</li>
+            <li>團隊以打卡時間確認出勤，建議在<strong style={{ color: '#047857' }}>開工前完成</strong>以免遺漏。</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

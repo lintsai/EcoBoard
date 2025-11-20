@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type SyntheticEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -170,6 +170,100 @@ const normalizeEstimatedDate = (value?: string | null) => {
   return value.includes('T') ? value.split('T')[0] : value;
 };
 
+function getStatusBadge(status?: string) {
+  switch (status) {
+    case 'completed':
+      return {
+        text: '已完成',
+        icon: <CheckCircle size={12} />,
+        color: '#065f46',
+        bgColor: '#d1fae5'
+      };
+    case 'in_progress':
+      return {
+        text: '進行中',
+        icon: <Clock size={12} />,
+        color: '#92400e',
+        bgColor: '#fef3c7'
+      };
+    case 'not_started':
+      return {
+        text: '尚未開始',
+        icon: <Clock size={12} />,
+        color: '#374151',
+        bgColor: '#f3f4f6'
+      };
+    case 'cancelled':
+      return {
+        text: '已取消',
+        icon: <AlertCircle size={12} />,
+        color: '#1f2937',
+        bgColor: '#e5e7eb'
+      };
+    default:
+      return {
+        text: '未知狀態',
+        icon: <Clock size={12} />,
+        color: '#92400e',
+        bgColor: '#fef3c7'
+      };
+  }
+}
+
+const formatEstimatedDateLabel = (value?: string | null) => {
+  const normalized = normalizeEstimatedDate(value || null);
+  if (!normalized) {
+    return '未設定';
+  }
+  const [year, month, day] = normalized.split('-');
+  const parsedMonth = parseInt(month, 10);
+  const parsedDay = parseInt(day, 10);
+  if (Number.isNaN(parsedMonth) || Number.isNaN(parsedDay)) {
+    return normalized;
+  }
+  return `${parsedMonth}/${parsedDay}`;
+};
+
+const stopEvent = (e: SyntheticEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const nativeEvent = e.nativeEvent as Event & { stopImmediatePropagation?: () => void };
+  nativeEvent.stopImmediatePropagation?.();
+};
+
+const renderItemMetaBadges = (item: WorkItem, estimatedColor = '#0891b2') => {
+  const statusBadge = getStatusBadge(item.progress_status);
+  return (
+    <>
+      {getPriorityBadge(item.priority)}
+      <span
+        style={{
+          fontSize: '11px',
+          color: item.estimated_date ? estimatedColor : '#999'
+        }}
+      >
+        📅 預計時間：{formatEstimatedDateLabel(item.estimated_date)}
+      </span>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '3px',
+          padding: '1px 6px',
+          borderRadius: '10px',
+          fontSize: '10px',
+          fontWeight: '500',
+          color: statusBadge.color,
+          backgroundColor: statusBadge.bgColor
+        }}
+      >
+        {statusBadge.icon}
+        {statusBadge.text}
+      </span>
+    </>
+  );
+};
+
 function StandupReview({ user, teamId }: StandupReviewProps) {
   const navigate = useNavigate();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -239,14 +333,19 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const isCountdownExpired = isCountdownReady && countdownMs <= 0;
 
   const sortItems = (items: WorkItem[]) => {
-    if (sortBy === 'priority') {
-      return [...items].sort((a, b) => (a.priority || 3) - (b.priority || 3));
-    }
-    return [...items].sort((a, b) => {
+    const compareByPriority = (a: WorkItem, b: WorkItem) => {
+      const priorityDiff = (a.priority ?? 3) - (b.priority ?? 3);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    };
+
+    const compareByEstimatedDate = (a: WorkItem, b: WorkItem) => {
       const dateA = normalizeEstimatedDate(a.estimated_date || null);
       const dateB = normalizeEstimatedDate(b.estimated_date || null);
       if (!dateA && !dateB) {
-        return (a.priority || 3) - (b.priority || 3);
+        return compareByPriority(a, b);
       }
       if (!dateA) {
         return 1;
@@ -254,8 +353,17 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
       if (!dateB) {
         return -1;
       }
-      return dateA.localeCompare(dateB);
-    });
+      const dateDiff = dateA.localeCompare(dateB);
+      if (dateDiff !== 0) {
+        return dateDiff;
+      }
+      return compareByPriority(a, b);
+    };
+
+    if (sortBy === 'priority') {
+      return [...items].sort(compareByPriority);
+    }
+    return [...items].sort(compareByEstimatedDate);
   };
 
   const formatCountdown = (ms?: number | null) => {
@@ -494,11 +602,11 @@ const loadStandupData = useCallback(
   useEffect(() => {
     // Add table click handler
     const handleTableClick = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
       const target = e.target as HTMLElement;
       const table = target.closest('.markdown-content table');
       if (table && !target.closest('.table-modal-content')) {
+        e.preventDefault();
+        e.stopPropagation();
         const tableHTML = (table as HTMLElement).outerHTML;
         setEnlargedTable(tableHTML);
       }
@@ -521,9 +629,9 @@ const loadStandupData = useCallback(
   }, []);
 
   useEffect(() => {
-    // 暺?撅??????
+    // 預設展開所有成員區塊，方便檢視
     if (teamMembers.length > 0) {
-      setExpandedMembers(new Set(teamMembers.map(m => m.user_id)));
+      setExpandedMembers(new Set(teamMembers.map((m) => m.user_id)));
     }
   }, [teamMembers]);
 
@@ -832,7 +940,7 @@ const loadStandupData = useCallback(
 
 
   const handleAnalyzeWorkItems = async () => {
-    // ?蔥隞??摰???脰???
+    // AI 需同時分析今日與未完成的所有項目
     const allItems = [...workItems, ...incompleteItems];
     
     if (allItems.length === 0) {
@@ -881,13 +989,13 @@ const loadStandupData = useCallback(
     return workItems
       .filter(item => item.user_id === userId)
       .sort((a, b) => {
-        // ?芸???芸?蝝?摨??詨?頞?頞??ｇ?
+        // 優先順序高者在前
         const aPriority = a.priority ?? 3;
         const bPriority = b.priority ?? 3;
         if (aPriority !== bPriority) {
           return aPriority - bPriority;
         }
-        // ?芸?蝝????萄遣????嚗???
+        // 同優先序時，較新的排前面
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   };
@@ -896,43 +1004,32 @@ const loadStandupData = useCallback(
     return incompleteItems
       .filter(item => item.user_id === userId)
       .sort((a, b) => {
-        // ?芸???芸?蝝?摨??詨?頞?頞??ｇ?
+        // 優先順序高者在前
         const aPriority = a.priority ?? 3;
         const bPriority = b.priority ?? 3;
         if (aPriority !== bPriority) {
           return aPriority - bPriority;
         }
-        // ?芸?蝝????萄遣????嚗???
+        // 同優先序時，較新的排前面
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   };
 
-  // ?脣??冽雿?勗???鈭箇?撌乩??
+  // 使用者作為共同負責人的工作項目
   const getUserCoHandlerWorkItems = (userId: number) => {
-    return workItems
-      .filter(item => 
-        item.handlers?.co_handlers?.some(h => h.user_id === userId) && 
-        item.user_id !== userId
-      )
-      .sort((a, b) => {
-        // ?芸???芸?蝝?摨??詨?頞?頞??ｇ?
-        const aPriority = a.priority ?? 3;
-        const bPriority = b.priority ?? 3;
-        if (aPriority !== bPriority) {
-          return aPriority - bPriority;
-        }
-        // ?芸?蝝????萄遣????嚗???
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
+    const coHandled = workItems.filter(
+      (item) =>
+        item.handlers?.co_handlers?.some((h) => h.user_id === userId) && item.user_id !== userId
+    );
+    return sortItems(coHandled);
   };
 
   const getUserCoHandlerIncompleteItems = (userId: number) => {
-    return incompleteItems
-      .filter(item => 
-        item.handlers?.co_handlers?.some(h => h.user_id === userId) && 
-        item.user_id !== userId
-      )
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const coHandled = incompleteItems.filter(
+      (item) =>
+        item.handlers?.co_handlers?.some((h) => h.user_id === userId) && item.user_id !== userId
+    );
+    return sortItems(coHandled);
   };
 
   const formatTime = (dateString: string) => {
@@ -941,46 +1038,6 @@ const loadStandupData = useCallback(
       hour: '2-digit',
       minute: '2-digit'
     });
-  };
-
-  const getStatusBadge = (status?: string) => {
-    switch (status) {
-      case 'completed':
-        return {
-          text: '已完成',
-          icon: <CheckCircle size={12} />,
-          color: '#065f46',
-          bgColor: '#d1fae5'
-        };
-      case 'in_progress':
-        return {
-          text: '進行中',
-          icon: <Clock size={12} />,
-          color: '#92400e',
-          bgColor: '#fef3c7'
-        };
-      case 'not_started':
-        return {
-          text: '尚未開始',
-          icon: <Clock size={12} />,
-          color: '#374151',
-          bgColor: '#f3f4f6'
-        };
-      case 'cancelled':
-        return {
-          text: '已取消',
-          icon: <AlertCircle size={12} />,
-          color: '#1f2937',
-          bgColor: '#e5e7eb'
-        };
-      default:
-        return {
-          text: '未知狀態',
-          icon: <Clock size={12} />,
-          color: '#92400e',
-          bgColor: '#fef3c7'
-        };
-    }
   };
 
   const toggleMemberExpand = (userId: number) => {
@@ -1008,7 +1065,7 @@ const loadStandupData = useCallback(
       await api.reassignWorkItem(itemId, newUserId);
       setAssigningItem(null);
       
-      // ????豢?
+      // 更新資料以反映新的指派
       await loadStandupData({ silent: true });
       
       alert('工作項目指派成功');
@@ -1069,28 +1126,26 @@ const loadStandupData = useCallback(
       const originalPrimaryId = editingWorkItem.handlers?.primary?.user_id || editingWorkItem.user_id;
       const currentCoHandlerIds = editingWorkItem.handlers?.co_handlers?.map(h => h.user_id) || [];
       
-      // 1. ??????犖?宏?歹??券??唳?瘣曆???
-      // 蝘駁銝??臬???犖??塚?雿???喳???唬蜓閬??犖??塚?
+      // 1. 移除被取消勾選的共同負責人（但保留新主要負責人）
       for (const userId of currentCoHandlerIds) {
         if (!selectedCoHandlers.includes(userId) && userId !== selectedPrimaryHandler) {
           await api.removeCoHandler(editingWorkItem.id, userId);
         }
       }
 
-      // 2. ??晷銝餉???鈭綽?憒??寡?鈭?
+      // 2. 主要負責人改變時，先重新指派
       if (selectedPrimaryHandler !== originalPrimaryId) {
         await api.reassignWorkItem(editingWorkItem.id, selectedPrimaryHandler);
       }
 
-      // 3. 瘛餃??啁??勗???鈭?
-      // ?閬??歹??蜓閬??犖嚗?賡???handlers 銝哨??銝餉???鈭箝歇蝬?勗???鈭箇?
+      // 3. 新增其他共同負責人（排除目前主要/原主要）
       for (const userId of selectedCoHandlers) {
         if (userId !== selectedPrimaryHandler && userId !== originalPrimaryId) {
           if (!currentCoHandlerIds.includes(userId)) {
             try {
               await api.addCoHandler(editingWorkItem.id, userId);
             } catch (err: any) {
-              // 憒?撌脩??航??犖嚗蕭?仿隤?
+              // 忽略重複共同負責人的錯誤
               console.log('Add co-handler warning:', err.response?.data?.error);
               if (!err.response?.data?.error?.includes('已存在共同負責人')) {
                 throw err;
@@ -1100,7 +1155,7 @@ const loadStandupData = useCallback(
         }
       }
 
-      // ????豢?
+      // 更新資料以反映新的負責人設定
       await loadStandupData({ silent: true });
       setShowHandlerModal(false);
       setEditingWorkItem(null);
@@ -1121,27 +1176,27 @@ const loadStandupData = useCallback(
     }
   };
 
-  // 頝唾??啣?憪??殷??其蜓閬??犖????
+  // 從協辦卡片跳回原始卡片並高亮
   const scrollToOriginalItem = (workItemId: number, primaryUserId: number) => {
-    // ???府?????
+    // 展開主要負責人的區塊
     const newExpanded = new Set(expandedMembers);
     newExpanded.add(primaryUserId);
     setExpandedMembers(newExpanded);
     
-    // 撅?閰脣極雿???
+    // 展開該工作項目卡片
     const newExpandedItems = new Set(expandedWorkItems);
     newExpandedItems.add(workItemId);
     setExpandedWorkItems(newExpandedItems);
     
-    // 撅??芸????桀?憛?憒?????冽摰??銝哨?
+    // 確保未完成區塊保持展開
     setShowIncompleteItems(true);
     
-    // 蝑? DOM ?湔敺遝??
+    // 捲動並暫時高亮原始卡片
     setTimeout(() => {
       const element = document.getElementById(`work-item-${workItemId}`);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // 瘛餃?擃漁??
+        // 短暫高亮提示
         element.style.backgroundColor = '#fef3c7';
         setTimeout(() => {
           element.style.backgroundColor = '';
@@ -1761,7 +1816,7 @@ const loadStandupData = useCallback(
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {analysisData.redistributionSuggestions.map((suggestion: any, index: number) => {
-                    // ?曉撠??極雿??桀??
+                    // 從建議裡找出來源/目標成員
                     const fromMember = teamMembers.find(m => 
                       (m.display_name || m.username).includes(suggestion.from) || 
                       suggestion.from.includes(m.display_name || m.username)
@@ -1773,7 +1828,7 @@ const loadStandupData = useCallback(
                     
                     if (!fromMember || !toMember) return null;
                     
-                    // ?曉閰脫??∠?撌乩??嚗?賡?閬???
+                    // 盡量找到來源成員對應的原始工作卡
                     const workItem = workItems.find(item => 
                       item.user_id === fromMember.user_id && 
                       (item.ai_title?.includes(suggestion.task) || item.content.includes(suggestion.task))
@@ -1781,7 +1836,7 @@ const loadStandupData = useCallback(
                     
                     if (!workItem) return null;
                     
-                    // ???芸?蝝?閮?
+                    // 以建議的優先序為主，若無則沿用原始卡
                     const priority = suggestion.priority || workItem.priority || 3;
                     
                     return (
@@ -2102,7 +2157,7 @@ const loadStandupData = useCallback(
                                           onChange={async (e) => {
                                             e.stopPropagation();
                                             try {
-                                              // 蝣箔??交??澆?甇?Ⅱ嚗YYY-MM-DD嚗?銝???敶梢
+                                              // 將日期以 YYYY-MM-DD 格式回傳給 API
                                               const dateValue = e.target.value ? e.target.value : null;
                                               const token = localStorage.getItem('token');
                                               const response = await fetch(`/api/workitems/${item.id}`, {
@@ -2200,7 +2255,11 @@ const loadStandupData = useCallback(
                                 backgroundColor: '#fffbeb',
                                 borderRadius: '4px'
                               }}
-                              onClick={() => setShowIncompleteItems(!showIncompleteItems)}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setShowIncompleteItems(!showIncompleteItems);
+                              }}
                             >
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <div style={{ fontSize: '13px', fontWeight: 500, color: '#92400e' }}>
@@ -2235,8 +2294,6 @@ const loadStandupData = useCallback(
                                   <div style={{ marginTop: '8px' }}>
                                     {sortItems(memberIncompleteItems).map((item: WorkItem) => {
                                       const isItemExpanded = expandedWorkItems.has(item.id);
-                                      const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
-                                      
                                       return (
                                         <div 
                                           key={item.id}
@@ -2312,34 +2369,29 @@ const loadStandupData = useCallback(
                                                 );
                                               })()}
                                             </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                              <div style={{ fontSize: '11px', color: '#92400e' }}>
-                                                紀錄日期：{itemDate}
-                                              </div>
-                                              <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
-                                                <button
-                                                  className="btn btn-secondary"
-                                                  style={{ fontSize: '11px', padding: '4px 8px' }}
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openPriorityModal(item);
-                                                  }}
-                                                  title="調整優先順序"
-                                                >
-                                                  調整優先
-                                                </button>
-                                                <button
-                                                  className="btn btn-secondary"
-                                                  style={{ fontSize: '11px', padding: '4px 8px' }}
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openHandlerModal(item);
-                                                  }}
-                                                  title="管理共同負責人"
-                                                >
-                                                  <UserPlus size={12} />
-                                                </button>
-                                              </div>
+                                            <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                              <button
+                                                className="btn btn-secondary"
+                                                style={{ fontSize: '11px', padding: '4px 8px' }}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openPriorityModal(item);
+                                                }}
+                                                title="調整優先順序"
+                                              >
+                                                調整優先
+                                              </button>
+                                              <button
+                                                className="btn btn-secondary"
+                                                style={{ fontSize: '11px', padding: '4px 8px' }}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  openHandlerModal(item);
+                                                }}
+                                                title="管理共同負責人"
+                                              >
+                                                <UserPlus size={12} />
+                                              </button>
                                             </div>
                                           </div>
                                           
@@ -2363,8 +2415,8 @@ const loadStandupData = useCallback(
                                                   }}
                                                   onChange={async (e) => {
                                                     e.stopPropagation();
-                                                    try {
-                                                      // 蝣箔??交??澆?甇?Ⅱ嚗YYY-MM-DD嚗?銝???敶梢
+                                                try {
+                                                      // 將日期以 YYYY-MM-DD 格式回傳給 API
                                                       const dateValue = e.target.value ? e.target.value : null;
                                                       const token = localStorage.getItem('token');
                                                       const response = await fetch(`/api/workitems/${item.id}`, {
@@ -2448,12 +2500,14 @@ const loadStandupData = useCallback(
                             
                             if (totalCoHandlerItems === 0) return null;
                             
-                            // 雿輻鞎 ID 靘???????桃?撅????
+                            // 使用負的虛擬 ID，避免與實際 work item id 衝突
                             const coHandlerExpandId = -(member.user_id * 1000);
                             
                             return (
                               <>
                                 <div
+                                  role="button"
+                                  tabIndex={0}
                                   style={{
                                     display: 'flex',
                                     justifyContent: 'space-between',
@@ -2464,9 +2518,13 @@ const loadStandupData = useCallback(
                                     padding: '8px',
                                     backgroundColor: '#f0f9ff',
                                     borderRadius: '6px',
-                                    border: '1px solid #bfdbfe'
+                                    border: '1px solid #bfdbfe',
+                                    width: '100%',
+                                    textAlign: 'left',
+                                    outline: 'none'
                                   }}
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    stopEvent(e);
                                     const newExpanded = new Set(expandedWorkItems);
                                     if (newExpanded.has(coHandlerExpandId)) {
                                       newExpanded.delete(coHandlerExpandId);
@@ -2474,6 +2532,21 @@ const loadStandupData = useCallback(
                                       newExpanded.add(coHandlerExpandId);
                                     }
                                     setExpandedWorkItems(newExpanded);
+                                  }}
+                                  onMouseDown={(e) => {
+                                    stopEvent(e);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      stopEvent(e);
+                                      const newExpanded = new Set(expandedWorkItems);
+                                      if (newExpanded.has(coHandlerExpandId)) {
+                                        newExpanded.delete(coHandlerExpandId);
+                                      } else {
+                                        newExpanded.add(coHandlerExpandId);
+                                      }
+                                      setExpandedWorkItems(newExpanded);
+                                    }
                                   }}
                                 >
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2499,18 +2572,18 @@ const loadStandupData = useCallback(
                                           今日協辦任務 ({coHandlerTodayItems.length})
                                         </div>
                                         {coHandlerTodayItems.map((item) => {
-                                          // ?勗????雿輻銝?????ID嚗????????
-                                          const coHandlerExpandKey = `co-handler-${item.id}`;
-                                          const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
-                                          const primaryUser = item.handlers?.primary;
-                                          const otherCoHandlers = item.handlers?.co_handlers?.filter(
-                                            (h: any) => h.user_id !== member.user_id
-                                          ) || [];
-                                          
-                                          return (
-                                            <div
-                                              key={item.id}
-                                              style={{
+                                        // 給協辦卡片獨立的展開 key，避免與主卡重複
+                                        const coHandlerExpandKey = `co-handler-${item.id}`;
+                                        const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
+                                        const primaryUser = item.handlers?.primary;
+                                        const otherCoHandlers = item.handlers?.co_handlers?.filter(
+                                          (h: any) => h.user_id !== member.user_id
+                                        ) || [];
+
+                                        return (
+                                          <div
+                                            key={item.id}
+                                            style={{
                                                 marginBottom: '6px',
                                                 padding: '8px',
                                                 backgroundColor: '#ffffff',
@@ -2529,46 +2602,27 @@ const loadStandupData = useCallback(
                                                   if ((e.target as HTMLElement).closest('.jump-to-original')) {
                                                     return;
                                                   }
+                                                  stopEvent(e);
                                                   const newExpanded = new Set(expandedWorkItems);
                                                   if (isItemExpanded) {
                                                     newExpanded.delete(coHandlerExpandKey);
                                                   } else {
                                                     newExpanded.add(coHandlerExpandKey);
                                                   }
-                                                  // ?芸????嗉絲?勗?????祈澈嚗?敶梢???
+                                                  // 更新共同負責卡片的展開狀態
                                                   setExpandedWorkItems(newExpanded);
                                                 }}
                                               >
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                                   {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                                  <div style={{ fontSize: '13px', flex: 1 }}>
-                                                    {item.ai_title || item.content.substring(0, 50)}...
+                                                  <div style={{ fontSize: '13px' }}>
+                                                    {item.ai_title || item.content}
                                                   </div>
-                                                  {getPriorityBadge(item.priority)}
-                                                  {(() => {
-                                                    const statusBadge = getStatusBadge(item.progress_status);
-                                                    return (
-                                                      <span
-                                                        style={{
-                                                          display: 'inline-flex',
-                                                          alignItems: 'center',
-                                                          gap: '3px',
-                                                          padding: '1px 6px',
-                                                          borderRadius: '10px',
-                                                          fontSize: '10px',
-                                                          fontWeight: '500',
-                                                          color: statusBadge.color,
-                                                          backgroundColor: statusBadge.bgColor
-                                                        }}
-                                                      >
-                                                        {statusBadge.icon}
-                                                        {statusBadge.text}
-                                                      </span>
-                                                    );
-                                                  })()}
+                                                  {renderItemMetaBadges(item)}
                                                 </div>
                                                 <button
                                                   className="jump-to-original"
+                                                  type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (primaryUser) {
@@ -2632,11 +2686,10 @@ const loadStandupData = useCallback(
                                         <div style={{ fontSize: '12px', color: '#f59e0b', marginBottom: '6px', fontWeight: '600' }}>
                                           未完成協辦任務 ({coHandlerIncompleteItems.length})
                                         </div>
-                                        {coHandlerIncompleteItems.map((item: any) => {
-                                          // ?勗????雿輻銝?????ID嚗????????
+                                        {coHandlerIncompleteItems.map((item: WorkItem) => {
+                                          // 為共同負責的卡片建立獨立的展開 key，避免與主卡衝突
                                           const coHandlerExpandKey = `co-handler-${item.id}`;
                                           const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
-                                          const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : new Date(item.created_at).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
                                           const primaryUser = item.handlers?.primary;
                                           const otherCoHandlers = item.handlers?.co_handlers?.filter(
                                             (h: any) => h.user_id !== member.user_id
@@ -2664,49 +2717,27 @@ const loadStandupData = useCallback(
                                                   if ((e.target as HTMLElement).closest('.jump-to-original')) {
                                                     return;
                                                   }
+                                                  stopEvent(e);
                                                   const newExpanded = new Set(expandedWorkItems);
                                                   if (isItemExpanded) {
                                                     newExpanded.delete(coHandlerExpandKey);
                                                   } else {
                                                     newExpanded.add(coHandlerExpandKey);
                                                   }
-                                                  // ?芸????嗉絲?勗?????祈澈嚗?敶梢???
+                                                  // 更新共同負責卡片的展開狀態
                                                   setExpandedWorkItems(newExpanded);
                                                 }}
                                               >
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                                   {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                                  <div style={{ fontSize: '13px', flex: 1 }}>
-                                                    {item.ai_title || item.content.substring(0, 50)}...
+                                                  <div style={{ fontSize: '13px' }}>
+                                                    {item.ai_title || item.content}
                                                   </div>
-                                                  {getPriorityBadge(item.priority)}
-                                                  {(() => {
-                                                    const statusBadge = getStatusBadge(item.progress_status);
-                                                    return (
-                                                      <span
-                                                        style={{
-                                                          display: 'inline-flex',
-                                                          alignItems: 'center',
-                                                          gap: '3px',
-                                                          padding: '1px 6px',
-                                                          borderRadius: '10px',
-                                                          fontSize: '10px',
-                                                          fontWeight: '500',
-                                                          color: statusBadge.color,
-                                                          backgroundColor: statusBadge.bgColor
-                                                        }}
-                                                      >
-                                                        {statusBadge.icon}
-                                                        {statusBadge.text}
-                                                      </span>
-                                                    );
-                                                  })()}
-                                                  <div style={{ fontSize: '11px', color: '#f59e0b', whiteSpace: 'nowrap', marginLeft: '6px' }}>
-                                                    紀錄日期：{itemDate}
-                                                  </div>
+                                                  {renderItemMetaBadges(item, '#0891b2')}
                                                 </div>
                                                 <button
                                                   className="jump-to-original"
+                                                  type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (primaryUser) {
@@ -2781,10 +2812,10 @@ const loadStandupData = useCallback(
         <div className="card" style={{ marginTop: '20px', backgroundColor: '#f8f9fa' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>協作小提醒</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#666' }}>
-            <li>簡潔說明今日進度與阻塞，讓大家快速掌握狀況。</li>
-            <li>若需要協助，歡迎在站立會議直接指派或建立 Backlog。</li>
-            <li>AI 建議僅供參考，最終決策仍以團隊共識為主。</li>
-            <li>超過會議時限時請盡快結尾，留待會後再深入討論。</li>
+            <li><strong style={{ color: '#0f172a' }}>會前先把 Backlog 拉入今日清單</strong>，站立會議能直接逐項檢閱。</li>
+            <li>AI 建議有再分配/優先序調整時，點按<strong style={{ color: '#2563eb' }}>「套用建議」</strong>即可快速重新指派。</li>
+            <li>共同負責人可在展開卡片後管理，協辦卡可透過<strong style={{ color: '#2563eb' }}>「前往原卡片」</strong>對齊資訊。</li>
+            <li>計時到 15 分鐘會提醒，超時請<strong style={{ color: '#b91c1c' }}>盡快收斂</strong>，詳細討論可在會後進行。</li>
           </ul>
         </div>
 

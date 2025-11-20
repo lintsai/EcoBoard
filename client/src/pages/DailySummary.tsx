@@ -524,11 +524,10 @@ function DailySummary({ user, teamId }: any) {
         <div className="card" style={{ marginTop: '20px', backgroundColor: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 總結報告包含內容</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-            <li>今日完成項目總覽</li>
-            <li>進度評估（是否按計劃完成）</li>
-            <li>遇到的問題和挑戰</li>
-            <li>明日建議和待辦事項</li>
-            <li>工作分析與優先級建議</li>
+            <li>總結會拉入<strong style={{ color: '#0f172a' }}>當日打卡、工作項目與進度更新</strong>，資料不足時先回原頁補齊。</li>
+            <li>AI 會整理<strong style={{ color: '#2563eb' }}>完成/未完成清單、阻塞與明日建議</strong>，可直接準備隔日站會。</li>
+            <li>報告支援 Markdown，若要複製到外部工具可<strong style={{ color: '#047857' }}>直接選取貼上</strong>。</li>
+            <li>若換時區或補登內容，重新點<strong style={{ color: '#2563eb' }}>「生成總結」</strong>即可更新最新版本。</li>
           </ul>
         </div>
       </div>

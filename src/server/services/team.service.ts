@@ -38,6 +38,45 @@ export const getUserTeams = async (userId: number) => {
   return result.rows;
 };
 
+export const getDiscoverableTeams = async (userId: number) => {
+  const result = await query(
+    `SELECT 
+        t.id,
+        t.name,
+        t.description,
+        t.created_at,
+        COUNT(tm_all.user_id)::int AS member_count,
+        tm_admin.user_id AS admin_user_id,
+        ua.username AS admin_username,
+        ua.display_name AS admin_display_name
+      FROM teams t
+      LEFT JOIN team_members tm_all ON tm_all.team_id = t.id
+      -- 取最早加入的管理員作為主要聯繫人
+      LEFT JOIN LATERAL (
+        SELECT tm.user_id, tm.joined_at
+        FROM team_members tm
+        WHERE tm.team_id = t.id AND tm.role = 'admin'
+        ORDER BY tm.joined_at ASC
+        LIMIT 1
+      ) tm_admin ON TRUE
+      LEFT JOIN users ua ON ua.id = tm_admin.user_id
+      WHERE NOT EXISTS (
+        SELECT 1 
+        FROM team_members tm_user 
+        WHERE tm_user.team_id = t.id AND tm_user.user_id = $1
+      )
+      GROUP BY 
+        t.id, t.name, t.description, t.created_at,
+        tm_admin.user_id, tm_admin.joined_at,
+        ua.username, ua.display_name
+      ORDER BY t.created_at DESC
+      LIMIT 50`,
+    [userId]
+  );
+
+  return result.rows;
+};
+
 export const getTeamById = async (teamId: number, userId: number) => {
   const result = await query(
     `SELECT t.*, tm.role

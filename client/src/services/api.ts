@@ -56,6 +56,11 @@ class ApiService {
     return response.data;
   }
 
+  async getDiscoverableTeams() {
+    const response = await this.api.get('/teams/discover');
+    return response.data;
+  }
+
   async searchUsers(searchTerm: string) {
     const response = await this.api.get('/teams/search-users', {
       params: { q: searchTerm }

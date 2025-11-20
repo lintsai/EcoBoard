@@ -902,6 +902,16 @@ function UpdateWork({ user, teamId }: any) {
             </div>
           </div>
         )}
+
+        <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 進度更新小提示</h3>
+          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
+            <li>更新請涵蓋 <strong style={{ color: '#0f172a' }}>做了什麼、剩餘什麼、需要什麼協助</strong>，方便同事快速掌握。</li>
+            <li>共同負責人只能更新進度，<strong style={{ color: '#b91c1c' }}>完成/取消仍由主要負責人確認</strong>。</li>
+            <li>狀態建議：<strong style={{ color: '#2563eb' }}>進行中 → 已完成/阻塞/延期</strong>；避免久置在「進行中」。</li>
+            <li>有延期時請<strong style={{ color: '#b91c1c' }}>同步調整預計日期</strong>，讓每日/每週報表更精準。</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

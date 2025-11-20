@@ -857,6 +857,16 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
           </div>
         )}
 
+        <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 週報小提示</h3>
+          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
+            <li><strong style={{ color: '#0f172a' }}>起訖日期會自動帶出該週資料</strong>，產出前先確認範圍。</li>
+            <li>若資料未齊，可先回到「更新工作進度」補上，再<strong style={{ color: '#2563eb' }}>重新產出</strong>。</li>
+            <li>依用途選擇報表類型：<strong style={{ color: '#0f172a' }}>統計數字 / 趨勢燃盡 / 分工分布 / 深度分析</strong>。</li>
+            <li><strong style={{ color: '#047857' }}>匯出前先預覽</strong>表格/圖表，點擊可放大檢視細節。</li>
+          </ul>
+        </div>
+
         {/* 視覺化放大 Modal */}
         {previewContent && (
           <div 

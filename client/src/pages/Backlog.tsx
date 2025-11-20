@@ -1014,6 +1014,16 @@ function Backlog({ user, teamId }: BacklogProps) {
             )}
           </div>
         </div>
+
+        <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 Backlog 小提示</h3>
+          <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
+            <li><strong style={{ color: '#111827' }}>先用 Backlog 列出需求並估時</strong>，站立會議就能直接挑選要做的項目。</li>
+            <li>常見任務可用 <strong style={{ color: '#2563eb' }}>AI 批次匯入</strong>，草稿匯入後記得調整優先序與日期。</li>
+            <li><strong style={{ color: '#b91c1c' }}>優先序 1–2</strong> 給急件，預計日期未填者會被排在列表後段。</li>
+            <li>多人協作時，先<strong style={{ color: '#0f172a' }}>指派主要負責人</strong>，再在工作頁新增共同負責人。</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

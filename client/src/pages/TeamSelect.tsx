@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Plus, LogOut, Settings } from 'lucide-react';
+import { Users, Plus, LogOut } from 'lucide-react';
 import api from '../services/api';
 
 interface TeamSelectProps {
@@ -12,16 +12,20 @@ interface TeamSelectProps {
 function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
   const navigate = useNavigate();
   const [teams, setTeams] = useState<any[]>([]);
+  const [discoverableTeams, setDiscoverableTeams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [discoverLoading, setDiscoverLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamDesc, setNewTeamDesc] = useState('');
 
   useEffect(() => {
     loadTeams();
+    loadDiscoverableTeams();
   }, []);
 
   const loadTeams = async () => {
+    setLoading(true);
     try {
       const data = await api.getTeams();
       setTeams(data);
@@ -29,6 +33,19 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
       console.error('Failed to load teams:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDiscoverableTeams = async () => {
+    setDiscoverLoading(true);
+    try {
+      const data = await api.getDiscoverableTeams();
+      setDiscoverableTeams(data);
+    } catch (error) {
+      console.error('Failed to load discoverable teams:', error);
+      setDiscoverableTeams([]);
+    } finally {
+      setDiscoverLoading(false);
     }
   };
 
@@ -40,6 +57,7 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
       setNewTeamDesc('');
       setShowCreateForm(false);
       loadTeams();
+      loadDiscoverableTeams();
     } catch (error) {
       console.error('Failed to create team:', error);
       alert('建立團隊失敗');
@@ -57,7 +75,10 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
         <div className="header">
           <div>
             <h1 style={{ marginBottom: '8px' }}>選擇團隊</h1>
-            <p style={{ color: '#6b7280' }}>歡迎，{user.displayName}</p>
+            <p style={{ color: '#6b7280', maxWidth: '760px', lineHeight: '1.6' }}>
+              歡迎來到 EcoBoard，這是一個 AI 助力的團隊工作儀表板，協助站立會議、Backlog 規劃與進度追蹤。
+              {user?.displayName ? ` ${user.displayName}，請選擇要進入的團隊。` : ' 請選擇要進入的團隊。'}
+            </p>
           </div>
           <button className="btn btn-secondary" onClick={onLogout}>
             <LogOut size={18} />
@@ -178,6 +199,93 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
                 ))}
               </div>
             )}
+
+            <div className="card" style={{ marginTop: '24px', background: '#f9fafb' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <h3 style={{ margin: 0, color: '#374151' }}>尚未加入的團隊</h3>
+                  <p style={{ color: '#6b7280', fontSize: '14px', marginTop: '6px', lineHeight: '1.6' }}>
+                    瀏覽其他團隊，若想加入可請該團隊管理員邀請你，或由他們在「團隊管理」新增成員。
+                  </p>
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  style={{ whiteSpace: 'nowrap' }}
+                  onClick={loadDiscoverableTeams}
+                  disabled={discoverLoading}
+                >
+                  {discoverLoading ? '載入中...' : '重新整理'}
+                </button>
+              </div>
+              {discoverLoading ? (
+                <div style={{ textAlign: 'center', padding: '12px 0', color: '#9ca3af' }}>載入中...</div>
+              ) : discoverableTeams.length === 0 ? (
+                <p style={{ color: '#6b7280', margin: 0 }}>
+                  目前沒有其他可探索的團隊，或是您已在所有相關團隊中。也可以直接建立一個新團隊並邀請同事。
+                </p>
+              ) : (
+                <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+                  {discoverableTeams.map((team) => {
+                    const createdAt = team.created_at || team.createdAt;
+                    const createdAtLabel = createdAt ? new Date(createdAt).toLocaleDateString('zh-TW') : '—';
+                    const memberCount = team.member_count ?? team.memberCount ?? 0;
+                    const adminName =
+                      team.admin_display_name ||
+                      team.adminDisplayName ||
+                      team.admin_username ||
+                      team.adminUsername ||
+                      '—';
+                    return (
+                      <div
+                        key={team.id}
+                        style={{
+                          padding: '12px',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          background: '#fff'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Users size={18} style={{ color: '#667eea' }} />
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#111827' }}>{team.name}</div>
+                              <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                                {memberCount} 位成員
+                              </div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+                            建立於 {createdAtLabel}
+                          </span>
+                        </div>
+                        {team.description && (
+                          <p style={{ color: '#4b5563', fontSize: '13px', marginTop: '8px', lineHeight: '1.5' }}>
+                            {team.description}
+                          </p>
+                        )}
+                        <div style={{ fontSize: '12px', color: '#4b5563', marginTop: '6px' }}>
+                          管理員：{adminName}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '6px' }}>
+                          如需加入，請聯繫該團隊管理員邀請你或協助新增成員。
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="card" style={{ marginTop: '24px', background: '#f9fafb' }}>
+              <h3 style={{ marginBottom: '10px', color: '#374151' }}>💡 使用小提示</h3>
+              <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
+                <li><strong style={{ color: '#0f172a' }}>建立/切換團隊時資料各自分開</strong>，工作、打卡與報表不會互相覆寫。</li>
+                <li>想加入其他團隊，先在「尚未加入的團隊」找到<strong style={{ color: '#2563eb' }}>管理員並請對方邀請</strong>。</li>
+                <li>新團隊可先用「團隊管理」設定描述、加入成員並<strong style={{ color: '#047857' }}>指定管理員權限</strong>。</li>
+                <li>還在熟悉流程？建立一個<strong style={{ color: '#b91c1c' }}>測試團隊</strong>，練習打卡、填寫工作與產生報表。</li>
+              </ul>
+            </div>
           </>
         )}
       </div>

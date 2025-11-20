@@ -43,6 +43,17 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// 取得尚未加入的其他團隊（僅作為探索用途）
+router.get('/discover', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const teams = await teamService.getDiscoverableTeams(req.user!.id);
+    res.json(teams);
+  } catch (error) {
+    console.error('Get discoverable teams error:', error);
+    res.status(500).json({ error: '取得可加入團隊列表失敗' });
+  }
+});
+
 // 建立新團隊
 router.post(
   '/',
