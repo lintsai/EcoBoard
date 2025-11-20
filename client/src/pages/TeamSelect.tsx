@@ -177,11 +177,11 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
                         <h3 style={{ margin: 0 }}>{team.name}</h3>
                       </div>
                       {team.role === 'admin' && (
-                        <span style={{ 
-                          background: '#667eea', 
-                          color: 'white', 
-                          padding: '4px 8px', 
-                          borderRadius: '4px', 
+                        <span style={{
+                          background: '#667eea',
+                          color: 'white',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
                           fontSize: '12px',
                           fontWeight: 600
                         }}>
@@ -282,10 +282,10 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
             <div className="card" style={{ marginTop: '24px', background: '#f9fafb' }}>
               <h3 style={{ marginBottom: '10px', color: '#374151' }}>💡 使用小提示</h3>
               <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-                <li><strong style={{ color: '#0f172a' }}>建立/切換團隊時資料各自分開</strong>，工作、打卡與報表不會互相覆寫。</li>
-                <li>想加入其他團隊，先在「尚未加入的團隊」找到<strong style={{ color: '#2563eb' }}>管理員並請對方邀請</strong>。</li>
-                <li>新團隊可先用「團隊管理」設定描述、加入成員並<strong style={{ color: '#047857' }}>指定管理員權限</strong>。</li>
-                <li>還在熟悉流程？建立一個<strong style={{ color: '#b91c1c' }}>測試團隊</strong>，練習打卡、填寫工作與產生報表。</li>
+                <li><strong style={{ color: '#0f172a' }}>切換團隊</strong>時，各團隊的打卡、工作項目與報表<strong style={{ color: '#2563eb' }}>完全獨立</strong>，不會互相覆蓋或混淆。</li>
+                <li>想加入其他團隊請在「尚未加入的團隊」區塊找到<strong style={{ color: '#047857' }}>管理員名稱並聯繫對方</strong>，由管理員在「團隊管理」頁面新增您。</li>
+                <li>建立新團隊後，點擊「團隊管理」可設定描述、<strong style={{ color: '#2563eb' }}>新增成員並指定管理員權限</strong>（建議至少 2 位管理員）。</li>
+                <li>剛開始使用？可先<strong style={{ color: '#b91c1c' }}>建立測試團隊</strong>練習打卡、填寫工作項目、生成報表，熟悉後再邀請正式團隊成員。</li>
               </ul>
             </div>
           </>

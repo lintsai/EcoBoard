@@ -202,7 +202,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
 
   const handleCreateReport = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!createForm.startDate || !createForm.endDate) {
       setError('請選擇開始和結束日期');
       return;
@@ -222,17 +222,17 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
         createForm.endDate,
         createForm.reportType
       );
-      
+
       setShowCreateModal(false);
       setCreateForm({ startDate: '', endDate: '', reportType: 'statistics' });
-      
+
       // 重新載入報表列表
       await loadReports();
-      
+
       // 載入完整報表內容並顯示
       const fullReport = await api.getWeeklyReportById(newReport.id, teamId);
       setSelectedReport(fullReport);
-      
+
       alert('週報產生成功！');
     } catch (error: any) {
       console.error('Generate report error:', error);
@@ -244,7 +244,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
 
   const handleRegenerateReport = async () => {
     if (!selectedReport) return;
-    
+
     if (!confirm('確定要重新產生此報表嗎？這將覆蓋原有內容。')) {
       return;
     }
@@ -253,14 +253,14 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
       setGenerating(true);
       setError('');
       const updatedReport = await api.regenerateWeeklyReport(selectedReport.id, teamId);
-      
+
       // 重新載入報表列表
       await loadReports();
-      
+
       // 重新載入完整報表內容
       const fullReport = await api.getWeeklyReportById(selectedReport.id, teamId);
       setSelectedReport(fullReport);
-      
+
       alert('報表重新產生成功！');
     } catch (error: any) {
       console.error('Regenerate report error:', error);
@@ -346,7 +346,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
   // 處理報表內容顯示（防止顯示 JSON 字串）
   const getReportContent = (content?: string) => {
     if (!content) return '載入中...';
-    
+
     // 檢查是否為 JSON 字串
     try {
       const parsed = JSON.parse(content);
@@ -356,7 +356,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
     } catch {
       // 不是 JSON，直接返回
     }
-    
+
     return content;
   };
 
@@ -471,8 +471,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
               </p>
             </div>
           </div>
-          <button 
-            className="btn btn-primary" 
+          <button
+            className="btn btn-primary"
             onClick={() => {
               const defaultRange = getDefaultDateRange();
               setCreateForm({
@@ -505,8 +505,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
           {/* 左側：報表列表 */}
           <div>
             <div className="card" style={{ padding: 0 }}>
-              <div style={{ 
-                padding: '16px', 
+              <div style={{
+                padding: '16px',
                 borderBottom: '1px solid #e5e7eb',
                 backgroundColor: '#f9fafb'
               }}>
@@ -526,7 +526,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                   排列方向：{sortDirectionLabel}
                 </div>
               </div>
-              
+
               {loading && reports.length === 0 ? (
                 <div style={{ padding: '32px', textAlign: 'center', color: '#6b7280' }}>
                   載入中...
@@ -540,7 +540,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                   {reports.map((report) => {
                     const typeInfo = reportTypeLabels[report.report_type];
                     const Icon = typeInfo?.icon || FileText;
-                    
+
                     return (
                       <div
                         key={report.id}
@@ -564,17 +564,17 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'start', gap: '12px' }}>
-                          <div style={{ 
-                            padding: '8px', 
-                            borderRadius: '8px', 
+                          <div style={{
+                            padding: '8px',
+                            borderRadius: '8px',
                             backgroundColor: typeInfo?.color + '20',
                             color: typeInfo?.color
                           }}>
                             <Icon size={20} />
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ 
-                              fontWeight: 600, 
+                            <div style={{
+                              fontWeight: 600,
                               marginBottom: '4px',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -582,15 +582,15 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                             }}>
                               {report.report_name}
                             </div>
-                            <div style={{ 
-                              fontSize: '12px', 
+                            <div style={{
+                              fontSize: '12px',
                               color: '#6b7280',
                               marginBottom: '6px'
                             }}>
                               {formatDate(report.start_date)} - {formatDate(report.end_date)}
                             </div>
-                            <div style={{ 
-                              fontSize: '11px', 
+                            <div style={{
+                              fontSize: '11px',
                               color: '#9ca3af',
                               display: 'flex',
                               alignItems: 'center',
@@ -621,9 +621,9 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
           <div>
             {selectedReport ? (
               <div className="card">
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
                   alignItems: 'start',
                   marginBottom: '24px',
                   paddingBottom: '20px',
@@ -640,7 +640,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button 
+                    <button
                       className="btn btn-secondary"
                       onClick={handleRegenerateReport}
                       disabled={generating}
@@ -648,7 +648,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                       <RefreshCw size={16} />
                       {generating ? '產生中...' : '重新產生'}
                     </button>
-                    <button 
+                    <button
                       className="btn btn-secondary"
                       onClick={handleDownloadPdf}
                       disabled={downloading}
@@ -657,10 +657,10 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                       <Download size={16} />
                       {downloading ? '匯出中...' : '下載 PDF'}
                     </button>
-                    <button 
+                    <button
                       className="btn"
-                      style={{ 
-                        backgroundColor: '#ef4444', 
+                      style={{
+                        backgroundColor: '#ef4444',
                         color: 'white',
                         border: 'none'
                       }}
@@ -671,8 +671,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                   </div>
                 </div>
 
-                <div 
-                  className="markdown-content" 
+                <div
+                  className="markdown-content"
                   ref={reportContentRef}
                   onClick={handleVisualizationClick}
                   style={{
@@ -686,20 +686,20 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                   <div
                     data-export-hidden="true"
                     style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '12px',
-                    color: '#4b5563',
-                    backgroundColor: '#e0f2fe',
-                    borderRadius: '6px',
-                    padding: '8px 12px',
-                    marginBottom: '16px'
-                  }}>
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '12px',
+                      color: '#4b5563',
+                      backgroundColor: '#e0f2fe',
+                      borderRadius: '6px',
+                      padding: '8px 12px',
+                      marginBottom: '16px'
+                    }}>
                     <Maximize2 size={14} />
                     <span>表格與圖表可點擊放大檢視，點擊外部或按 ESC 可關閉</span>
                   </div>
-                  <ReactMarkdown 
+                  <ReactMarkdown
                     remarkPlugins={[remarkGfm, remarkMath]}
                     rehypePlugins={[rehypeRaw, rehypeKatex]}
                     components={markdownComponents}
@@ -709,8 +709,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                 </div>
               </div>
             ) : (
-              <div className="card" style={{ 
-                padding: '80px 40px', 
+              <div className="card" style={{
+                padding: '80px 40px',
                 textAlign: 'center',
                 color: '#6b7280'
               }}>
@@ -736,18 +736,18 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
             justifyContent: 'center',
             zIndex: 1000
           }}>
-            <div className="card" style={{ 
-              width: '90%', 
+            <div className="card" style={{
+              width: '90%',
               maxWidth: '600px',
               maxHeight: '90vh',
               overflowY: 'auto'
             }}>
               <h2 style={{ marginBottom: '24px' }}>建立新報表</h2>
-              
+
               <form onSubmit={handleCreateReport}>
                 <div style={{ marginBottom: '20px' }}>
-                  <label style={{ 
-                    display: 'block', 
+                  <label style={{
+                    display: 'block',
                     marginBottom: '8px',
                     fontWeight: 500,
                     color: '#374151'
@@ -783,8 +783,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                 </div>
 
                 <div style={{ marginBottom: '24px' }}>
-                  <label style={{ 
-                    display: 'block', 
+                  <label style={{
+                    display: 'block',
                     marginBottom: '12px',
                     fontWeight: 500,
                     color: '#374151'
@@ -810,8 +810,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                             transition: 'all 0.2s'
                           }}
                         >
-                          <div style={{ 
-                            padding: '8px', 
+                          <div style={{
+                            padding: '8px',
                             borderRadius: '6px',
                             backgroundColor: info.color + '20',
                             color: info.color
@@ -846,8 +846,8 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                   >
                     取消
                   </button>
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     className="btn btn-primary"
                     disabled={generating}
                   >
@@ -862,24 +862,24 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 週報小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-            <li><strong style={{ color: '#0f172a' }}>起訖日期會自動帶出該週資料</strong>，產出前先確認範圍。</li>
-            <li>若資料未齊，可先回到「更新工作進度」補上，再<strong style={{ color: '#2563eb' }}>重新產出</strong>。</li>
-            <li>依用途選擇報表類型：<strong style={{ color: '#0f172a' }}>統計數字 / 趨勢燃盡 / 分工分布 / 深度分析</strong>。</li>
-            <li><strong style={{ color: '#047857' }}>匯出前先預覽</strong>表格/圖表，點擊可放大檢視細節。</li>
+            <li><strong style={{ color: '#0f172a' }}>建立報表時選擇起訖日期</strong>，系統會拉取該期間的打卡、工作項目與進度更新，建立前請確認日期範圍正確。</li>
+            <li>若資料不完整（成員未打卡或工作項目缺漏），請先回對應頁面補齊後<strong style={{ color: '#2563eb' }}>重新產生報表</strong>，內容會自動更新。</li>
+            <li>報表類型：<strong style={{ color: '#047857' }}>統計報表</strong>（數字統計）、<strong style={{ color: '#8b5cf6' }}>分析報表</strong>（深度分析）、<strong style={{ color: '#f59e0b' }}>燃盡圖</strong>（進度趨勢）、<strong style={{ color: '#10b981' }}>生產力報告</strong>（效率分析）、<strong style={{ color: '#ec4899' }}>任務分布</strong>（工作分配）。</li>
+            <li>報表內的表格與圖表可<strong style={{ color: '#b91c1c' }}>點擊放大檢視</strong>，確認無誤後再點「下載 PDF」匯出（按 ESC 或點外部關閉預覽）。</li>
           </ul>
         </div>
 
         {/* 視覺化放大 Modal */}
         {previewContent && (
-          <div 
+          <div
             className="table-modal-overlay"
             onClick={closePreviewModal}
           >
-            <div 
+            <div
               className="table-modal-content"
               onClick={(e) => e.stopPropagation()}
             >
-              <button 
+              <button
                 className="table-modal-close"
                 onClick={closePreviewModal}
                 title="關閉"

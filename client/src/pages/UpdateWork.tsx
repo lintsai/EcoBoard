@@ -76,11 +76,11 @@ function UpdateWork({ user, teamId }: any) {
       4: { label: '低', emoji: '🟢', color: '#16a34a' },
       5: { label: '最低', emoji: '🔵', color: '#2563eb' }
     };
-    
+
     const config = priorityConfig[priority] || priorityConfig[3];
     return (
-      <span style={{ 
-        fontSize: '11px', 
+      <span style={{
+        fontSize: '11px',
         color: config.color,
         fontWeight: '600',
         display: 'inline-flex',
@@ -102,7 +102,7 @@ function UpdateWork({ user, teamId }: any) {
   // Sorting function
   const sortItems = <T extends WorkItem>(items: T[]): T[] => {
     const sorted = [...items];
-    
+
     if (sortBy === 'priority') {
       sorted.sort((a, b) => (a.priority || 3) - (b.priority || 3));
     } else {
@@ -117,7 +117,7 @@ function UpdateWork({ user, teamId }: any) {
         return dateA.localeCompare(dateB);
       });
     }
-    
+
     return sorted;
   };
 
@@ -158,7 +158,7 @@ function UpdateWork({ user, teamId }: any) {
   useEffect(() => {
     if (selectedItem) {
       fetchWorkUpdates(selectedItem);
-      
+
       // 自動設置進度狀態為當前項目的狀態
       const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
       if (item?.progress_status) {
@@ -184,10 +184,10 @@ function UpdateWork({ user, teamId }: any) {
     setError('');
     try {
       // 如果是 Manager 且選擇查看所有成員
-      const data = (isManager && viewAllMembers) 
+      const data = (isManager && viewAllMembers)
         ? await api.getTodayTeamWorkItems(teamId)
         : await api.getTodayWorkItems(teamId);
-      
+
       console.log('📋 載入的工作項目:', data); // Debug log
       setWorkItems(data);
       if (data.length > 0 && !selectedItem) {
@@ -203,12 +203,12 @@ function UpdateWork({ user, teamId }: any) {
   const fetchIncompleteWorkItems = async () => {
     try {
       // 如果是 Manager 且選擇查看所有成員
-      const data = (isManager && viewAllMembers) 
+      const data = (isManager && viewAllMembers)
         ? await api.getIncompleteTeamWorkItems(teamId)
         : await api.getIncompleteWorkItems(teamId);
-      
+
       console.log('🔄 載入的未完成項目:', data); // Debug log
-      
+
       // Backend now filters out today's items automatically
       setIncompleteItems(data);
     } catch (err: any) {
@@ -231,7 +231,7 @@ function UpdateWork({ user, teamId }: any) {
     console.log('📋 selectedItem:', selectedItem);
     console.log('📝 updateContent:', updateContent);
     console.log('📊 progressStatus:', progressStatus);
-    
+
     if (!selectedItem || !updateContent.trim()) {
       console.log('❌ 驗證失敗：缺少必要資訊');
       setError('請選擇工作項目並填寫更新內容');
@@ -247,7 +247,7 @@ function UpdateWork({ user, teamId }: any) {
 
     const isPrimary = item.handlers?.primary?.user_id === user.id;
     const isCoHandler = item.handlers?.co_handlers?.some(h => h.user_id === user.id);
-    
+
     if (!isPrimary && !isCoHandler) {
       setError('您不是此工作項目的處理人，無法更新');
       return;
@@ -276,21 +276,21 @@ function UpdateWork({ user, teamId }: any) {
 
       setSuccess('工作更新已提交！');
       setUpdateContent('');
-      
+
       // 先立即更新本地狀態，給用戶即時反饋
       console.log('🔄 更新本地狀態...');
-      const updateLocalStatus = (items: WorkItem[]) => 
-        items.map(item => 
+      const updateLocalStatus = (items: WorkItem[]) =>
+        items.map(item =>
           item.id === selectedItem ? { ...item, progress_status: progressStatus } : item
         );
-      
+
       setWorkItems(prev => updateLocalStatus(prev));
       setIncompleteItems(prev => updateLocalStatus(prev));
-      
+
       // 重新載入更新記錄 - 確保顯示最新的更新
       console.log('📥 重新載入更新記錄...');
       fetchWorkUpdates(selectedItem);
-      
+
       // 延遲重新載入以確保資料庫已更新
       setTimeout(async () => {
         try {
@@ -437,7 +437,7 @@ function UpdateWork({ user, teamId }: any) {
             {/* 左側：工作項目列表 */}
             <div className="card" style={{ position: 'sticky', top: '20px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
               <h3>工作項目</h3>
-              
+
               {/* 今日工作項目 */}
               {workItems.length > 0 && (
                 <div style={{ marginTop: '15px' }}>
@@ -467,7 +467,7 @@ function UpdateWork({ user, teamId }: any) {
                     const primaryHandler = item.handlers?.primary;
                     const coHandlers = item.handlers?.co_handlers || [];
                     const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
-                    
+
                     return (
                       <div
                         key={item.id}
@@ -502,14 +502,14 @@ function UpdateWork({ user, teamId }: any) {
                             </div>
                           )}
                           <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
-                            📅 {item.estimated_date 
+                            📅 {item.estimated_date
                               ? (() => {
-                                  const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                                    ? item.estimated_date.split('T')[0] 
-                                    : item.estimated_date;
-                                  const [year, month, day] = dateStr.split('-');
-                                  return `${parseInt(month)}/${parseInt(day)}`;
-                                })()
+                                const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                                  ? item.estimated_date.split('T')[0]
+                                  : item.estimated_date;
+                                const [year, month, day] = dateStr.split('-');
+                                return `${parseInt(month)}/${parseInt(day)}`;
+                              })()
                               : '未設定'}
                           </span>
                           {item.progress_status && (
@@ -523,7 +523,7 @@ function UpdateWork({ user, teamId }: any) {
                   })}
                 </div>
               )}
-              
+
               {/* 未完成的過往項目 */}
               {incompleteItems.length > 0 && (
                 <div style={{ marginTop: '20px' }}>
@@ -566,14 +566,14 @@ function UpdateWork({ user, teamId }: any) {
                       </button>
                     </div>
                   </div>
-                  
+
                   {showIncomplete && sortItems(incompleteItems).map((item) => {
                     const isSelected = selectedItem === item.id;
                     const primaryHandler = item.handlers?.primary;
                     const coHandlers = item.handlers?.co_handlers || [];
                     const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
                     const itemDate = new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
-                    
+
                     return (
                       <div
                         key={item.id}
@@ -609,14 +609,14 @@ function UpdateWork({ user, teamId }: any) {
                           )}
                           <span style={{ color: '#f59e0b' }}>📅 {itemDate}</span>
                           <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
-                            📅 {item.estimated_date 
+                            📅 {item.estimated_date
                               ? (() => {
-                                  const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                                    ? item.estimated_date.split('T')[0] 
-                                    : item.estimated_date;
-                                  const [year, month, day] = dateStr.split('-');
-                                  return `${parseInt(month)}/${parseInt(day)}`;
-                                })()
+                                const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                                  ? item.estimated_date.split('T')[0]
+                                  : item.estimated_date;
+                                const [year, month, day] = dateStr.split('-');
+                                return `${parseInt(month)}/${parseInt(day)}`;
+                              })()
                               : '未設定'}
                           </span>
                           {item.progress_status && (
@@ -641,34 +641,34 @@ function UpdateWork({ user, teamId }: any) {
                   {(() => {
                     const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
                     if (!item) return null;
-                    
+
                     // Debug: 檢查項目資料
                     console.log('📝 選中的工作項目:', item);
-                    
+
                     // 取得指派人員名稱
-                    const assignee = item.display_name || item.username || 
+                    const assignee = item.display_name || item.username ||
                       (item.user_id === user.id ? (user.display_name || user.username || '我') : null) ||
                       '未指定';
-                    
+
                     // 取得狀態 - 如果沒有狀態就顯示預設
                     const status = item.progress_status || 'in_progress';
-                    
+
                     // 判斷是否為未完成的過往項目
                     const itemDate = new Date(item.checkin_date).toISOString().split('T')[0];
                     const today = new Date().toISOString().split('T')[0];
                     const isIncompleteItem = itemDate !== today;
-                    
+
                     return (
                       <div style={{ marginTop: '15px' }}>
                         {/* 項目資訊標題列 */}
-                        <div style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '12px', 
-                          marginBottom: '15px', 
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          marginBottom: '15px',
                           paddingBottom: '12px',
                           borderBottom: '2px solid #e6e6e6',
-                          flexWrap: 'wrap' 
+                          flexWrap: 'wrap'
                         }}>
                           {getPriorityBadge(item.priority)}
                           <div>{getStatusBadge(status)}</div>
@@ -678,7 +678,7 @@ function UpdateWork({ user, teamId }: any) {
                         </div>
 
                         {/* 處理人資訊 */}
-                        <div style={{ 
+                        <div style={{
                           marginBottom: '15px',
                           padding: '10px',
                           backgroundColor: '#f0f9ff',
@@ -717,10 +717,10 @@ function UpdateWork({ user, teamId }: any) {
                             );
                           })()}
                         </div>
-                          
+
                         {/* 工作項目內容 */}
                         {item.ai_summary ? (
-                          <div style={{ 
+                          <div style={{
                             padding: '14px',
                             backgroundColor: '#f8f5ff',
                             borderRadius: '6px',
@@ -731,9 +731,9 @@ function UpdateWork({ user, teamId }: any) {
                               <Sparkles size={14} style={{ color: '#7c3aed', marginRight: '6px' }} />
                               <span style={{ fontSize: '13px', fontWeight: '600', color: '#7c3aed' }}>工作項目內容</span>
                             </div>
-                            <div className="prose-sm markdown-content" style={{ 
-                              fontSize: '14px', 
-                              lineHeight: '1.7', 
+                            <div className="prose-sm markdown-content" style={{
+                              fontSize: '14px',
+                              lineHeight: '1.7',
                               color: '#555',
                               wordWrap: 'break-word',
                               wordBreak: 'break-word'
@@ -742,15 +742,15 @@ function UpdateWork({ user, teamId }: any) {
                             </div>
                           </div>
                         ) : (
-                          <div style={{ 
+                          <div style={{
                             padding: '14px',
                             backgroundColor: '#fafafa',
                             borderRadius: '6px',
                             border: '1px solid #f0f0f0',
                             overflowX: 'auto'
                           }}>
-                            <div className="prose-sm markdown-content" style={{ 
-                              fontSize: '14px', 
+                            <div className="prose-sm markdown-content" style={{
+                              fontSize: '14px',
                               lineHeight: '1.7',
                               wordWrap: 'break-word',
                               wordBreak: 'break-word'
@@ -768,11 +768,11 @@ function UpdateWork({ user, teamId }: any) {
               {/* 更新表單 */}
               <div className="card">
                 <h3>新增進度更新</h3>
-                <form 
+                <form
                   onSubmit={(e) => {
                     console.log('📝 表單 onSubmit 事件觸發');
                     handleSubmitUpdate(e);
-                  }} 
+                  }}
                   style={{ marginTop: '15px' }}
                 >
                   <div className="form-group">
@@ -909,10 +909,10 @@ function UpdateWork({ user, teamId }: any) {
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 進度更新小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-            <li>更新請涵蓋 <strong style={{ color: '#0f172a' }}>做了什麼、剩餘什麼、需要什麼協助</strong>，方便同事快速掌握。</li>
-            <li>共同負責人只能更新進度，<strong style={{ color: '#b91c1c' }}>完成/取消仍由主要負責人確認</strong>。</li>
-            <li>狀態建議：<strong style={{ color: '#2563eb' }}>進行中 → 已完成/阻塞/延期</strong>；避免久置在「進行中」。</li>
-            <li>有延期時請<strong style={{ color: '#b91c1c' }}>同步調整預計日期</strong>，讓每日/每週報表更精準。</li>
+            <li>建議<strong style={{ color: '#0f172a' }}>下班前更新一次進度</strong>，說明今日完成內容、遇到的問題與明日計劃，方便團隊掌握狀況。</li>
+            <li><strong style={{ color: '#b91c1c' }}>共同處理人</strong>只能更新「未開始、進行中、受阻」狀態；<strong style={{ color: '#047857' }}>「已完成」和「已取消」</strong>需由主要處理人確認。</li>
+            <li>進度狀態建議流程：<strong style={{ color: '#2563eb' }}>未開始 → 進行中 → 已完成 / 受阻 / 已取消</strong>；避免長時間停留在「進行中」。</li>
+            <li>若項目延期，記得<strong style={{ color: '#b91c1c' }}>同步調整「預計處理時間」</strong>（在工作項目頁面點開卡片修改），讓週報統計更精準。</li>
           </ul>
         </div>
       </div>

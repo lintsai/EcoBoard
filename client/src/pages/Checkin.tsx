@@ -140,9 +140,10 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 打卡小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-            <li><strong style={{ color: '#0f172a' }}>打卡後自動導向「填寫工作項目」</strong>，可直接把 Backlog 轉成今日任務。</li>
-            <li>若忘記打卡，仍可在站立會議前補打，但請<strong style={{ color: '#b91c1c' }}>同步更新今日工作清單</strong>。</li>
-            <li>團隊以打卡時間確認出勤，建議在<strong style={{ color: '#047857' }}>開工前完成</strong>以免遺漏。</li>
+            <li><strong style={{ color: '#0f172a' }}>每日首次打卡</strong>會記錄到勤時間，完成後<strong style={{ color: '#2563eb' }}>自動跳轉到工作項目填寫頁</strong>，方便立即規劃今日任務。</li>
+            <li>打卡後可直接從 Backlog 選擇項目，<strong style={{ color: '#047857' }}>AI 會協助生成今日工作內容</strong>，無需重新輸入。</li>
+            <li>若當日已打卡，此頁會顯示打卡時間並提供<strong style={{ color: '#2563eb' }}>「建立工作項目」</strong>快捷按鈕。</li>
+            <li>忘記打卡可隨時補登，但請<strong style={{ color: '#b91c1c' }}>同步確認工作項目已填寫</strong>，避免影響站立會議與日報。</li>
           </ul>
         </div>
       </div>

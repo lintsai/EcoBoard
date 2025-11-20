@@ -26,7 +26,7 @@ interface HistoryItem {
 
 function DailySummary({ user, teamId }: any) {
   const navigate = useNavigate();
-  
+
   // 獲取當地時區的今日日期（避免 UTC 時區問題）
   const getTodayDate = () => {
     const today = new Date();
@@ -85,7 +85,7 @@ function DailySummary({ user, teamId }: any) {
   const fetchDailySummary = async (date?: string) => {
     setLoading(true);
     setError('');
-    
+
     try {
       const summaryDate = date || selectedDate;
       const data = await api.generateDailySummary(teamId, summaryDate);
@@ -115,12 +115,12 @@ function DailySummary({ user, teamId }: any) {
     setGenerating(true);
     setError('');
     setPreviewSummary(null); // 清除舊的預覽
-    
+
     try {
       const summaryDate = selectedDate;
       // 強制重新生成（不使用快取）
       const data = await api.generateDailySummary(teamId, summaryDate, true);
-      
+
       // 總是設定為預覽模式，讓使用者決定是否儲存
       setPreviewSummary(data.summary);
     } catch (err: any) {
@@ -132,14 +132,14 @@ function DailySummary({ user, teamId }: any) {
 
   const handleSaveSummary = async () => {
     if (!previewSummary) return;
-    
+
     setSaving(true);
     setError('');
-    
+
     try {
       // 呼叫 API 儲存總結
       const response = await api.saveDailySummary(teamId, selectedDate, previewSummary);
-      
+
       // 儲存成功後，設定為正式的 summary
       setSummary({
         summary: previewSummary,
@@ -148,9 +148,9 @@ function DailySummary({ user, teamId }: any) {
         cached: true,
         createdAt: new Date().toISOString()
       });
-      
+
       setPreviewSummary(null);
-      
+
       // 重新載入歷史記錄
       if (showHistory) {
         fetchHistory();
@@ -168,7 +168,7 @@ function DailySummary({ user, teamId }: any) {
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newDate = e.target.value;
-    
+
     // 只有當日期真正改變時才處理
     if (newDate && newDate !== selectedDate) {
       setSelectedDate(newDate);
@@ -261,7 +261,7 @@ function DailySummary({ user, teamId }: any) {
                 onChange={handleDateChange}
                 max={getTodayDate()}
                 disabled={generating || saving}
-                style={{ 
+                style={{
                   width: '200px',
                   padding: '10px 12px',
                   border: '2px solid #e5e7eb',
@@ -322,7 +322,7 @@ function DailySummary({ user, teamId }: any) {
               <History size={20} />
               歷史總結記錄
             </h3>
-            
+
             {loadingHistory ? (
               <div style={{ textAlign: 'center', padding: '40px' }}>
                 <Loader2 size={32} className="spinner" style={{ margin: '0 auto' }} />
@@ -397,9 +397,9 @@ function DailySummary({ user, teamId }: any) {
         ) : previewSummary ? (
           // 預覽模式：顯示生成的內容和儲存/取消按鈕
           <div className="card" style={{ border: '2px solid #ffa500' }}>
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
               alignItems: 'center',
               paddingBottom: '15px',
               borderBottom: '2px solid #ffa500',
@@ -443,7 +443,7 @@ function DailySummary({ user, teamId }: any) {
               </div>
             </div>
 
-            <div 
+            <div
               className="markdown-content prose-sm"
               style={{
                 fontSize: '15px',
@@ -451,7 +451,7 @@ function DailySummary({ user, teamId }: any) {
                 color: '#333'
               }}
             >
-              <ReactMarkdown 
+              <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw]}
               >
@@ -461,9 +461,9 @@ function DailySummary({ user, teamId }: any) {
           </div>
         ) : summary ? (
           <div className="card">
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
               alignItems: 'center',
               paddingBottom: '15px',
               borderBottom: '2px solid #e5e7eb',
@@ -493,7 +493,7 @@ function DailySummary({ user, teamId }: any) {
               </div>
             </div>
 
-            <div 
+            <div
               className="markdown-content prose-sm"
               style={{
                 fontSize: '15px',
@@ -501,7 +501,7 @@ function DailySummary({ user, teamId }: any) {
                 color: '#333'
               }}
             >
-              <ReactMarkdown 
+              <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw]}
               >
@@ -526,10 +526,10 @@ function DailySummary({ user, teamId }: any) {
         <div className="card" style={{ marginTop: '20px', backgroundColor: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 總結報告包含內容</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-            <li>總結會拉入<strong style={{ color: '#0f172a' }}>當日打卡、工作項目與進度更新</strong>，資料不足時先回原頁補齊。</li>
-            <li>AI 會整理<strong style={{ color: '#2563eb' }}>完成/未完成清單、阻塞與明日建議</strong>，可直接準備隔日站會。</li>
-            <li>報告支援 Markdown，若要複製到外部工具可<strong style={{ color: '#047857' }}>直接選取貼上</strong>。</li>
-            <li>若換時區或補登內容，重新點<strong style={{ color: '#2563eb' }}>「生成總結」</strong>即可更新最新版本。</li>
+            <li><strong style={{ color: '#0f172a' }}>選擇日期後點擊「生成總結」</strong>會提取該日的打卡、工作項目與進度更新，AI 會整理成預覽報告（尚未自動儲存）。</li>
+            <li>預覽報告可點擊<strong style={{ color: '#047857' }}>「儲存總結」</strong>正式存檔，或點<strong style={{ color: '#b91c1c' }}>「取消」</strong>重新生成。已儲存的報告會出現在「查看歷史」。</li>
+            <li>若該日資料不足（未打卡或無工作項目），請先回對應頁面補齊後<strong style={{ color: '#2563eb' }}>重新生成</strong>，內容會自動更新。</li>
+            <li>報告中的<strong style={{ color: '#0f172a' }}>表格可點擊放大檢視</strong>，按 ESC 或點擊外部區域關閉，方便查看詳細統計數據。</li>
           </ul>
         </div>
       </div>

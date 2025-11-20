@@ -108,11 +108,11 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       4: { label: '低', emoji: '🟢', color: '#16a34a' },
       5: { label: '最低', emoji: '🔵', color: '#2563eb' }
     };
-    
+
     const config = priorityConfig[priority] || priorityConfig[3];
     return (
-      <span style={{ 
-        fontSize: '11px', 
+      <span style={{
+        fontSize: '11px',
         color: config.color,
         fontWeight: '600',
         display: 'inline-flex',
@@ -127,7 +127,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   // Filter function for work items search
   const filterWorkItems = (items: WorkItem[]): WorkItem[] => {
     if (!searchQuery.trim()) return items;
-    
+
     const query = searchQuery.toLowerCase();
     return items.filter(item => {
       const title = (item.ai_title || '').toLowerCase();
@@ -140,7 +140,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   // Filter function for backlog items search
   const filterBacklogItems = (items: any[]): any[] => {
     if (!backlogSearchQuery.trim()) return items;
-    
+
     const query = backlogSearchQuery.toLowerCase();
     return items.filter(item => {
       const title = (item.ai_title || '').toLowerCase();
@@ -152,7 +152,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   // Sorting function
   const sortItems = <T extends WorkItem>(items: T[]): T[] => {
     const sorted = [...items];
-    
+
     if (sortBy === 'priority') {
       sorted.sort((a, b) => (a.priority || 3) - (b.priority || 3));
     } else {
@@ -167,7 +167,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         return dateA.localeCompare(dateB);
       });
     }
-    
+
     return sorted;
   };
 
@@ -244,7 +244,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     try {
       const items = await api.getTodayWorkItems(teamId);
       // 只顯示用戶作為主要處理人的項目
-      const filteredItems = items.filter((item: any) => 
+      const filteredItems = items.filter((item: any) =>
         item.handlers?.primary?.user_id === user.id
       );
       setWorkItems(filteredItems);
@@ -258,7 +258,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       const items = await api.getIncompleteWorkItems(teamId);
       // Backend now filters out today's items automatically
       // 只顯示用戶作為主要處理人的項目
-      const filteredItems = items.filter((item: any) => 
+      const filteredItems = items.filter((item: any) =>
         item.handlers?.primary?.user_id === user.id
       );
       setIncompleteItems(filteredItems);
@@ -289,7 +289,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     try {
       const history = await api.getChatHistory(itemSessionId);
       const formattedMessages: ChatMessage[] = [];
-      
+
       history.forEach((msg: any) => {
         formattedMessages.push({
           role: 'user',
@@ -317,7 +317,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     try {
       await api.deleteWorkItem(itemId);
       await loadWorkItems();
-      
+
       if (selectedItemId === itemId) {
         setSelectedItemId(null);
         setCurrentItemAiSummary('');
@@ -346,7 +346,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
   const handleRemoveCoHandler = async (itemId: number, userId: number) => {
     if (!confirm('確定要移除此共同處理人嗎？')) return;
-    
+
     try {
       await api.removeCoHandler(itemId, userId);
       await loadWorkItems();
@@ -360,9 +360,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     setSelectedItemId(item.id);
     setCurrentItemAiSummary(item.ai_summary || '');
     setSelectedPriority(item.priority || 3);
-    
+
     console.log('[WorkItems] Editing item:', item.id, 'existing session_id:', item.session_id);
-    
+
     if (item.session_id) {
       setSessionId(item.session_id);
       console.log('[WorkItems] Using existing session:', item.session_id);
@@ -435,8 +435,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       const summary = await api.generateWorkSummary(sessionId);
 
       // 確保 summary 是字串
-      const summaryText = typeof summary.summary === 'string' 
-        ? summary.summary 
+      const summaryText = typeof summary.summary === 'string'
+        ? summary.summary
         : JSON.stringify(summary.summary);
       const titleText = typeof summary.title === 'string'
         ? summary.title
@@ -453,7 +453,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       );
 
       alert('工作項目已儲存！');
-      
+
       await loadWorkItems();
       setSessionId('');
       setSelectedItemId(null);
@@ -515,21 +515,21 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
       // Reload both lists so the latest content appears in today's + incomplete sections
       await Promise.all([loadWorkItems(), loadIncompleteItems()]);
-      
+
       // Clear edit mode states
       setSessionId('');
       setSelectedItemId(null);
       setSelectedPriority(3);
-      
+
       // Keep the summary visible so user can see what was saved
       setCurrentItemAiSummary(summary.summary);
-      
+
       setMessages([{
         role: 'ai',
         content: '✅ 工作項目已更新！\n\n您可以繼續新增或編輯其他工作項目。',
         timestamp: new Date().toISOString()
       }]);
-      
+
       alert('工作項目已更新！');
     } catch (error: any) {
       console.error('Failed to update work item:', error);
@@ -559,12 +559,12 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
     try {
       setLoading(true);
-      
+
       // 呼叫移動 API（不是複製，是移動）
       await api.moveWorkItemToToday(item.id);
 
       alert('已移動到今日工作項目！');
-      
+
       // 重新載入列表
       await loadWorkItems();
       await loadIncompleteItems();
@@ -585,49 +585,49 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     }
 
     if (!confirm(`確定要將「${backlogItem.ai_title || backlogItem.content}」加入今日工作項目嗎？\n\n這會使用項目標題開啟 AI 對談，讓您進一步完善工作內容。`)) return;
-    
+
     try {
       setLoading(true);
-      
+
       // 移動 Backlog 項目到今日工作（後端會更新 is_backlog = false 和綁定 checkin_id）
       const movedItem = await api.moveBacklogToWorkItem(backlogItem.id, teamId);
-      
+
       // 重新載入所有列表
       await Promise.all([
         loadWorkItems(),
         loadIncompleteItems(),
         loadBacklogItems()
       ]);
-      
+
       // 使用 Backlog 項目的標題作為第一次 AI 對談
       const backlogTitle = backlogItem.ai_title || backlogItem.content;
-      
+
       // 設定為編輯模式，而不是新增模式
       // 這樣儲存時會更新現有項目，而不是創建新項目
       setSelectedItemId(backlogItem.id);  // 設置選中的項目 ID
       setCurrentItemAiSummary(backlogItem.ai_summary || backlogItem.content);
       setSelectedPriority(backlogItem.priority || 3);
-      
+
       // 使用後端生成的新 session_id
       const newSessionId = movedItem.session_id;
       console.log('[WorkItems] Using new session from backend:', newSessionId);
       setSessionId(newSessionId);
-      
+
       // 設置初始訊息
       setMessages([{
         role: 'ai',
         content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
         timestamp: new Date().toISOString()
       }]);
-      
+
       // 自動發送 Backlog 標題作為第一次對談
       setInputMessage(backlogTitle);
-      
+
       // 稍作延遲後自動送出（確保 UI 已更新）
       setTimeout(() => {
         handleSend();
       }, 100);
-      
+
       alert('Backlog 項目已加入今日工作！AI 正在協助您完善工作內容...\n\n完成對談後，請點擊「更新此工作項目」儲存變更。');
     } catch (error: any) {
       console.error('Failed to add backlog to today:', error);
@@ -783,7 +783,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                   {loading ? '處理中...' : '發送'}
                 </button>
               </div>
-              
+
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: '10px' }}>
                 {selectedItemId ? (
@@ -888,7 +888,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                   </div>
                 )}
               </div>
-              
+
               <div style={{ padding: '15px' }}>
                 {workItems.length === 0 ? (
                   <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
@@ -901,7 +901,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                 ) : (
                   sortItems(filterWorkItems(workItems)).map((item) => {
                     const isExpanded = expandedItems.has(item.id);
-                    
+
                     return (
                       <div
                         key={item.id}
@@ -941,11 +941,11 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             <div style={{ flexShrink: 0 }}>
                               {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                             </div>
-                            <h4 
-                              style={{ 
-                                fontWeight: '600', 
-                                fontSize: '14px', 
-                                margin: 0, 
+                            <h4
+                              style={{
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                margin: 0,
                                 flex: 1,
                                 minWidth: 0,
                                 overflow: 'hidden',
@@ -960,14 +960,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                             {getPriorityBadge(item.priority)}
                             <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
-                              📅 {item.estimated_date 
+                              📅 {item.estimated_date
                                 ? (() => {
-                                    const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                                      ? item.estimated_date.split('T')[0] 
-                                      : item.estimated_date;
-                                    const [year, month, day] = dateStr.split('-');
-                                    return `${parseInt(month)}/${parseInt(day)}`;
-                                  })()
+                                  const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                                    ? item.estimated_date.split('T')[0]
+                                    : item.estimated_date;
+                                  const [year, month, day] = dateStr.split('-');
+                                  return `${parseInt(month)}/${parseInt(day)}`;
+                                })()
                                 : '未設定'}
                             </span>
                             <button
@@ -991,7 +991,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             </button>
                           </div>
                         </div>
-                        
+
                         {/* Expanded Content */}
                         {isExpanded && (
                           <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #e5e7eb' }}>
@@ -1015,7 +1015,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                     const token = localStorage.getItem('token');
                                     const response = await fetch(`/api/workitems/${item.id}`, {
                                       method: 'PATCH',
-                                      headers: { 
+                                      headers: {
                                         'Content-Type': 'application/json',
                                         'Authorization': token ? `Bearer ${token}` : ''
                                       },
@@ -1049,7 +1049,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   <span>未指定</span>
                                 )}
                               </div>
-                              
+
                               {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
                                 <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>
                                   <strong>共同處理人：</strong>
@@ -1095,14 +1095,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   </div>
                                 </div>
                               )}
-                              
+
                               {/* 只有主要處理人可以添加共同處理人 */}
                               {item.handlers?.primary?.user_id === user.id && (
                                 <div style={{ marginTop: '8px' }}>
                                   {showCoHandlerDialog === item.id ? (
-                                    <div style={{ 
-                                      padding: '8px', 
-                                      background: '#f9fafb', 
+                                    <div style={{
+                                      padding: '8px',
+                                      background: '#f9fafb',
                                       borderRadius: '6px',
                                       border: '1px solid #e5e7eb'
                                     }}>
@@ -1111,8 +1111,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                       </div>
                                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                         {teamMembers
-                                          .filter(member => 
-                                            member.user_id !== user.id && 
+                                          .filter(member =>
+                                            member.user_id !== user.id &&
                                             !item.handlers?.co_handlers?.some(h => h.user_id === member.user_id)
                                           )
                                           .map(member => (
@@ -1179,10 +1179,10 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             </div>
 
                             {item.ai_summary && (
-                              <div className="markdown-content" style={{ 
-                                fontSize: '13px', 
-                                color: '#666', 
-                                marginTop: '12px', 
+                              <div className="markdown-content" style={{
+                                fontSize: '13px',
+                                color: '#666',
+                                marginTop: '12px',
                                 marginBottom: '12px',
                                 overflowX: 'auto',
                                 wordWrap: 'break-word',
@@ -1191,14 +1191,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
                               </div>
                             )}
-                            
+
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
                               <div style={{ fontSize: '11px', color: '#999' }}>
-                                建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
-                                  month: '2-digit', 
-                                  day: '2-digit', 
-                                  hour: '2-digit', 
-                                  minute: '2-digit' 
+                                建立於 {new Date(item.created_at).toLocaleString('zh-TW', {
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
                                 })}
                               </div>
                               {item.handlers?.primary?.user_id === user.id && (
@@ -1229,7 +1229,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                 )}
               </div>
             </div>
-            
+
             {/* Incomplete Items List */}
             {incompleteItems.length > 0 && (
               <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1274,14 +1274,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                     這些是之前建立但尚未完成的項目，您可以繼續進行或標記為已完成/已取消
                   </p>
                 </div>
-                
+
                 {showIncomplete && (
                   <div style={{ padding: '15px' }}>
                     {sortItems(incompleteItems).map((item: any) => {
                       const isExpanded = expandedItems.has(item.id);
                       const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
                       const ownerLabel = getWorkItemOwnerLabel(item);
-                      
+
                       return (
                         <div
                           key={item.id}
@@ -1320,9 +1320,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                               {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                  <h4 style={{ 
-                                    fontWeight: '600', 
-                                    fontSize: '14px', 
+                                  <h4 style={{
+                                    fontWeight: '600',
+                                    fontSize: '14px',
                                     margin: 0,
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
@@ -1338,21 +1338,21 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
                                   <span style={{ color: item.estimated_date ? '#0891b2' : '#999' }}>
-                                    📅 {item.estimated_date 
+                                    📅 {item.estimated_date
                                       ? (() => {
-                                          const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                                            ? item.estimated_date.split('T')[0] 
-                                            : item.estimated_date;
-                                          const [year, month, day] = dateStr.split('-');
-                                          return `${parseInt(month)}/${parseInt(day)}`;
-                                        })()
+                                        const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                                          ? item.estimated_date.split('T')[0]
+                                          : item.estimated_date;
+                                        const [year, month, day] = dateStr.split('-');
+                                        return `${parseInt(month)}/${parseInt(day)}`;
+                                      })()
                                       : '未設定'}
                                   </span>
                                 </div>
                               </div>
                             </div>
                           </div>
-                          
+
                           {/* Expanded Content */}
                           {isExpanded && (
                             <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #fef3c7' }}>
@@ -1376,7 +1376,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                       const token = localStorage.getItem('token');
                                       const response = await fetch(`/api/workitems/${item.id}`, {
                                         method: 'PATCH',
-                                        headers: { 
+                                        headers: {
                                           'Content-Type': 'application/json',
                                           'Authorization': token ? `Bearer ${token}` : ''
                                         },
@@ -1400,10 +1400,10 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 />
                               </div>
                               {item.ai_summary && (
-                                <div className="markdown-content" style={{ 
-                                  fontSize: '13px', 
-                                  color: '#92400e', 
-                                  marginTop: '12px', 
+                                <div className="markdown-content" style={{
+                                  fontSize: '13px',
+                                  color: '#92400e',
+                                  marginTop: '12px',
                                   marginBottom: '12px',
                                   overflowX: 'auto',
                                   wordWrap: 'break-word',
@@ -1412,14 +1412,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
                                 </div>
                               )}
-                              
+
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
                                 <div style={{ fontSize: '11px', color: '#92400e' }}>
-                                  建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
-                                    month: '2-digit', 
-                                    day: '2-digit', 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
+                                  建立於 {new Date(item.created_at).toLocaleString('zh-TW', {
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
                                   })}
                                 </div>
                                 <button
@@ -1450,11 +1450,11 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                 )}
               </div>
             )}
-          
-          {/* Backlog Items List */}
-          {backlogItems.length > 0 && (
-            <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f0f9ff' }}>
+
+            {/* Backlog Items List */}
+            {backlogItems.length > 0 && (
+              <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f0f9ff' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                     <h3 style={{ margin: 0, color: '#0369a1', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       📋 Backlog 待辦項目 ({filterBacklogItems(backlogItems).length}{backlogSearchQuery && ` / ${backlogItems.length}`})
@@ -1533,143 +1533,143 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                     這些是提前規劃的工作項目，點擊「加入今日」會使用 AI 協助您進一步完善工作內容
                   </p>
                 </div>
-              
-              {showBacklog && (
-                <div style={{ padding: '15px' }}>
-                  {filterBacklogItems(backlogItems).length === 0 ? (
-                    <p style={{ textAlign: 'center', color: '#0369a1', padding: '20px 0' }}>
-                      找不到符合「{backlogSearchQuery}」的項目
-                    </p>
-                  ) : (
-                    sortItems(filterBacklogItems(backlogItems)).map((item: any) => {
-                      const isExpanded = expandedItems.has(item.id);
-                      const estimatedDate = item.estimated_date
-                        ? (() => {
+
+                {showBacklog && (
+                  <div style={{ padding: '15px' }}>
+                    {filterBacklogItems(backlogItems).length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#0369a1', padding: '20px 0' }}>
+                        找不到符合「{backlogSearchQuery}」的項目
+                      </p>
+                    ) : (
+                      sortItems(filterBacklogItems(backlogItems)).map((item: any) => {
+                        const isExpanded = expandedItems.has(item.id);
+                        const estimatedDate = item.estimated_date
+                          ? (() => {
                             const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
                               ? item.estimated_date.split('T')[0]
                               : item.estimated_date;
                             const [year, month, day] = dateStr.split('-');
                             return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
                           })()
-                        : '未設定';
-                      const ownerLabel = getBacklogOwnerLabel(item);
-                      
-                      return (
-                        <div
-                          key={item.id}
-                          style={{
-                            marginBottom: '10px',
-                            border: '1px solid #bae6fd',
-                            borderRadius: '8px',
-                            backgroundColor: '#e0f2fe',
-                            transition: 'all 0.2s',
-                            overflow: 'hidden'
-                          }}
-                        >
-                          {/* Header */}
+                          : '未設定';
+                        const ownerLabel = getBacklogOwnerLabel(item);
+
+                        return (
                           <div
+                            key={item.id}
                             style={{
-                              padding: '12px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              cursor: 'pointer',
-                              backgroundColor: isExpanded ? '#bae6fd' : 'transparent'
-                            }}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              const newExpanded = new Set(expandedItems);
-                              if (isExpanded) {
-                                newExpanded.delete(item.id);
-                              } else {
-                                newExpanded.add(item.id);
-                              }
-                              setExpandedItems(newExpanded);
+                              marginBottom: '10px',
+                              border: '1px solid #bae6fd',
+                              borderRadius: '8px',
+                              backgroundColor: '#e0f2fe',
+                              transition: 'all 0.2s',
+                              overflow: 'hidden'
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                              {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                  <h4 style={{ 
-                                    fontWeight: '600', 
-                                    fontSize: '14px', 
-                                    margin: 0,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: isExpanded ? 'normal' : 'nowrap',
-                                    flex: 1
-                                  }}>
-                                    {item.ai_title || item.content}
-                                  </h4>
-                                  {getPriorityBadge(item.priority)}
-                                </div>
-                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '11px', color: '#0369a1' }}>
-                                  <span style={{ whiteSpace: 'nowrap' }}>👤 {ownerLabel}</span>
-                                  <span style={{ color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
-                                    📅 {estimatedDate}
-                                  </span>
+                            {/* Header */}
+                            <div
+                              style={{
+                                padding: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                cursor: 'pointer',
+                                backgroundColor: isExpanded ? '#bae6fd' : 'transparent'
+                              }}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const newExpanded = new Set(expandedItems);
+                                if (isExpanded) {
+                                  newExpanded.delete(item.id);
+                                } else {
+                                  newExpanded.add(item.id);
+                                }
+                                setExpandedItems(newExpanded);
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                                {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                    <h4 style={{
+                                      fontWeight: '600',
+                                      fontSize: '14px',
+                                      margin: 0,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: isExpanded ? 'normal' : 'nowrap',
+                                      flex: 1
+                                    }}>
+                                      {item.ai_title || item.content}
+                                    </h4>
+                                    {getPriorityBadge(item.priority)}
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '11px', color: '#0369a1' }}>
+                                    <span style={{ whiteSpace: 'nowrap' }}>👤 {ownerLabel}</span>
+                                    <span style={{ color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
+                                      📅 {estimatedDate}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                          
-                          {/* Expanded Content */}
-                          {isExpanded && (
-                            <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #bae6fd' }}>
-                              {item.content && (
-                                <div className="markdown-content" style={{ 
-                                  fontSize: '13px', 
-                                  color: '#0369a1', 
-                                  marginTop: '12px', 
-                                  marginBottom: '12px',
-                                  overflowX: 'auto',
-                                  wordWrap: 'break-word',
-                                  wordBreak: 'break-word'
-                                }}>
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                                </div>
-                              )}
-                              
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
-                                <div style={{ fontSize: '11px', color: '#0369a1' }}>
-                                  建立於 {new Date(item.created_at).toLocaleString('zh-TW', { 
-                                    month: '2-digit', 
-                                    day: '2-digit', 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
-                                  })}
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleAddBacklogToToday(item);
-                                  }}
-                                  className="btn btn-primary"
-                                  style={{
-                                    padding: '6px 12px',
+
+                            {/* Expanded Content */}
+                            {isExpanded && (
+                              <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #bae6fd' }}>
+                                {item.content && (
+                                  <div className="markdown-content" style={{
                                     fontSize: '13px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                  disabled={loading}
-                                  title="加入今日工作項目"
-                                >
+                                    color: '#0369a1',
+                                    marginTop: '12px',
+                                    marginBottom: '12px',
+                                    overflowX: 'auto',
+                                    wordWrap: 'break-word',
+                                    wordBreak: 'break-word'
+                                  }}>
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                                  </div>
+                                )}
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                                  <div style={{ fontSize: '11px', color: '#0369a1' }}>
+                                    建立於 {new Date(item.created_at).toLocaleString('zh-TW', {
+                                      month: '2-digit',
+                                      day: '2-digit',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAddBacklogToToday(item);
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '13px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                    disabled={loading}
+                                    title="加入今日工作項目"
+                                  >
                                     <Send size={14} />
                                     加入今日 (AI 對談)
                                   </button>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-            </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1677,10 +1677,10 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 工作項目小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-            <li><strong style={{ color: '#0f172a' }}>打卡後立刻填寫</strong>，AI 可依 Backlog 內容快速生成今日任務草稿。</li>
-            <li><strong style={{ color: '#b91c1c' }}>優先序 1–2</strong> 適合當天必做，<strong style={{ color: '#2563eb' }}>預計日期</strong>可和站立會議同步檢查。</li>
-            <li>需要協作時先建立卡片，再在站立 Review 頁面<strong style={{ color: '#0f172a' }}>指定共同負責人</strong>。</li>
-            <li>AI 摘要僅供參考，實際執行細節請在卡片內容<strong style={{ color: '#0f172a' }}>補充清楚</strong>。</li>
+            <li><strong style={{ color: '#0f172a' }}>打卡後建議立刻填寫工作項目</strong>，可從 Backlog 快速加入或與 AI 對話生成，AI 會根據內容自動產生摘要與標題。</li>
+            <li>優先級建議：<strong style={{ color: '#b91c1c' }}>1–2 給當日必做</strong>項目，<strong style={{ color: '#2563eb' }}>預計處理時間</strong>可在卡片展開後直接點日期選擇器設定。</li>
+            <li>需要協作請點開卡片找到<strong style={{ color: '#047857' }}>「+ 添加共同處理人」</strong>，共同處理人可更新進度但無法標記完成（需主要處理人確認）。</li>
+            <li><strong style={{ color: '#0f172a' }}>AI 摘要僅供參考</strong>，實際執行細節請在對話中或卡片內容補充清楚，避免團隊成員理解錯誤。</li>
           </ul>
         </div>
       </div>

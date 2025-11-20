@@ -37,13 +37,13 @@ function Backlog({ user, teamId }: BacklogProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [editingItem, setEditingItem] = useState<BacklogItem | null>(null);
-  
+
   // Form states
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [priority, setPriority] = useState(3);
   const [estimatedDate, setEstimatedDate] = useState('');
-  
+
   // Bulk import state
   const [tableText, setTableText] = useState('');
   const [parsedItems, setParsedItems] = useState<any[]>([]);
@@ -136,11 +136,11 @@ function Backlog({ user, teamId }: BacklogProps) {
       4: { label: '低', emoji: '🟢', color: '#16a34a' },
       5: { label: '最低', emoji: '🔵', color: '#2563eb' }
     };
-    
+
     const config = priorityConfig[priority] || priorityConfig[3];
     return (
-      <span style={{ 
-        fontSize: '11px', 
+      <span style={{
+        fontSize: '11px',
         color: config.color,
         fontWeight: '600',
         display: 'inline-flex',
@@ -182,7 +182,7 @@ function Backlog({ user, teamId }: BacklogProps) {
     }
 
     if (!searchQuery.trim()) return filtered;
-    
+
     const query = searchQuery.toLowerCase();
     return filtered.filter(item => {
       const title = (item.ai_title || '').toLowerCase();
@@ -194,7 +194,7 @@ function Backlog({ user, teamId }: BacklogProps) {
   // Sorting function
   const sortItems = (items: BacklogItem[]): BacklogItem[] => {
     const sorted = [...items];
-    
+
     if (sortBy === 'priority') {
       sorted.sort((a, b) => a.priority - b.priority);
     } else {
@@ -209,7 +209,7 @@ function Backlog({ user, teamId }: BacklogProps) {
         return dateA.localeCompare(dateB);
       });
     }
-    
+
     return sorted;
   };
 
@@ -230,7 +230,7 @@ function Backlog({ user, teamId }: BacklogProps) {
 
     try {
       setLoading(true);
-      
+
       if (editingItem) {
         await api.updateBacklogItem(editingItem.id, {
           title,
@@ -367,13 +367,13 @@ function Backlog({ user, teamId }: BacklogProps) {
 
       await api.createBacklogItemsBatch(teamId, normalizedItems);
       await loadBacklogItems();
-      
+
       // Reset bulk import
       setTableText('');
       setParsedItems([]);
       setShowParsedPreview(false);
       setShowBulkImport(false);
-      
+
       alert(`已匯入 ${parsedItems.length} 筆 Backlog 項目`);
     } catch (error: any) {
       console.error('Save parsed items error:', error);
@@ -547,7 +547,7 @@ function Backlog({ user, teamId }: BacklogProps) {
               <h3 style={{ marginBottom: '15px' }}>
                 {editingItem ? '編輯 Backlog 項目' : '新增 Backlog 項目'}
               </h3>
-              
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500' }}>
@@ -926,9 +926,9 @@ function Backlog({ user, teamId }: BacklogProps) {
                   const normalizedEstimate = normalizeEstimatedDate(item.estimated_date || null);
                   const estimatedText = normalizedEstimate
                     ? (() => {
-                        const [year, month, day] = normalizedEstimate.split('-');
-                        return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
-                      })()
+                      const [year, month, day] = normalizedEstimate.split('-');
+                      return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
+                    })()
                     : '未設定';
                   return (
                     <div
@@ -1020,10 +1020,10 @@ function Backlog({ user, teamId }: BacklogProps) {
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 Backlog 小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
-            <li><strong style={{ color: '#111827' }}>先用 Backlog 列出需求並估時</strong>，站立會議就能直接挑選要做的項目。</li>
-            <li>常見任務可用 <strong style={{ color: '#2563eb' }}>AI 批次匯入</strong>，草稿匯入後記得調整優先序與日期。</li>
-            <li><strong style={{ color: '#b91c1c' }}>優先序 1–2</strong> 給急件，預計日期未填者會被排在列表後段。</li>
-            <li>多人協作時，先<strong style={{ color: '#0f172a' }}>指派主要負責人</strong>，再在工作頁新增共同負責人。</li>
+            <li><strong style={{ color: '#111827' }}>提前規劃需求</strong>：建議在每週初整理 Backlog，設定<strong style={{ color: '#2563eb' }}>優先序 1–2</strong> 給本週必做項目，並填寫預計日期方便排程。</li>
+            <li><strong style={{ color: '#2563eb' }}>AI 批次匯入</strong>適合貼上多筆結構化文字（如表格內容），AI 會自動解析成草稿，匯入前可逐筆調整內容與優先級。</li>
+            <li>點選<strong style={{ color: '#047857' }}>「加入今日」</strong>會將 Backlog 項目轉為今日工作，AI 會重新整理內容並自動指派給您（此操作不可復原）。</li>
+            <li>切換<strong style={{ color: '#0f172a' }}>「按優先順序」或「按預計日期」</strong>排序鈕可快速調整顯示順序，未填日期的項目會排在後段。</li>
           </ul>
         </div>
       </div>

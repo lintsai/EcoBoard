@@ -151,8 +151,8 @@ const getPriorityBadge = (priority: number = 3) => {
 
   const config = priorityConfig[priority] || priorityConfig[3];
   return (
-    <span style={{ 
-      fontSize: '11px', 
+    <span style={{
+      fontSize: '11px',
       color: config.color,
       fontWeight: '600',
       display: 'inline-flex',
@@ -454,16 +454,16 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
       typeof payload?.startTime === 'number' && Number.isFinite(payload.startTime)
         ? payload.startTime
         : (() => {
-            const serverTimestamp =
-              typeof payload?.serverTimestamp === 'number'
-                ? payload.serverTimestamp
-                : Date.now() - serverTimeOffsetRef.current;
-            const remaining =
-              typeof payload?.remainingMs === 'number' && Number.isFinite(payload.remainingMs)
-                ? payload.remainingMs
-                : durationMs;
-            return serverTimestamp - (durationMs - remaining);
-          })();
+          const serverTimestamp =
+            typeof payload?.serverTimestamp === 'number'
+              ? payload.serverTimestamp
+              : Date.now() - serverTimeOffsetRef.current;
+          const remaining =
+            typeof payload?.remainingMs === 'number' && Number.isFinite(payload.remainingMs)
+              ? payload.remainingMs
+              : durationMs;
+          return serverTimestamp - (durationMs - remaining);
+        })();
     return {
       startTime,
       durationMs,
@@ -473,42 +473,42 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     };
   };
 
-const loadStandupData = useCallback(
-  async (options: { silent?: boolean } = {}) => {
-    const { silent = false } = options;
+  const loadStandupData = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      const { silent = false } = options;
 
-    if (!silent) {
-      setLoading(true);
-      setError('');
-    }
-    
-    try {
-      const [membersData, checkinsData, workItemsData, incompleteItemsData] = await Promise.all([
-        api.getTeamMembers(teamId),
-        api.getTodayTeamCheckins(teamId),
-        api.getTodayTeamWorkItems(teamId),
-        api.getIncompleteTeamWorkItems(teamId)
-      ]);
-
-      setTeamMembers(membersData);
-      setCheckins(checkinsData);
-      setWorkItems(workItemsData);
-      setIncompleteItems(incompleteItemsData);
-    } catch (err: any) {
-      const message = err?.response?.data?.error || err?.message || '載入站立會議資料失敗，請稍後再試';
-      if (silent) {
-        showToast(message, 'warning');
-      } else {
-        setError(message);
-      }
-    } finally {
       if (!silent) {
-        setLoading(false);
+        setLoading(true);
+        setError('');
       }
-    }
-  },
-  [teamId, showToast]
-);
+
+      try {
+        const [membersData, checkinsData, workItemsData, incompleteItemsData] = await Promise.all([
+          api.getTeamMembers(teamId),
+          api.getTodayTeamCheckins(teamId),
+          api.getTodayTeamWorkItems(teamId),
+          api.getIncompleteTeamWorkItems(teamId)
+        ]);
+
+        setTeamMembers(membersData);
+        setCheckins(checkinsData);
+        setWorkItems(workItemsData);
+        setIncompleteItems(incompleteItemsData);
+      } catch (err: any) {
+        const message = err?.response?.data?.error || err?.message || '載入站立會議資料失敗，請稍後再試';
+        if (silent) {
+          showToast(message, 'warning');
+        } else {
+          setError(message);
+        }
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [teamId, showToast]
+  );
 
   useEffect(() => {
     if (teamId) {
@@ -943,7 +943,7 @@ const loadStandupData = useCallback(
   const handleAnalyzeWorkItems = async () => {
     // AI 需同時分析今日與未完成的所有項目
     const allItems = [...workItems, ...incompleteItems];
-    
+
     if (allItems.length === 0) {
       setError('目前沒有可以分析的工作項目');
       return;
@@ -951,23 +951,23 @@ const loadStandupData = useCallback(
 
     setAnalyzing(true);
     setError('');
-    
+
     try {
       const result = await api.analyzeWorkItems(teamId, allItems);
-      
+
       if (result.analysis) {
         setAnalysis(result.analysis);
         setAnalysisData(result.data);
       } else if (result.summary) {
         let analysisText = `## AI 分析建議\n\n### 重點摘要\n${result.summary}\n\n`;
-        
+
         if (result.keyTasks && result.keyTasks.length > 0) {
           analysisText += `### 建議優先處理項目\n`;
           result.keyTasks.forEach((task: string, index: number) => {
             analysisText += `${index + 1}. ${task}\n`;
           });
         }
-        
+
         setAnalysis(analysisText);
         setAnalysisData(result);
       } else {
@@ -1065,10 +1065,10 @@ const loadStandupData = useCallback(
       setLoading(true);
       await api.reassignWorkItem(itemId, newUserId);
       setAssigningItem(null);
-      
+
       // 更新資料以反映新的指派
       await loadStandupData({ silent: true });
-      
+
       alert('工作項目指派成功');
     } catch (err: any) {
       console.error('Reassign work item error:', err);
@@ -1126,7 +1126,7 @@ const loadStandupData = useCallback(
 
       const originalPrimaryId = editingWorkItem.handlers?.primary?.user_id || editingWorkItem.user_id;
       const currentCoHandlerIds = editingWorkItem.handlers?.co_handlers?.map(h => h.user_id) || [];
-      
+
       // 1. 移除被取消勾選的共同負責人（但保留新主要負責人）
       for (const userId of currentCoHandlerIds) {
         if (!selectedCoHandlers.includes(userId) && userId !== selectedPrimaryHandler) {
@@ -1183,15 +1183,15 @@ const loadStandupData = useCallback(
     const newExpanded = new Set(expandedMembers);
     newExpanded.add(primaryUserId);
     setExpandedMembers(newExpanded);
-    
+
     // 展開該工作項目卡片
     const newExpandedItems = new Set(expandedWorkItems);
     newExpandedItems.add(workItemId);
     setExpandedWorkItems(newExpandedItems);
-    
+
     // 確保未完成區塊保持展開
     setShowIncompleteItems(true);
-    
+
     // 捲動並暫時高亮原始卡片
     setTimeout(() => {
       const element = document.getElementById(`work-item-${workItemId}`);
@@ -1786,7 +1786,7 @@ const loadStandupData = useCallback(
               <div className="stat-value">{workItems.length}</div>
             </div>
           </div>
-          
+
           {incompleteItems.length > 0 && (
             <div className="stat-card">
               <div className="stat-icon" style={{ backgroundColor: '#fff3e0' }}>
@@ -1810,7 +1810,7 @@ const loadStandupData = useCallback(
             <div className="markdown-content" style={{ fontSize: '14px', lineHeight: '1.8' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis}</ReactMarkdown>
             </div>
-            
+
             {/* AI 建議的重新分配 */}
             {analysisData?.redistributionSuggestions && analysisData.redistributionSuggestions.length > 0 && (
               <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #d0e8ff' }}>
@@ -1820,34 +1820,34 @@ const loadStandupData = useCallback(
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {analysisData.redistributionSuggestions.map((suggestion: any, index: number) => {
                     // 從建議裡找出來源/目標成員
-                    const fromMember = teamMembers.find(m => 
-                      (m.display_name || m.username).includes(suggestion.from) || 
+                    const fromMember = teamMembers.find(m =>
+                      (m.display_name || m.username).includes(suggestion.from) ||
                       suggestion.from.includes(m.display_name || m.username)
                     );
-                    const toMember = teamMembers.find(m => 
-                      (m.display_name || m.username).includes(suggestion.to) || 
+                    const toMember = teamMembers.find(m =>
+                      (m.display_name || m.username).includes(suggestion.to) ||
                       suggestion.to.includes(m.display_name || m.username)
                     );
-                    
+
                     if (!fromMember || !toMember) return null;
-                    
+
                     // 盡量找到來源成員對應的原始工作卡
-                    const workItem = workItems.find(item => 
-                      item.user_id === fromMember.user_id && 
+                    const workItem = workItems.find(item =>
+                      item.user_id === fromMember.user_id &&
                       (item.ai_title?.includes(suggestion.task) || item.content.includes(suggestion.task))
                     );
-                    
+
                     if (!workItem) return null;
-                    
+
                     // 以建議的優先序為主，若無則沿用原始卡
                     const priority = suggestion.priority || workItem.priority || 3;
-                    
+
                     return (
-                      <div 
+                      <div
                         key={index}
-                        style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
                           justifyContent: 'space-between',
                           padding: '12px',
                           backgroundColor: '#fff',
@@ -1901,7 +1901,7 @@ const loadStandupData = useCallback(
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
             <h3 style={{ margin: 0 }}>今日打卡總覽</h3>
             <div style={{ fontSize: '13px', color: '#666' }}>
-              已打卡 <strong style={{ color: '#4caf50' }}>{checkins.length}</strong> / 
+              已打卡 <strong style={{ color: '#4caf50' }}>{checkins.length}</strong> /
               未打卡 <strong style={{ color: '#999' }}>{teamMembers.length - checkins.length}</strong>
             </div>
           </div>
@@ -1913,7 +1913,7 @@ const loadStandupData = useCallback(
                 const status = getCheckinStatus(member.user_id);
                 const checkin = checkins.find(c => c.user_id === member.user_id);
                 const memberWorkItems = getUserWorkItems(member.user_id);
-                
+
                 // Debug log
                 console.log(`Member: ${member.display_name || member.username}`, {
                   user_id: member.user_id,
@@ -2026,211 +2026,211 @@ const loadStandupData = useCallback(
                             )}
                           </div>
                           {expandedMembers.has(member.user_id) && (
-                          <div style={{ marginTop: '8px' }}>
-                            {sortItems(memberWorkItems).map((item: WorkItem) => {
-                              const isItemExpanded = expandedWorkItems.has(item.id);
-                              
-                              return (
-                                <div 
-                                  key={item.id}
-                                  id={`work-item-${item.id}`}
-                                  style={{ 
-                                    marginBottom: '8px',
-                                    backgroundColor: '#fff',
-                                    borderRadius: '6px',
-                                    borderLeft: '3px solid #7c3aed',
-                                    overflow: 'hidden',
-                                    transition: 'background-color 0.3s ease'
-                                  }}
-                                >
-                                  {/* Header - Always Visible */}
+                            <div style={{ marginTop: '8px' }}>
+                              {sortItems(memberWorkItems).map((item: WorkItem) => {
+                                const isItemExpanded = expandedWorkItems.has(item.id);
+
+                                return (
                                   <div
+                                    key={item.id}
+                                    id={`work-item-${item.id}`}
                                     style={{
-                                      padding: '10px',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      cursor: 'pointer',
-                                      backgroundColor: isItemExpanded ? '#f8f9fa' : '#fff'
-                                    }}
-                                    onClick={(e) => {
-                                      // Don't toggle if clicking on reassign button area
-                                      if ((e.target as HTMLElement).closest('.reassign-area')) {
-                                        return;
-                                      }
-                                      const newExpanded = new Set(expandedWorkItems);
-                                      if (isItemExpanded) {
-                                        newExpanded.delete(item.id);
-                                      } else {
-                                        newExpanded.add(item.id);
-                                      }
-                                      setExpandedWorkItems(newExpanded);
+                                      marginBottom: '8px',
+                                      backgroundColor: '#fff',
+                                      borderRadius: '6px',
+                                      borderLeft: '3px solid #7c3aed',
+                                      overflow: 'hidden',
+                                      transition: 'background-color 0.3s ease'
                                     }}
                                   >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                      {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                      <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                                        {item.ai_title || item.content}
-                                      </div>
-                                      {getPriorityBadge(item.priority)}
-                                      <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
-                                        📅 預計時間：
-                                        {item.estimated_date 
-                                          ? (() => {
-                                              const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                                                ? item.estimated_date.split('T')[0] 
+                                    {/* Header - Always Visible */}
+                                    <div
+                                      style={{
+                                        padding: '10px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        cursor: 'pointer',
+                                        backgroundColor: isItemExpanded ? '#f8f9fa' : '#fff'
+                                      }}
+                                      onClick={(e) => {
+                                        // Don't toggle if clicking on reassign button area
+                                        if ((e.target as HTMLElement).closest('.reassign-area')) {
+                                          return;
+                                        }
+                                        const newExpanded = new Set(expandedWorkItems);
+                                        if (isItemExpanded) {
+                                          newExpanded.delete(item.id);
+                                        } else {
+                                          newExpanded.add(item.id);
+                                        }
+                                        setExpandedWorkItems(newExpanded);
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                        {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                        <div style={{ fontWeight: '600', fontSize: '14px' }}>
+                                          {item.ai_title || item.content}
+                                        </div>
+                                        {getPriorityBadge(item.priority)}
+                                        <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                          📅 預計時間：
+                                          {item.estimated_date
+                                            ? (() => {
+                                              const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                                                ? item.estimated_date.split('T')[0]
                                                 : item.estimated_date;
                                               const [year, month, day] = dateStr.split('-');
                                               return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
                                             })()
-                                          : '未設定'}
-                                      </span>
-                                      {(() => {
-                                        const statusBadge = getStatusBadge(item.progress_status);
-                                        return (
-                                          <span
-                                            style={{
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              gap: '4px',
-                                              padding: '2px 8px',
-                                              borderRadius: '12px',
-                                              fontSize: '11px',
-                                              fontWeight: '500',
-                                              color: statusBadge.color,
-                                              backgroundColor: statusBadge.bgColor
-                                            }}
-                                          >
-                                            {statusBadge.icon}
-                                            {statusBadge.text}
-                                          </span>
-                                        );
-                                      })()}
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                      <div style={{ fontSize: '11px', color: '#999' }}>
-                                        {formatTime(item.created_at).split(' ')[1]}
-                                      </div>
-                                      <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
-                                        <button
-                                          className="btn btn-secondary"
-                                          style={{ fontSize: '11px', padding: '4px 8px' }}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openPriorityModal(item);
-                                          }}
-                                          title="調整優先順序"
-                                        >
-                                          調整優先
-                                        </button>
-                                        <button
-                                          className="btn btn-secondary"
-                                          style={{ fontSize: '11px', padding: '4px 8px' }}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openHandlerModal(item);
-                                          }}
-                                          title="管理共同負責人"
-                                        >
-                                          <UserPlus size={12} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  
-                                  {/* Expanded Content */}
-                                  {isItemExpanded && (
-                                    <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #e5e7eb' }}>
-                                      {/* 預計處理時間 */}
-                                      <div style={{ marginTop: '8px', marginBottom: '8px' }}>
-                                        <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>
-                                          <strong>預計處理時間：</strong>
-                                        </div>
-                                        <input
-                                          type="date"
-                                          className="input"
-                                          value={item.estimated_date ? (() => {
-                                            const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
-                                            return dateStr;
-                                          })() : ''}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            e.currentTarget.showPicker && e.currentTarget.showPicker();
-                                          }}
-                                          onChange={async (e) => {
-                                            e.stopPropagation();
-                                            try {
-                                              // 將日期以 YYYY-MM-DD 格式回傳給 API
-                                              const dateValue = e.target.value ? e.target.value : null;
-                                              const token = localStorage.getItem('token');
-                                              const response = await fetch(`/api/workitems/${item.id}`, {
-                                                method: 'PATCH',
-                                                headers: { 
-                                                  'Content-Type': 'application/json',
-                                                  'Authorization': token ? `Bearer ${token}` : ''
-                                                },
-                                                credentials: 'include',
-                                                body: JSON.stringify({ estimated_date: dateValue })
-                                              });
-                                              if (!response.ok) {
-                                                const error = await response.json();
-                                                console.error('更新預計時間失敗:', error);
-                                                alert(error.error || '更新預計時間失敗，請稍後再試');
-                                                return;
-                                              }
-                                              await loadStandupData({ silent: true });
-                                            } catch (error) {
-                                              console.error('更新預計時間失敗:', error);
-                                              alert('更新預計時間失敗，請稍後再試');
-                                            }
-                                          }}
-                                          style={{ maxWidth: '200px' }}
-                                        />
-                                      </div>
-                                      {/* 負責人資訊 */}
-                                      <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
-                                        <div style={{ marginBottom: '4px' }}>
-                                          <strong style={{ color: '#667eea' }}>主要負責人</strong>
-                                          {item.handlers?.primary ? (
-                                            <span style={{ marginLeft: '4px' }}>
-                                              {item.handlers.primary.display_name || item.handlers.primary.username}
+                                            : '未設定'}
+                                        </span>
+                                        {(() => {
+                                          const statusBadge = getStatusBadge(item.progress_status);
+                                          return (
+                                            <span
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                padding: '2px 8px',
+                                                borderRadius: '12px',
+                                                fontSize: '11px',
+                                                fontWeight: '500',
+                                                color: statusBadge.color,
+                                                backgroundColor: statusBadge.bgColor
+                                              }}
+                                            >
+                                              {statusBadge.icon}
+                                              {statusBadge.text}
                                             </span>
-                                          ) : (
-                                            <span style={{ marginLeft: '4px', color: '#999' }}>尚未指派</span>
+                                          );
+                                        })()}
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ fontSize: '11px', color: '#999' }}>
+                                          {formatTime(item.created_at).split(' ')[1]}
+                                        </div>
+                                        <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openPriorityModal(item);
+                                            }}
+                                            title="調整優先順序"
+                                          >
+                                            調整優先
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openHandlerModal(item);
+                                            }}
+                                            title="管理共同負責人"
+                                          >
+                                            <UserPlus size={12} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Expanded Content */}
+                                    {isItemExpanded && (
+                                      <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #e5e7eb' }}>
+                                        {/* 預計處理時間 */}
+                                        <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                                          <div style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>
+                                            <strong>預計處理時間：</strong>
+                                          </div>
+                                          <input
+                                            type="date"
+                                            className="input"
+                                            value={item.estimated_date ? (() => {
+                                              const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
+                                              return dateStr;
+                                            })() : ''}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              e.currentTarget.showPicker && e.currentTarget.showPicker();
+                                            }}
+                                            onChange={async (e) => {
+                                              e.stopPropagation();
+                                              try {
+                                                // 將日期以 YYYY-MM-DD 格式回傳給 API
+                                                const dateValue = e.target.value ? e.target.value : null;
+                                                const token = localStorage.getItem('token');
+                                                const response = await fetch(`/api/workitems/${item.id}`, {
+                                                  method: 'PATCH',
+                                                  headers: {
+                                                    'Content-Type': 'application/json',
+                                                    'Authorization': token ? `Bearer ${token}` : ''
+                                                  },
+                                                  credentials: 'include',
+                                                  body: JSON.stringify({ estimated_date: dateValue })
+                                                });
+                                                if (!response.ok) {
+                                                  const error = await response.json();
+                                                  console.error('更新預計時間失敗:', error);
+                                                  alert(error.error || '更新預計時間失敗，請稍後再試');
+                                                  return;
+                                                }
+                                                await loadStandupData({ silent: true });
+                                              } catch (error) {
+                                                console.error('更新預計時間失敗:', error);
+                                                alert('更新預計時間失敗，請稍後再試');
+                                              }
+                                            }}
+                                            style={{ maxWidth: '200px' }}
+                                          />
+                                        </div>
+                                        {/* 負責人資訊 */}
+                                        <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
+                                          <div style={{ marginBottom: '4px' }}>
+                                            <strong style={{ color: '#667eea' }}>主要負責人</strong>
+                                            {item.handlers?.primary ? (
+                                              <span style={{ marginLeft: '4px' }}>
+                                                {item.handlers.primary.display_name || item.handlers.primary.username}
+                                              </span>
+                                            ) : (
+                                              <span style={{ marginLeft: '4px', color: '#999' }}>尚未指派</span>
+                                            )}
+                                          </div>
+                                          {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
+                                            <div>
+                                              <strong style={{ color: '#667eea' }}>共同負責人</strong>
+                                              <span style={{ marginLeft: '4px' }}>
+                                                {item.handlers.co_handlers.map(h => h.display_name || h.username).join(', ')}
+                                              </span>
+                                            </div>
                                           )}
                                         </div>
-                                        {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
-                                          <div>
-                                            <strong style={{ color: '#667eea' }}>共同負責人</strong>
-                                            <span style={{ marginLeft: '4px' }}>
-                                              {item.handlers.co_handlers.map(h => h.display_name || h.username).join(', ')}
-                                            </span>
+
+                                        {item.ai_summary && (
+                                          <div style={{
+                                            padding: '8px',
+                                            backgroundColor: '#f8f9fa',
+                                            borderRadius: '4px',
+                                            marginTop: '8px'
+                                          }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                              <Sparkles size={12} style={{ color: '#7c3aed', marginRight: '4px' }} />
+                                              <span style={{ fontSize: '11px', fontWeight: '600', color: '#7c3aed' }}>AI 建議</span>
+                                            </div>
+                                            <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
+                                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                            </div>
                                           </div>
                                         )}
                                       </div>
-                                      
-                                      {item.ai_summary && (
-                                        <div style={{
-                                          padding: '8px',
-                                          backgroundColor: '#f8f9fa',
-                                          borderRadius: '4px',
-                                          marginTop: '8px'
-                                        }}>
-                                          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                                            <Sparkles size={12} style={{ color: '#7c3aed', marginRight: '4px' }} />
-                                            <span style={{ fontSize: '11px', fontWeight: '600', color: '#7c3aed' }}>AI 建議</span>
-                                          </div>
-                                          <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5' }}>
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           )}
                         </>
                       ) : (
@@ -2238,12 +2238,12 @@ const loadStandupData = useCallback(
                           尚未建立今日工作項目
                         </div>
                       )}
-                      
+
                       {/* Member incomplete items */}
                       {(() => {
                         const memberIncompleteItems = getUserIncompleteItems(member.user_id);
                         if (memberIncompleteItems.length === 0) return null;
-                        
+
                         return (
                           <>
                             <div
@@ -2264,226 +2264,417 @@ const loadStandupData = useCallback(
                                 setShowIncompleteItems(!showIncompleteItems);
                               }}
                             >
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ fontSize: '13px', fontWeight: 500, color: '#92400e' }}>
-                                      未完成工作 ({memberIncompleteItems.length})
-                                    </div>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority');
-                                      }}
-                                      style={{
-                                        padding: '2px 8px',
-                                        fontSize: '11px',
-                                        borderRadius: '3px',
-                                        border: '1px solid #f59e0b',
-                                        backgroundColor: '#f59e0b',
-                                        color: '#fff',
-                                        cursor: 'pointer'
-                                      }}
-                                      title="切換排序方式"
-                                    >
-                                      {sortBy === 'priority' ? '優先順序' : '預計時間'}
-                                    </button>
-                                  </div>
-                                  {showIncompleteItems ? (
-                                    <ChevronUp size={16} style={{ color: '#92400e' }} />
-                                  ) : (
-                                    <ChevronDown size={16} style={{ color: '#92400e' }} />
-                                  )}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ fontSize: '13px', fontWeight: 500, color: '#92400e' }}>
+                                  未完成工作 ({memberIncompleteItems.length})
                                 </div>
-                                {showIncompleteItems && (
-                                  <div style={{ marginTop: '8px' }}>
-                                    {sortItems(memberIncompleteItems).map((item: WorkItem) => {
-                                      const isItemExpanded = expandedWorkItems.has(item.id);
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority');
+                                  }}
+                                  style={{
+                                    padding: '2px 8px',
+                                    fontSize: '11px',
+                                    borderRadius: '3px',
+                                    border: '1px solid #f59e0b',
+                                    backgroundColor: '#f59e0b',
+                                    color: '#fff',
+                                    cursor: 'pointer'
+                                  }}
+                                  title="切換排序方式"
+                                >
+                                  {sortBy === 'priority' ? '優先順序' : '預計時間'}
+                                </button>
+                              </div>
+                              {showIncompleteItems ? (
+                                <ChevronUp size={16} style={{ color: '#92400e' }} />
+                              ) : (
+                                <ChevronDown size={16} style={{ color: '#92400e' }} />
+                              )}
+                            </div>
+                            {showIncompleteItems && (
+                              <div style={{ marginTop: '8px' }}>
+                                {sortItems(memberIncompleteItems).map((item: WorkItem) => {
+                                  const isItemExpanded = expandedWorkItems.has(item.id);
+                                  return (
+                                    <div
+                                      key={item.id}
+                                      id={`work-item-${item.id}`}
+                                      style={{
+                                        marginBottom: '8px',
+                                        backgroundColor: '#fefce8',
+                                        borderRadius: '6px',
+                                        borderLeft: '3px solid #f59e0b',
+                                        overflow: 'hidden',
+                                        transition: 'background-color 0.3s ease'
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          padding: '10px',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          cursor: 'pointer'
+                                        }}
+                                        onClick={(e) => {
+                                          // Don't toggle if clicking on reassign button area
+                                          if ((e.target as HTMLElement).closest('.reassign-area')) {
+                                            return;
+                                          }
+                                          const newExpanded = new Set(expandedWorkItems);
+                                          if (isItemExpanded) {
+                                            newExpanded.delete(item.id);
+                                          } else {
+                                            newExpanded.add(item.id);
+                                          }
+                                          setExpandedWorkItems(newExpanded);
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                          {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                          <div style={{ fontWeight: '600', fontSize: '14px' }}>
+                                            {item.ai_title || item.content}
+                                          </div>
+                                          {getPriorityBadge(item.priority)}
+                                          <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                            📅 預計時間：
+                                            {item.estimated_date
+                                              ? (() => {
+                                                const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                                                  ? item.estimated_date.split('T')[0]
+                                                  : item.estimated_date;
+                                                const [year, month, day] = dateStr.split('-');
+                                                return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
+                                              })()
+                                              : '未設定'}
+                                          </span>
+                                          {(() => {
+                                            const statusBadge = getStatusBadge(item.progress_status);
+                                            return (
+                                              <span
+                                                style={{
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px',
+                                                  padding: '2px 8px',
+                                                  borderRadius: '12px',
+                                                  fontSize: '11px',
+                                                  fontWeight: '500',
+                                                  color: statusBadge.color,
+                                                  backgroundColor: statusBadge.bgColor
+                                                }}
+                                              >
+                                                {statusBadge.icon}
+                                                {statusBadge.text}
+                                              </span>
+                                            );
+                                          })()}
+                                        </div>
+                                        <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openPriorityModal(item);
+                                            }}
+                                            title="調整優先順序"
+                                          >
+                                            調整優先
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openHandlerModal(item);
+                                            }}
+                                            title="管理共同負責人"
+                                          >
+                                            <UserPlus size={12} />
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {isItemExpanded && (
+                                        <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #fef3c7' }}>
+                                          {/* 預計處理時間 */}
+                                          <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                                            <div style={{ fontSize: '13px', color: '#92400e', marginBottom: '6px' }}>
+                                              <strong>預計處理時間：</strong>
+                                            </div>
+                                            <input
+                                              type="date"
+                                              className="input"
+                                              value={item.estimated_date ? (() => {
+                                                const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
+                                                return dateStr;
+                                              })() : ''}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                e.currentTarget.showPicker && e.currentTarget.showPicker();
+                                              }}
+                                              onChange={async (e) => {
+                                                e.stopPropagation();
+                                                try {
+                                                  // 將日期以 YYYY-MM-DD 格式回傳給 API
+                                                  const dateValue = e.target.value ? e.target.value : null;
+                                                  const token = localStorage.getItem('token');
+                                                  const response = await fetch(`/api/workitems/${item.id}`, {
+                                                    method: 'PATCH',
+                                                    headers: {
+                                                      'Content-Type': 'application/json',
+                                                      'Authorization': token ? `Bearer ${token}` : ''
+                                                    },
+                                                    credentials: 'include',
+                                                    body: JSON.stringify({ estimated_date: dateValue })
+                                                  });
+                                                  if (!response.ok) {
+                                                    const error = await response.json();
+                                                    console.error('更新預計時間失敗:', error);
+                                                    alert(error.error || '更新預計時間失敗，請稍後再試');
+                                                    return;
+                                                  }
+                                                  await loadStandupData({ silent: true });
+                                                } catch (error) {
+                                                  console.error('更新預計時間失敗:', error);
+                                                  alert('更新預計時間失敗，請稍後再試');
+                                                }
+                                              }}
+                                              style={{ maxWidth: '200px' }}
+                                            />
+                                          </div>
+                                          {/* 負責人資訊 */}
+                                          <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
+                                            <div style={{ marginBottom: '4px' }}>
+                                              <strong style={{ color: '#f59e0b' }}>主要負責人</strong>
+                                              {item.handlers?.primary ? (
+                                                <span style={{ marginLeft: '4px' }}>
+                                                  {item.handlers.primary.display_name || item.handlers.primary.username}
+                                                </span>
+                                              ) : (
+                                                <span style={{ marginLeft: '4px', color: '#999' }}>尚未指派</span>
+                                              )}
+                                            </div>
+                                            {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
+                                              <div>
+                                                <strong style={{ color: '#f59e0b' }}>共同負責人</strong>
+                                                <span style={{ marginLeft: '4px' }}>
+                                                  {item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ')}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          {item.ai_summary && (
+                                            <div style={{
+                                              padding: '8px',
+                                              backgroundColor: '#fffbeb',
+                                              borderRadius: '4px',
+                                              marginTop: '8px'
+                                            }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                                                <Sparkles size={12} style={{ color: '#f59e0b', marginRight: '4px' }} />
+                                                <span style={{ fontSize: '11px', fontWeight: '600', color: '#f59e0b' }}>AI 建議</span>
+                                              </div>
+                                              <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5', color: '#92400e' }}>
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+
+                      {/* Co-handler items */}
+                      {(() => {
+                        const coHandlerTodayItems = getUserCoHandlerWorkItems(member.user_id);
+                        const coHandlerIncompleteItems = getUserCoHandlerIncompleteItems(member.user_id);
+                        const totalCoHandlerItems = coHandlerTodayItems.length + coHandlerIncompleteItems.length;
+
+                        if (totalCoHandlerItems === 0) return null;
+
+                        // 使用負的虛擬 ID，避免與實際 work item id 衝突
+                        const coHandlerExpandId = -(member.user_id * 1000);
+
+                        return (
+                          <>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                marginTop: '12px',
+                                marginBottom: '8px',
+                                padding: '8px',
+                                backgroundColor: '#f0f9ff',
+                                borderRadius: '6px',
+                                border: '1px solid #bfdbfe',
+                                width: '100%',
+                                textAlign: 'left',
+                                outline: 'none'
+                              }}
+                              onClick={(e) => {
+                                stopEvent(e);
+                                const newExpanded = new Set(expandedWorkItems);
+                                if (newExpanded.has(coHandlerExpandId)) {
+                                  newExpanded.delete(coHandlerExpandId);
+                                } else {
+                                  newExpanded.add(coHandlerExpandId);
+                                }
+                                setExpandedWorkItems(newExpanded);
+                              }}
+                              onMouseDown={(e) => {
+                                stopEvent(e);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  stopEvent(e);
+                                  const newExpanded = new Set(expandedWorkItems);
+                                  if (newExpanded.has(coHandlerExpandId)) {
+                                    newExpanded.delete(coHandlerExpandId);
+                                  } else {
+                                    newExpanded.add(coHandlerExpandId);
+                                  }
+                                  setExpandedWorkItems(newExpanded);
+                                }
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {expandedWorkItems.has(coHandlerExpandId) ?
+                                  <ChevronUp size={16} style={{ color: '#0066cc' }} /> :
+                                  <ChevronDown size={16} style={{ color: '#0066cc' }} />
+                                }
+                                <span style={{ fontSize: '13px', fontWeight: '600', color: '#0066cc' }}>
+                                  共同負責項目
+                                </span>
+                                <span style={{ fontSize: '12px', color: '#0066cc', backgroundColor: '#dbeafe', padding: '2px 6px', borderRadius: '10px' }}>
+                                  {totalCoHandlerItems}
+                                </span>
+                              </div>
+                            </div>
+
+                            {expandedWorkItems.has(coHandlerExpandId) && (
+                              <div style={{ paddingLeft: '10px', marginBottom: '10px' }}>
+                                {/* 今日協辦任務 */}
+                                {coHandlerTodayItems.length > 0 && (
+                                  <div style={{ marginBottom: '8px' }}>
+                                    <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '600' }}>
+                                      今日協辦任務 ({coHandlerTodayItems.length})
+                                    </div>
+                                    {coHandlerTodayItems.map((item) => {
+                                      // 給協辦卡片獨立的展開 key，避免與主卡重複
+                                      const coHandlerExpandKey = `co-handler-${item.id}`;
+                                      const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
+                                      const primaryUser = item.handlers?.primary;
+                                      const otherCoHandlers = item.handlers?.co_handlers?.filter(
+                                        (h: any) => h.user_id !== member.user_id
+                                      ) || [];
+
                                       return (
-                                        <div 
+                                        <div
                                           key={item.id}
-                                          id={`work-item-${item.id}`}
-                                          style={{ 
-                                            marginBottom: '8px',
-                                            backgroundColor: '#fefce8',
-                                            borderRadius: '6px',
-                                            borderLeft: '3px solid #f59e0b',
-                                            overflow: 'hidden',
-                                            transition: 'background-color 0.3s ease'
+                                          style={{
+                                            marginBottom: '6px',
+                                            padding: '8px',
+                                            backgroundColor: '#ffffff',
+                                            borderRadius: '4px',
+                                            border: '1px solid #bfdbfe'
                                           }}
                                         >
                                           <div
                                             style={{
-                                              padding: '10px',
                                               display: 'flex',
-                                              alignItems: 'center',
                                               justifyContent: 'space-between',
+                                              alignItems: 'center',
                                               cursor: 'pointer'
                                             }}
                                             onClick={(e) => {
-                                              // Don't toggle if clicking on reassign button area
-                                              if ((e.target as HTMLElement).closest('.reassign-area')) {
+                                              if ((e.target as HTMLElement).closest('.jump-to-original')) {
                                                 return;
                                               }
+                                              stopEvent(e);
                                               const newExpanded = new Set(expandedWorkItems);
                                               if (isItemExpanded) {
-                                                newExpanded.delete(item.id);
+                                                newExpanded.delete(coHandlerExpandKey);
                                               } else {
-                                                newExpanded.add(item.id);
+                                                newExpanded.add(coHandlerExpandKey);
                                               }
+                                              // 更新共同負責卡片的展開狀態
                                               setExpandedWorkItems(newExpanded);
                                             }}
                                           >
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                              {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                              <div style={{ fontWeight: '600', fontSize: '14px' }}>
+                                              {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                              <div style={{ fontSize: '13px' }}>
                                                 {item.ai_title || item.content}
                                               </div>
-                                              {getPriorityBadge(item.priority)}
-                                              <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
-                                                📅 預計時間：
-                                                {item.estimated_date 
-                                                  ? (() => {
-                                                      const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T') 
-                                                        ? item.estimated_date.split('T')[0] 
-                                                        : item.estimated_date;
-                                                      const [year, month, day] = dateStr.split('-');
-                                                      return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
-                                                    })()
-                                                  : '未設定'}
-                                              </span>
-                                              {(() => {
-                                                const statusBadge = getStatusBadge(item.progress_status);
-                                                return (
-                                                  <span
-                                                    style={{
-                                                      display: 'inline-flex',
-                                                      alignItems: 'center',
-                                                      gap: '4px',
-                                                      padding: '2px 8px',
-                                                      borderRadius: '12px',
-                                                      fontSize: '11px',
-                                                      fontWeight: '500',
-                                                      color: statusBadge.color,
-                                                      backgroundColor: statusBadge.bgColor
-                                                    }}
-                                                  >
-                                                    {statusBadge.icon}
-                                                    {statusBadge.text}
-                                                  </span>
-                                                );
-                                              })()}
+                                              {renderItemMetaBadges(item)}
                                             </div>
-                                            <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
-                                              <button
-                                                className="btn btn-secondary"
-                                                style={{ fontSize: '11px', padding: '4px 8px' }}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  openPriorityModal(item);
-                                                }}
-                                                title="調整優先順序"
-                                              >
-                                                調整優先
-                                              </button>
-                                              <button
-                                                className="btn btn-secondary"
-                                                style={{ fontSize: '11px', padding: '4px 8px' }}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  openHandlerModal(item);
-                                                }}
-                                                title="管理共同負責人"
-                                              >
-                                                <UserPlus size={12} />
-                                              </button>
-                                            </div>
+                                            <button
+                                              className="jump-to-original"
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (primaryUser) {
+                                                  scrollToOriginalItem(item.id, primaryUser.user_id);
+                                                }
+                                              }}
+                                              style={{
+                                                background: 'none',
+                                                border: '1px solid #0066cc',
+                                                color: '#0066cc',
+                                                cursor: 'pointer',
+                                                padding: '2px 6px',
+                                                borderRadius: '4px',
+                                                fontSize: '10px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '2px'
+                                              }}
+                                              title="檢視原始項目"
+                                            >
+                                              前往原卡片
+                                            </button>
                                           </div>
-                                          
+
                                           {isItemExpanded && (
-                                            <div style={{ padding: '0 10px 10px 10px', borderTop: '1px solid #fef3c7' }}>
-                                              {/* 預計處理時間 */}
-                                              <div style={{ marginTop: '8px', marginBottom: '8px' }}>
-                                                <div style={{ fontSize: '13px', color: '#92400e', marginBottom: '6px' }}>
-                                                  <strong>預計處理時間：</strong>
+                                            <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #e5e7eb', marginTop: '6px' }}>
+                                              {/* 負責人摘要 */}
+                                              <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                                                <div style={{ marginBottom: '4px', color: '#0066cc' }}>
+                                                  <strong>主要負責人</strong>
+                                                  <span style={{ marginLeft: '4px' }}>
+                                                    {primaryUser?.display_name || primaryUser?.username || '尚未指派'}
+                                                  </span>
                                                 </div>
-                                                <input
-                                                  type="date"
-                                                  className="input"
-                                                  value={item.estimated_date ? (() => {
-                                                    const dateStr = item.estimated_date.includes('T') ? item.estimated_date.split('T')[0] : item.estimated_date;
-                                                    return dateStr;
-                                                  })() : ''}
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    e.currentTarget.showPicker && e.currentTarget.showPicker();
-                                                  }}
-                                                  onChange={async (e) => {
-                                                    e.stopPropagation();
-                                                try {
-                                                      // 將日期以 YYYY-MM-DD 格式回傳給 API
-                                                      const dateValue = e.target.value ? e.target.value : null;
-                                                      const token = localStorage.getItem('token');
-                                                      const response = await fetch(`/api/workitems/${item.id}`, {
-                                                        method: 'PATCH',
-                                                        headers: { 
-                                                          'Content-Type': 'application/json',
-                                                          'Authorization': token ? `Bearer ${token}` : ''
-                                                        },
-                                                        credentials: 'include',
-                                                        body: JSON.stringify({ estimated_date: dateValue })
-                                                      });
-                                              if (!response.ok) {
-                                                const error = await response.json();
-                                                console.error('更新預計時間失敗:', error);
-                                                alert(error.error || '更新預計時間失敗，請稍後再試');
-                                                return;
-                                              }
-                                              await loadStandupData({ silent: true });
-                                            } catch (error) {
-                                              console.error('更新預計時間失敗:', error);
-                                              alert('更新預計時間失敗，請稍後再試');
-                                            }
-                                          }}
-                                                  style={{ maxWidth: '200px' }}
-                                                />
-                                              </div>
-                                              {/* 負責人資訊 */}
-                                              <div style={{ marginTop: '8px', marginBottom: '8px', fontSize: '13px' }}>
-                                                <div style={{ marginBottom: '4px' }}>
-                                                  <strong style={{ color: '#f59e0b' }}>主要負責人</strong>
-                                                  {item.handlers?.primary ? (
+                                                {otherCoHandlers.length > 0 && (
+                                                  <div style={{ color: '#0066cc' }}>
+                                                    <strong>其他共同負責人</strong>
                                                     <span style={{ marginLeft: '4px' }}>
-                                                      {item.handlers.primary.display_name || item.handlers.primary.username}
-                                                    </span>
-                                                  ) : (
-                                                    <span style={{ marginLeft: '4px', color: '#999' }}>尚未指派</span>
-                                                  )}
-                                                </div>
-                                                {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
-                                                  <div>
-                                                    <strong style={{ color: '#f59e0b' }}>共同負責人</strong>
-                                                    <span style={{ marginLeft: '4px' }}>
-                                                      {item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ')}
+                                                      {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
                                                     </span>
                                                   </div>
                                                 )}
                                               </div>
-                                              
-                                              {item.ai_summary && (
-                                                <div style={{
-                                                  padding: '8px',
-                                                  backgroundColor: '#fffbeb',
-                                                  borderRadius: '4px',
-                                                  marginTop: '8px'
-                                                }}>
-                                                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                                                    <Sparkles size={12} style={{ color: '#f59e0b', marginRight: '4px' }} />
-                                                    <span style={{ fontSize: '11px', fontWeight: '600', color: '#f59e0b' }}>AI 建議</span>
-                                                  </div>
-                                                  <div className="markdown-content" style={{ fontSize: '13px', lineHeight: '1.5', color: '#92400e' }}>
-                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
-                                                  </div>
-                                                </div>
-                                              )}
+                                              {/* 項目內容 */}
+                                              <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#555' }}>
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                  {item.ai_summary || item.content}
+                                                </ReactMarkdown>
+                                              </div>
                                             </div>
                                           )}
                                         </div>
@@ -2491,318 +2682,127 @@ const loadStandupData = useCallback(
                                     })}
                                   </div>
                                 )}
-                              </>
-                            );
-                          })()}
-                          
-                          {/* Co-handler items */}
-                          {(() => {
-                            const coHandlerTodayItems = getUserCoHandlerWorkItems(member.user_id);
-                            const coHandlerIncompleteItems = getUserCoHandlerIncompleteItems(member.user_id);
-                            const totalCoHandlerItems = coHandlerTodayItems.length + coHandlerIncompleteItems.length;
-                            
-                            if (totalCoHandlerItems === 0) return null;
-                            
-                            // 使用負的虛擬 ID，避免與實際 work item id 衝突
-                            const coHandlerExpandId = -(member.user_id * 1000);
-                            
-                            return (
-                              <>
-                                <div
-                                  role="button"
-                                  tabIndex={0}
-                                  style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    cursor: 'pointer',
-                                    marginTop: '12px',
-                                    marginBottom: '8px',
-                                    padding: '8px',
-                                    backgroundColor: '#f0f9ff',
-                                    borderRadius: '6px',
-                                    border: '1px solid #bfdbfe',
-                                    width: '100%',
-                                    textAlign: 'left',
-                                    outline: 'none'
-                                  }}
-                                  onClick={(e) => {
-                                    stopEvent(e);
-                                    const newExpanded = new Set(expandedWorkItems);
-                                    if (newExpanded.has(coHandlerExpandId)) {
-                                      newExpanded.delete(coHandlerExpandId);
-                                    } else {
-                                      newExpanded.add(coHandlerExpandId);
-                                    }
-                                    setExpandedWorkItems(newExpanded);
-                                  }}
-                                  onMouseDown={(e) => {
-                                    stopEvent(e);
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      stopEvent(e);
-                                      const newExpanded = new Set(expandedWorkItems);
-                                      if (newExpanded.has(coHandlerExpandId)) {
-                                        newExpanded.delete(coHandlerExpandId);
-                                      } else {
-                                        newExpanded.add(coHandlerExpandId);
-                                      }
-                                      setExpandedWorkItems(newExpanded);
-                                    }
-                                  }}
-                                >
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    {expandedWorkItems.has(coHandlerExpandId) ? 
-                                      <ChevronUp size={16} style={{ color: '#0066cc' }} /> : 
-                                      <ChevronDown size={16} style={{ color: '#0066cc' }} />
-                                    }
-                                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#0066cc' }}>
-                                      共同負責項目
-                                    </span>
-                                    <span style={{ fontSize: '12px', color: '#0066cc', backgroundColor: '#dbeafe', padding: '2px 6px', borderRadius: '10px' }}>
-                                      {totalCoHandlerItems}
-                                    </span>
-                                  </div>
-                                </div>
-                                
-                                {expandedWorkItems.has(coHandlerExpandId) && (
-                                  <div style={{ paddingLeft: '10px', marginBottom: '10px' }}>
-                                    {/* 今日協辦任務 */}
-                                    {coHandlerTodayItems.length > 0 && (
-                                      <div style={{ marginBottom: '8px' }}>
-                                        <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '600' }}>
-                                          今日協辦任務 ({coHandlerTodayItems.length})
-                                        </div>
-                                        {coHandlerTodayItems.map((item) => {
-                                        // 給協辦卡片獨立的展開 key，避免與主卡重複
-                                        const coHandlerExpandKey = `co-handler-${item.id}`;
-                                        const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
-                                        const primaryUser = item.handlers?.primary;
-                                        const otherCoHandlers = item.handlers?.co_handlers?.filter(
-                                          (h: any) => h.user_id !== member.user_id
-                                        ) || [];
 
-                                        return (
+                                {/* 未完成的協辦項目 */}
+                                {coHandlerIncompleteItems.length > 0 && (
+                                  <div>
+                                    <div style={{ fontSize: '12px', color: '#f59e0b', marginBottom: '6px', fontWeight: '600' }}>
+                                      未完成協辦任務 ({coHandlerIncompleteItems.length})
+                                    </div>
+                                    {coHandlerIncompleteItems.map((item: WorkItem) => {
+                                      // 為共同負責的卡片建立獨立的展開 key，避免與主卡衝突
+                                      const coHandlerExpandKey = `co-handler-${item.id}`;
+                                      const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
+                                      const primaryUser = item.handlers?.primary;
+                                      const otherCoHandlers = item.handlers?.co_handlers?.filter(
+                                        (h: any) => h.user_id !== member.user_id
+                                      ) || [];
+
+                                      return (
+                                        <div
+                                          key={item.id}
+                                          style={{
+                                            marginBottom: '6px',
+                                            padding: '8px',
+                                            backgroundColor: '#ffffff',
+                                            borderRadius: '4px',
+                                            border: '1px solid #fed7aa'
+                                          }}
+                                        >
                                           <div
-                                            key={item.id}
                                             style={{
-                                                marginBottom: '6px',
-                                                padding: '8px',
-                                                backgroundColor: '#ffffff',
-                                                borderRadius: '4px',
-                                                border: '1px solid #bfdbfe'
-                                              }}
-                                            >
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                  alignItems: 'center',
-                                                  cursor: 'pointer'
-                                                }}
-                                                onClick={(e) => {
-                                                  if ((e.target as HTMLElement).closest('.jump-to-original')) {
-                                                    return;
-                                                  }
-                                                  stopEvent(e);
-                                                  const newExpanded = new Set(expandedWorkItems);
-                                                  if (isItemExpanded) {
-                                                    newExpanded.delete(coHandlerExpandKey);
-                                                  } else {
-                                                    newExpanded.add(coHandlerExpandKey);
-                                                  }
-                                                  // 更新共同負責卡片的展開狀態
-                                                  setExpandedWorkItems(newExpanded);
-                                                }}
-                                              >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                                  {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                                  <div style={{ fontSize: '13px' }}>
-                                                    {item.ai_title || item.content}
-                                                  </div>
-                                                  {renderItemMetaBadges(item)}
-                                                </div>
-                                                <button
-                                                  className="jump-to-original"
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (primaryUser) {
-                                                      scrollToOriginalItem(item.id, primaryUser.user_id);
-                                                    }
-                                                  }}
-                                                  style={{
-                                                    background: 'none',
-                                                    border: '1px solid #0066cc',
-                                                    color: '#0066cc',
-                                                    cursor: 'pointer',
-                                                    padding: '2px 6px',
-                                                    borderRadius: '4px',
-                                                    fontSize: '10px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '2px'
-                                                  }}
-                                                  title="檢視原始項目"
-                                                >
-                                                  前往原卡片
-                                                </button>
+                                              display: 'flex',
+                                              justifyContent: 'space-between',
+                                              alignItems: 'center',
+                                              cursor: 'pointer'
+                                            }}
+                                            onClick={(e) => {
+                                              if ((e.target as HTMLElement).closest('.jump-to-original')) {
+                                                return;
+                                              }
+                                              stopEvent(e);
+                                              const newExpanded = new Set(expandedWorkItems);
+                                              if (isItemExpanded) {
+                                                newExpanded.delete(coHandlerExpandKey);
+                                              } else {
+                                                newExpanded.add(coHandlerExpandKey);
+                                              }
+                                              // 更新共同負責卡片的展開狀態
+                                              setExpandedWorkItems(newExpanded);
+                                            }}
+                                          >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                              {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                              <div style={{ fontSize: '13px' }}>
+                                                {item.ai_title || item.content}
                                               </div>
-                                              
-                                              {isItemExpanded && (
-                                                <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #e5e7eb', marginTop: '6px' }}>
-                                                  {/* 負責人摘要 */}
-                                                  <div style={{ marginBottom: '8px', fontSize: '12px' }}>
-                                                    <div style={{ marginBottom: '4px', color: '#0066cc' }}>
-                                                      <strong>主要負責人</strong>
-                                                      <span style={{ marginLeft: '4px' }}>
-                                                        {primaryUser?.display_name || primaryUser?.username || '尚未指派'}
-                                                      </span>
-                                                    </div>
-                                                    {otherCoHandlers.length > 0 && (
-                                                      <div style={{ color: '#0066cc' }}>
-                                                        <strong>其他共同負責人</strong>
-                                                        <span style={{ marginLeft: '4px' }}>
-                                                          {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
-                                                        </span>
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                  {/* 項目內容 */}
-                                                  <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#555' }}>
-                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                      {item.ai_summary || item.content}
-                                                    </ReactMarkdown>
-                                                  </div>
-                                                </div>
-                                              )}
+                                              {renderItemMetaBadges(item, '#0891b2')}
                                             </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                    
-                                    {/* 未完成的協辦項目 */}
-                                    {coHandlerIncompleteItems.length > 0 && (
-                                      <div>
-                                        <div style={{ fontSize: '12px', color: '#f59e0b', marginBottom: '6px', fontWeight: '600' }}>
-                                          未完成協辦任務 ({coHandlerIncompleteItems.length})
-                                        </div>
-                                        {coHandlerIncompleteItems.map((item: WorkItem) => {
-                                          // 為共同負責的卡片建立獨立的展開 key，避免與主卡衝突
-                                          const coHandlerExpandKey = `co-handler-${item.id}`;
-                                          const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
-                                          const primaryUser = item.handlers?.primary;
-                                          const otherCoHandlers = item.handlers?.co_handlers?.filter(
-                                            (h: any) => h.user_id !== member.user_id
-                                          ) || [];
-                                          
-                                          return (
-                                            <div
-                                              key={item.id}
+                                            <button
+                                              className="jump-to-original"
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (primaryUser) {
+                                                  scrollToOriginalItem(item.id, primaryUser.user_id);
+                                                }
+                                              }}
                                               style={{
-                                                marginBottom: '6px',
-                                                padding: '8px',
-                                                backgroundColor: '#ffffff',
+                                                background: 'none',
+                                                border: '1px solid #f59e0b',
+                                                color: '#f59e0b',
+                                                cursor: 'pointer',
+                                                padding: '2px 6px',
                                                 borderRadius: '4px',
-                                                border: '1px solid #fed7aa'
+                                                fontSize: '10px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '2px',
+                                                marginLeft: '6px'
                                               }}
+                                              title="檢視原始項目"
                                             >
-                                              <div
-                                                style={{
-                                                  display: 'flex',
-                                                  justifyContent: 'space-between',
-                                                  alignItems: 'center',
-                                                  cursor: 'pointer'
-                                                }}
-                                                onClick={(e) => {
-                                                  if ((e.target as HTMLElement).closest('.jump-to-original')) {
-                                                    return;
-                                                  }
-                                                  stopEvent(e);
-                                                  const newExpanded = new Set(expandedWorkItems);
-                                                  if (isItemExpanded) {
-                                                    newExpanded.delete(coHandlerExpandKey);
-                                                  } else {
-                                                    newExpanded.add(coHandlerExpandKey);
-                                                  }
-                                                  // 更新共同負責卡片的展開狀態
-                                                  setExpandedWorkItems(newExpanded);
-                                                }}
-                                              >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                                  {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                                  <div style={{ fontSize: '13px' }}>
-                                                    {item.ai_title || item.content}
-                                                  </div>
-                                                  {renderItemMetaBadges(item, '#0891b2')}
+                                              前往原卡片
+                                            </button>
+                                          </div>
+
+                                          {isItemExpanded && (
+                                            <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #fef3c7', marginTop: '6px' }}>
+                                              {/* 負責人摘要 */}
+                                              <div style={{ marginBottom: '8px', fontSize: '12px' }}>
+                                                <div style={{ marginBottom: '4px', color: '#f59e0b' }}>
+                                                  <strong>主要負責人</strong>
+                                                  <span style={{ marginLeft: '4px' }}>
+                                                    {primaryUser?.display_name || primaryUser?.username || '尚未指派'}
+                                                  </span>
                                                 </div>
-                                                <button
-                                                  className="jump-to-original"
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (primaryUser) {
-                                                      scrollToOriginalItem(item.id, primaryUser.user_id);
-                                                    }
-                                                  }}
-                                                  style={{
-                                                    background: 'none',
-                                                    border: '1px solid #f59e0b',
-                                                    color: '#f59e0b',
-                                                    cursor: 'pointer',
-                                                    padding: '2px 6px',
-                                                    borderRadius: '4px',
-                                                    fontSize: '10px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '2px',
-                                                    marginLeft: '6px'
-                                                  }}
-                                                  title="檢視原始項目"
-                                                >
-                                                  前往原卡片
-                                                </button>
+                                                {otherCoHandlers.length > 0 && (
+                                                  <div style={{ color: '#f59e0b' }}>
+                                                    <strong>其他共同負責人</strong>
+                                                    <span style={{ marginLeft: '4px' }}>
+                                                      {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
+                                                    </span>
+                                                  </div>
+                                                )}
                                               </div>
-                                              
-                                              {isItemExpanded && (
-                                                <div style={{ padding: '8px 0 0 20px', borderTop: '1px solid #fef3c7', marginTop: '6px' }}>
-                                                  {/* 負責人摘要 */}
-                                                  <div style={{ marginBottom: '8px', fontSize: '12px' }}>
-                                                    <div style={{ marginBottom: '4px', color: '#f59e0b' }}>
-                                                      <strong>主要負責人</strong>
-                                                      <span style={{ marginLeft: '4px' }}>
-                                                        {primaryUser?.display_name || primaryUser?.username || '尚未指派'}
-                                                      </span>
-                                                    </div>
-                                                    {otherCoHandlers.length > 0 && (
-                                                      <div style={{ color: '#f59e0b' }}>
-                                                        <strong>其他共同負責人</strong>
-                                                        <span style={{ marginLeft: '4px' }}>
-                                                          {otherCoHandlers.map((h: any) => h.display_name || h.username).join(', ')}
-                                                        </span>
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                  {/* 項目內容 */}
-                                                  <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#92400e' }}>
-                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                      {item.ai_summary || item.content}
-                                                    </ReactMarkdown>
-                                                  </div>
-                                                </div>
-                                              )}
+                                              {/* 項目內容 */}
+                                              <div className="markdown-content" style={{ fontSize: '12px', lineHeight: '1.5', color: '#92400e' }}>
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                  {item.ai_summary || item.content}
+                                                </ReactMarkdown>
+                                              </div>
                                             </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
-                              </>
-                            );
-                          })()}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -2813,19 +2813,20 @@ const loadStandupData = useCallback(
 
         {/* 協作說明 */}
         <div className="card" style={{ marginTop: '20px', backgroundColor: '#f8f9fa' }}>
-          <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>協作小提醒</h3>
+          <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>💡 站立會議小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#666' }}>
-            <li><strong style={{ color: '#0f172a' }}>會前先把 Backlog 拉入今日清單</strong>，站立會議能直接逐項檢閱。</li>
-            <li>AI 建議有再分配/優先序調整時，點按<strong style={{ color: '#2563eb' }}>「套用建議」</strong>即可快速重新指派。</li>
-            <li>共同負責人可在展開卡片後管理，協辦卡可透過<strong style={{ color: '#2563eb' }}>「前往原卡片」</strong>對齊資訊。</li>
-            <li>計時到 15 分鐘會提醒，超時請<strong style={{ color: '#b91c1c' }}>盡快收斂</strong>，詳細討論可在會後進行。</li>
+            <li><strong style={{ color: '#0f172a' }}>確保所有成員已完成打卡與工作項目填寫</strong>，系統會顯示未到齊人數，可用此頁面追蹤進度。</li>
+            <li>點擊成員區塊可<strong style={{ color: '#2563eb' }}>展開/收合工作項目</strong>，點開單一項目查看詳細內容、調整優先級或添加共同處理人。</li>
+            <li><strong style={{ color: '#047857' }}>AI 建議</strong>會自動分析團隊工作分配、辨識風險項目並提供再分配建議，可點「套用建議」快速操作。</li>
+            <li>共同處理人的協辦項目會折疊顯示在「共同負責項目」區塊，點擊<strong style={{ color: '#0891b2' }}>「前往原卡片」</strong>可跳轉到主要負責人的完整內容。</li>
+            <li>會議計時超過<strong style={{ color: '#b91c1c' }}> 15 分鐘會提醒收斂</strong>，詳細討論建議會後進行，保持站會簡潔高效。</li>
           </ul>
         </div>
 
         {/* 主要負責人設定 Modal */}
         {showHandlerModal && editingWorkItem && (
-          <div 
-            className="modal-overlay" 
+          <div
+            className="modal-overlay"
             style={{
               position: 'fixed',
               top: 0,
@@ -2840,8 +2841,8 @@ const loadStandupData = useCallback(
             }}
             onClick={() => setShowHandlerModal(false)}
           >
-            <div 
-              className="modal-content card" 
+            <div
+              className="modal-content card"
               style={{
                 width: '90%',
                 maxWidth: '500px',
@@ -2857,9 +2858,9 @@ const loadStandupData = useCallback(
 
               {/* 主要負責人 */}
               <div style={{ marginBottom: '24px' }}>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px', 
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
                   fontWeight: 'bold',
                   fontSize: '14px',
                   color: '#333'
@@ -2883,18 +2884,18 @@ const loadStandupData = useCallback(
 
               {/* 共同負責人 */}
               <div style={{ marginBottom: '24px' }}>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px', 
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
                   fontWeight: 'bold',
                   fontSize: '14px',
                   color: '#333'
                 }}>
                   共同負責人（可複選）
                 </label>
-                <div style={{ 
-                  border: '1px solid #ddd', 
-                  borderRadius: '4px', 
+                <div style={{
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
                   padding: '12px',
                   maxHeight: '200px',
                   overflowY: 'auto',
@@ -2903,11 +2904,11 @@ const loadStandupData = useCallback(
                   {teamMembers
                     .filter(member => member.user_id !== selectedPrimaryHandler)
                     .map(member => (
-                      <label 
-                        key={member.user_id} 
-                        style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
+                      <label
+                        key={member.user_id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
                           padding: '6px 0',
                           cursor: 'pointer'
                         }}
@@ -2953,8 +2954,8 @@ const loadStandupData = useCallback(
 
         {/* 優先順序 Modal */}
         {showPriorityModal && editingWorkItem && (
-          <div 
-            className="modal-overlay" 
+          <div
+            className="modal-overlay"
             style={{
               position: 'fixed',
               top: 0,
@@ -2969,8 +2970,8 @@ const loadStandupData = useCallback(
             }}
             onClick={() => setShowPriorityModal(false)}
           >
-            <div 
-              className="modal-content card" 
+            <div
+              className="modal-content card"
               style={{
                 width: '90%',
                 maxWidth: '400px',
@@ -2983,9 +2984,9 @@ const loadStandupData = useCallback(
               </h3>
 
               <div style={{ marginBottom: '24px' }}>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px', 
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
                   fontWeight: 'bold',
                   fontSize: '14px',
                   color: '#333'

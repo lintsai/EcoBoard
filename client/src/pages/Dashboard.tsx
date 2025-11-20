@@ -146,8 +146,8 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
               <div
                 key={item.path}
                 className="card"
-                style={{ 
-                  cursor: 'pointer', 
+                style={{
+                  cursor: 'pointer',
                   transition: 'all 0.3s ease',
                   border: '2px solid transparent'
                 }}
@@ -200,8 +200,8 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
               <div
                 key={item.path}
                 className="card"
-                style={{ 
-                  cursor: 'pointer', 
+                style={{
+                  cursor: 'pointer',
                   transition: 'all 0.3s ease',
                   border: '2px solid transparent'
                 }}
@@ -254,8 +254,8 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
               <div
                 key={item.path}
                 className="card"
-                style={{ 
-                  cursor: 'pointer', 
+                style={{
+                  cursor: 'pointer',
                   transition: 'all 0.3s ease',
                   border: '2px solid transparent'
                 }}
@@ -299,7 +299,25 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
         </div>
 
         <div className="card" style={{ marginTop: '40px', background: '#f9fafb' }}>
-          <h3 style={{ marginBottom: '12px', color: '#374151' }}>使用流程</h3>
+          <h3 style={{ marginBottom: '12px', color: '#374151' }}>💡 使用流程與小提示</h3>
+
+          {/* 小提示區塊 */}
+          <div style={{
+            padding: '12px 16px',
+            backgroundColor: '#f0f9ff',
+            border: '1px solid #0891b2',
+            borderRadius: '6px',
+            marginBottom: '16px'
+          }}>
+            <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>
+              <li><strong style={{ color: '#0f172a' }}>這是您的工作中樞</strong>，點擊任一功能卡片可快速進入對應頁面，減少多次點擊的麻煩。</li>
+              <li>建議<strong style={{ color: '#2563eb' }}>週一先整理 Backlog</strong>，將本週需求拆解並填寫預計日期，後續每日打卡時能直接加入今日。</li>
+              <li>每日流程依時間順序排列：<strong style={{ color: '#047857' }}>打卡 → 工作項目 → 站立會議 → 更新進度 → 每日總結</strong>，按此節奏可確保資料完整。</li>
+              <li>切換團隊請點右上角<strong style={{ color: '#b91c1c' }}>「切換團隊」</strong>按鈕，各團隊資料完全獨立，不會互相干擾。</li>
+            </ul>
+          </div>
+
+          {/* 流程說明 */}
           <ol style={{ paddingLeft: '20px', color: '#6b7280', lineHeight: '2' }}>
             <li><strong style={{ color: '#0f172a' }}>建立/整理 Backlog：</strong>提前把需求拆解、估時並指派，或用 <strong style={{ color: '#2563eb' }}>AI 批次匯入</strong>。</li>
             <li><strong style={{ color: '#0f172a' }}>早上打卡與定調：</strong>開始新的一天並同步重點，從 Backlog <strong style={{ color: '#2563eb' }}>挑選今日項目</strong>。</li>
