@@ -5,6 +5,7 @@ import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface DailySummaryData {
   summary: string;
@@ -215,6 +216,7 @@ function DailySummary({ user, teamId }: any) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={18} />
           返回

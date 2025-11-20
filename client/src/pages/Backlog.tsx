@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface BacklogProps {
   user: any;
@@ -422,6 +423,7 @@ function Backlog({ user, teamId }: BacklogProps) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>

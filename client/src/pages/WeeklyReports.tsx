@@ -10,6 +10,7 @@ import mermaid from 'mermaid';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import api from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface WeeklyReportsProps {
   user: any;
@@ -457,6 +458,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         <div className="header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>

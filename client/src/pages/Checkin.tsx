@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckSquare, ArrowLeft, FileText } from 'lucide-react';
 import api from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface CheckinProps {
   user: any;
@@ -63,6 +64,7 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
     return (
       <div className="app-container">
         <div className="main-content">
+          <Breadcrumbs />
           <div className="card" style={{ textAlign: 'center', padding: '60px 40px' }}>
             <span className="loading" style={{ margin: '0 auto' }}></span>
             <p style={{ marginTop: '20px', color: '#6b7280' }}>載入中...</p>
@@ -75,6 +77,7 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         <button className="btn btn-secondary" onClick={() => navigate('/dashboard')} style={{ marginBottom: '20px' }}>
           <ArrowLeft size={18} />
           返回儀表板

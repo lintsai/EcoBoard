@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar, FileBarChart } from 'lucide-react';
 import api from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface DashboardProps {
   user: any;
@@ -115,6 +116,7 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         <div className="header">
           <div>
             <h1 style={{ marginBottom: '8px' }}>工作儀表板</h1>

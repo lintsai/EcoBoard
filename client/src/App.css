@@ -144,6 +144,47 @@ body {
   border-bottom: 2px solid #e5e7eb;
 }
 
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: #6b7280;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.breadcrumbs-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumbs-link {
+  border: none;
+  background: transparent;
+  color: #4f46e5;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.breadcrumbs-link:hover {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.breadcrumbs-current {
+  color: #111827;
+  font-weight: 700;
+}
+
+.breadcrumbs-separator {
+  color: #d1d5db;
+}
+
 .chat-container {
   background: #f9fafb;
   border-radius: 8px;

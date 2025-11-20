@@ -4,6 +4,7 @@ import { ArrowLeft, Clock, CheckCircle, AlertCircle, Loader2, Send, Sparkles, Ch
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface WorkItem {
   id: number;
@@ -349,6 +350,7 @@ function UpdateWork({ user, teamId }: any) {
     return (
       <div className="app-container">
         <div className="main-content">
+          <Breadcrumbs />
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <Loader2 size={40} className="spinner" />
             <p>載入中...</p>
@@ -361,6 +363,7 @@ function UpdateWork({ user, teamId }: any) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={18} />
           返回

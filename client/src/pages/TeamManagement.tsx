@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Users, UserPlus, Shield, Clock, Trash2, Loader2, CheckCircle, AlertCircle, Edit2, Save, X } from 'lucide-react';
 import api from '../services/api';
 import AddMemberModal from '../components/AddMemberModal';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface TeamMember {
   user_id: number;
@@ -186,6 +187,7 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
     return (
       <div className="app-container">
         <div className="main-content">
+          <Breadcrumbs />
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <Loader2 size={40} className="spinner" />
             <p>載入中...</p>
@@ -198,6 +200,7 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={18} />
           返回

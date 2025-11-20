@@ -4,6 +4,7 @@ import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, Chevr
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface WorkItemsProps {
   user: any;
@@ -640,6 +641,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   return (
     <div className="app-container">
       <div className="main-content">
+        <Breadcrumbs />
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>

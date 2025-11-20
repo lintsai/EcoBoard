@@ -4,6 +4,7 @@ import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, T
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 interface TeamMember {
   user_id: number;
@@ -1651,6 +1652,7 @@ const loadStandupData = useCallback(
       <div className="app-container">
         <div className="main-content" style={mainContentStyle}>
           {toastStack}
+          <Breadcrumbs />
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <Loader2 size={40} className="spinner" />
             <p>載入中...</p>
@@ -1664,6 +1666,7 @@ const loadStandupData = useCallback(
     <div className="app-container">
       <div className="main-content" style={mainContentStyle}>
         {toastStack}
+        <Breadcrumbs />
         <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={18} />
           返回儀表板
