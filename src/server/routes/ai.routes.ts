@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 import * as aiService from '../services/ai.service';
 import * as standupService from '../services/standup.service';
+import { query } from '../database/pool';
 
 const router = Router();
 
@@ -23,10 +24,11 @@ router.post(
       }
 
       const { message, sessionId, context } = req.body;
-      
+      const userId = req.user!.id;
+
       const response = await aiService.chat(
         message,
-        req.user!.id,
+        userId,
         sessionId,
         context
       );
@@ -34,7 +36,7 @@ router.post(
       res.json(response);
     } catch (error) {
       console.error('AI chat error:', error);
-      res.status(500).json({ error: 'AI 對話失敗' });
+      res.status(500).json({ error: 'AI 服務暫時無法使用' });
     }
   }
 );
@@ -55,10 +57,19 @@ router.post(
       }
 
       const { teamId, workItems } = req.body;
-      
+
+      // 獲取今日已打卡的成員 ID
+      const today = new Date().toISOString().split('T')[0];
+      const checkins = await query(
+        'SELECT user_id FROM checkins WHERE team_id = $1 AND checkin_date = $2',
+        [teamId, today]
+      );
+      const checkedInUserIds = checkins.rows.map((row: any) => row.user_id);
+
       const analysis = await aiService.analyzeWorkItems(
         workItems,
-        teamId
+        teamId,
+        checkedInUserIds
       );
 
       res.json(analysis);
@@ -86,7 +97,7 @@ router.post(
       }
 
       const { teamId, workItems, teamMembers } = req.body;
-      
+
       const distribution = await aiService.distributeTasksToTeam(
         workItems,
         teamMembers,
@@ -117,7 +128,7 @@ router.post(
       }
 
       const { teamId, standupId } = req.body;
-      
+
       const review = await standupService.completeStandupReview(
         standupId,
         teamId,
@@ -165,7 +176,7 @@ router.post(
       }
 
       const { teamId, summaryDate, forceRegenerate } = req.body;
-      
+
       const summary = await aiService.generateDailySummary(
         teamId,
         summaryDate || new Date().toISOString().split('T')[0],
@@ -198,7 +209,7 @@ router.post(
       }
 
       const { teamId, summaryDate, summaryContent } = req.body;
-      
+
       const result = await aiService.saveDailySummary(
         teamId,
         summaryDate,
@@ -222,7 +233,7 @@ router.get(
     try {
       const teamId = parseInt(req.params.teamId);
       const limit = parseInt(req.query.limit as string) || 30;
-      
+
       const history = await aiService.getDailySummaryHistory(teamId, limit);
       res.json(history);
     } catch (error) {
@@ -240,13 +251,13 @@ router.get(
     try {
       const teamId = parseInt(req.params.teamId);
       const date = req.params.date;
-      
+
       const summary = await aiService.getDailySummaryByDate(teamId, date);
-      
+
       if (!summary) {
         return res.status(404).json({ error: '找不到該日期的總結' });
       }
-      
+
       res.json(summary);
     } catch (error) {
       console.error('Get summary by date error:', error);
@@ -286,7 +297,7 @@ router.post(
       }
 
       const { sessionId } = req.body;
-      
+
       const summary = await aiService.generateWorkItemSummary(
         sessionId,
         req.user!.id
@@ -315,7 +326,7 @@ router.post(
       }
 
       const { tableText } = req.body;
-      
+
       const items = await aiService.parseTableToBacklogItems(
         tableText,
         req.user!.id

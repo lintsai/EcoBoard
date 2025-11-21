@@ -194,6 +194,13 @@ function getStatusBadge(status?: string) {
         color: '#374151',
         bgColor: '#f3f4f6'
       };
+    case 'blocked':
+      return {
+        text: '受阻',
+        icon: <AlertCircle size={12} />,
+        color: '#991b1b',
+        bgColor: '#fecaca'
+      };
     case 'cancelled':
       return {
         text: '已取消',
@@ -202,8 +209,9 @@ function getStatusBadge(status?: string) {
         bgColor: '#e5e7eb'
       };
     default:
+      // 默認為進行中狀態，避免顯示"未知狀態"
       return {
-        text: '未知狀態',
+        text: '進行中',
         icon: <Clock size={12} />,
         color: '#92400e',
         bgColor: '#fef3c7'
@@ -1832,10 +1840,14 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                     if (!fromMember || !toMember) return null;
 
                     // 盡量找到來源成員對應的原始工作卡
-                    const workItem = workItems.find(item =>
-                      item.user_id === fromMember.user_id &&
-                      (item.ai_title?.includes(suggestion.task) || item.content.includes(suggestion.task))
-                    );
+                    const workItem = workItems.find(item => {
+                      // 如果有 taskId，優先使用 taskId 匹配
+                      if (suggestion.taskId && item.id === suggestion.taskId) return true;
+
+                      // 否則回退到標題匹配
+                      return item.user_id === fromMember.user_id &&
+                        (item.ai_title?.includes(suggestion.task) || item.content.includes(suggestion.task));
+                    });
 
                     if (!workItem) return null;
 
@@ -1861,6 +1873,21 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                             <span style={{ fontSize: '14px', fontWeight: '500' }}>
                               {suggestion.task}
                             </span>
+                            {suggestion.estimatedDate && (
+                              <span style={{
+                                fontSize: '12px',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: '#fee2e2',
+                                color: '#b91c1c',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}>
+                                <Clock size={10} />
+                                {suggestion.estimatedDate}
+                              </span>
+                            )}
                           </div>
                           <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
                             建議由 <strong>{suggestion.from}</strong> 調整給 <strong>{suggestion.to}</strong>
