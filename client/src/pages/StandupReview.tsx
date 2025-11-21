@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback, type SyntheticEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown } from 'lucide-react';
+import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
+import { exportElementAsPdf } from '../utils/pdfExport';
 
 interface TeamMember {
   user_id: number;
@@ -294,6 +295,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState('');
   const [analysisData, setAnalysisData] = useState<any>(null);
+  const [exportingAnalysisPdf, setExportingAnalysisPdf] = useState(false);
   const [error, setError] = useState('');
   const [expandedMembers, setExpandedMembers] = useState<Set<number>>(new Set());
   const [expandedWorkItems, setExpandedWorkItems] = useState<Set<string | number>>(new Set());
@@ -328,6 +330,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const toastIdRef = useRef(0);
   const toastTimeoutsRef = useRef<Record<number, number>>({});
   const serverTimeOffsetRef = useRef(0);
+  const analysisCardRef = useRef<HTMLDivElement | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
   const lastOverdueToastRef = useRef<number | null>(null);
   const twoMinuteWarningShownRef = useRef(false);
@@ -998,6 +1001,26 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
       setError(err.response?.data?.error || 'AI 分析失敗，請稍後再試');
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleExportAnalysisPdf = async () => {
+    if (!analysis || !analysisCardRef.current) {
+      alert('目前沒有可匯出的 AI 建議內容');
+      return;
+    }
+
+    try {
+      setExportingAnalysisPdf(true);
+      const todayLabel = new Date().toISOString().split('T')[0];
+      await exportElementAsPdf(analysisCardRef.current, {
+        filename: `team-${teamId}-standup-ai-${todayLabel}.pdf`
+      });
+    } catch (err) {
+      console.error('Export standup analysis PDF error:', err);
+      setError('AI 建議 PDF 匯出失敗，請稍後再試');
+    } finally {
+      setExportingAnalysisPdf(false);
     }
   };
 
@@ -1821,21 +1844,46 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
 
         {/* AI 分析 */}
         {analysis && (
-          <div className="card" style={{ marginBottom: '20px', backgroundColor: '#f0f8ff', borderLeft: '4px solid #0066cc' }}>
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-              <Sparkles size={20} style={{ color: '#0066cc' }} />
-              AI 分析建議
-            </h3>
+          <div
+            className="card"
+            ref={analysisCardRef}
+            style={{ marginBottom: '20px', backgroundColor: '#f0f8ff', borderLeft: '4px solid #0066cc' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '15px' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <Sparkles size={20} style={{ color: '#0066cc' }} />
+                AI 分析建議
+              </h3>
+              <button
+                className="btn btn-secondary"
+                onClick={handleExportAnalysisPdf}
+                disabled={exportingAnalysisPdf}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                {exportingAnalysisPdf ? (
+                  <>
+                    <Loader2 size={16} className="spinner" />
+                    產出中...
+                  </>
+                ) : (
+                  <>
+                    <FileText size={16} />
+                    匯出 PDF
+                  </>
+                )}
+              </button>
+            </div>
             <div className="markdown-content" style={{ fontSize: '14px', lineHeight: '1.8' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis}</ReactMarkdown>
             </div>
 
             {/* AI 建議的重新分配 */}
             {analysisData?.redistributionSuggestions && analysisData.redistributionSuggestions.length > 0 && (
-              <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #d0e8ff' }}>
-                <h4 style={{ fontSize: '15px', marginBottom: '12px', color: '#0066cc' }}>
-                  建議的工作重新分配
-                </h4>
+              <div className="redistribution-section">
+                <div>
+                  <h4>建議的工作重新分配</h4>
+                  <p>AI 針對團隊負載提供重新指派建議，匯出 PDF 時也會完整保留內容供檢閱。</p>
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {analysisData.redistributionSuggestions.map((suggestion: any, index: number) => {
                     // 從建議裡找出來源/目標成員
@@ -1866,57 +1914,35 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                     const priority = suggestion.priority || workItem.priority || 3;
 
                     return (
-                      <div
-                        key={index}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '12px',
-                          backgroundColor: '#fff',
-                          borderRadius: '6px',
-                          border: '1px solid #d0e8ff'
-                        }}
-                      >
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <div key={index} className="redistribution-card">
+                        <div className="redistribution-card__info">
+                          <div className="redistribution-card__title">
                             {getPriorityBadge(priority)}
-                            <span style={{ fontSize: '14px', fontWeight: '500' }}>
-                              {suggestion.task}
-                            </span>
+                            <span>{suggestion.task}</span>
                             {suggestion.estimatedDate && (
-                              <span style={{
-                                fontSize: '12px',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                backgroundColor: '#fee2e2',
-                                color: '#b91c1c',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}>
+                              <span className="redistribution-card__time">
                                 <Clock size={10} />
                                 {suggestion.estimatedDate}
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                          <div className="redistribution-card__meta">
                             建議由 <strong>{suggestion.from}</strong> 調整給 <strong>{suggestion.to}</strong>
                           </div>
                           {suggestion.reason && (
-                            <div style={{ fontSize: '12px', color: '#888', fontStyle: 'italic' }}>
+                            <div className="redistribution-card__reason">
                               理由：{suggestion.reason}
                             </div>
                           )}
                           {workItem.handlers?.co_handlers && workItem.handlers.co_handlers.length > 0 && (
-                            <div style={{ fontSize: '11px', color: '#0066cc', marginTop: '4px' }}>
+                            <div className="redistribution-card__cohandlers">
                               目前已有 {workItem.handlers.co_handlers.length} 位共同負責人
                             </div>
                           )}
                         </div>
                         <button
-                          className="btn btn-primary"
-                          style={{ fontSize: '13px', padding: '6px 12px' }}
+                          className="btn btn-primary redistribution-card__action"
+                          data-export-hidden="true"
                           onClick={async () => {
                             if (window.confirm(`確定將「${suggestion.task}」改由 ${suggestion.to} 處理嗎？`)) {
                               await handleAssignWorkItem(workItem.id, toMember.user_id);

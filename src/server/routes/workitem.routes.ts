@@ -1,5 +1,5 @@
 ﻿import { Router, Response } from 'express';
-import { body, validationResult } from 'express-validator';
+import { body, validationResult, query as expressQuery } from 'express-validator';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 import * as workItemService from '../services/workitem.service';
 import { notifyStandupUpdateForCheckin, notifyStandupUpdateForWorkItem } from '../websocket/standup';
@@ -339,6 +339,41 @@ router.get(
   }
 );
 
+router.get(
+  '/completed/history',
+  authenticate,
+  [
+    expressQuery('teamId').optional().isInt().withMessage('teamId 必須是整數'),
+    expressQuery('startDate').optional().isISO8601().withMessage('開始日期格式錯誤'),
+    expressQuery('endDate').optional().isISO8601().withMessage('結束日期格式錯誤'),
+    expressQuery('limit').optional().isInt({ min: 1, max: 200 }).withMessage('limit 需在 1-200 之間'),
+    expressQuery('keyword').optional().isString().withMessage('關鍵字格式錯誤')
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { teamId, startDate, endDate, limit, keyword } = req.query;
+      const history = await workItemService.getCompletedWorkHistory(req.user!.id, {
+        teamId: teamId ? parseInt(teamId as string, 10) : undefined,
+        startDate: startDate ? String(startDate) : undefined,
+        endDate: endDate ? String(endDate) : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        keyword: keyword ? String(keyword) : undefined
+      });
+
+      preventCache(res);
+      res.json(history);
+    } catch (error) {
+      console.error('Get completed work history error:', error);
+      res.status(500).json({ error: '取得已完成工作項目失敗' });
+    }
+  }
+);
+
 // 移動未完成項目到今日
 router.put(
   '/:itemId/move-to-today',
@@ -367,6 +402,25 @@ router.put(
       console.error('Move work item to today error:', error);
       res.status(error.message.includes('無權限') || error.message.includes('已經是今日') ? 400 : 500).json({ 
         error: error.message || '移動工作項目失敗',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
+);
+
+router.put(
+  '/:itemId/move-to-backlog',
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const itemId = parseInt(req.params.itemId, 10);
+      const workItem = await workItemService.moveWorkItemToBacklog(itemId, req.user!.id);
+      res.json(workItem);
+    } catch (error: any) {
+      console.error('Move work item to backlog error:', error);
+      const status = error.message?.includes('無權限') ? 403 : 400;
+      res.status(status).json({
+        error: error.message || '轉回 Backlog 失敗',
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
@@ -482,4 +536,3 @@ router.delete(
 );
 
 export default router;
-

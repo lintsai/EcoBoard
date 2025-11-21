@@ -40,6 +40,14 @@ const withNormalizedEstimatedDate = <T extends { estimated_date?: any }>(item: T
 const normalizeEstimatedDateList = <T extends { estimated_date?: any }>(items: T[]): T[] =>
   items.map(withNormalizedEstimatedDate);
 
+interface CompletedHistoryFilters {
+  teamId?: number;
+  startDate?: string;
+  endDate?: string;
+  keyword?: string;
+  limit?: number;
+}
+
 // 獲取工作項目的所有處理人
 const getWorkItemHandlers = async (workItemIds: number[]) => {
   if (workItemIds.length === 0) return {};
@@ -681,6 +689,63 @@ export const moveWorkItemToToday = async (
   return withNormalizedEstimatedDate(result.rows[0]);
 };
 
+export const moveWorkItemToBacklog = async (
+  itemId: number,
+  userId: number
+) => {
+  const itemResult = await query(
+    `SELECT wi.id,
+            wi.checkin_id,
+            wi.team_id,
+            wi.is_backlog,
+            COALESCE(wi.team_id, c.team_id) as resolved_team_id,
+            wih.handler_type
+     FROM work_items wi
+     LEFT JOIN checkins c ON wi.checkin_id = c.id
+     LEFT JOIN work_item_handlers wih 
+       ON wi.id = wih.work_item_id AND wih.user_id = $2
+     WHERE wi.id = $1`,
+    [itemId, userId]
+  );
+
+  if (itemResult.rows.length === 0) {
+    throw new Error('工作項目不存在或無權限操作');
+  }
+
+  const item = itemResult.rows[0];
+
+  if (!item.handler_type) {
+    throw new Error('工作項目不存在或無權限操作');
+  }
+
+  if (item.handler_type !== 'primary') {
+    throw new Error('只有主要處理人可以將項目轉回 Backlog');
+  }
+
+  if (item.is_backlog) {
+    throw new Error('此工作項目已經在 Backlog 中');
+  }
+
+  const targetTeamId = item.resolved_team_id;
+
+  if (!targetTeamId) {
+    throw new Error('找不到對應的團隊，無法轉回 Backlog');
+  }
+
+  const result = await query(
+    `UPDATE work_items
+     SET checkin_id = NULL,
+         team_id = $1,
+         is_backlog = TRUE,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2
+     RETURNING *`,
+    [targetTeamId, itemId]
+  );
+
+  return withNormalizedEstimatedDate(result.rows[0]);
+};
+
 // 獲取用戶的未完成工作項目（不限日期，但排除已完成的和今日的項目）
 export const getIncompleteUserWorkItems = async (
   userId: number,
@@ -780,6 +845,107 @@ export const getIncompleteTeamWorkItems = async (teamId: number) => {
   }));
 
   return normalizeEstimatedDateList(workItems);
+};
+
+export const getCompletedWorkHistory = async (
+  userId: number,
+  filters: CompletedHistoryFilters
+) => {
+  const sanitizedLimit = Math.min(Math.max(filters.limit ?? 30, 1), 200);
+  const params: any[] = [userId];
+  let paramIndex = 2;
+  const conditions: string[] = [];
+
+  if (filters.teamId) {
+    conditions.push(`COALESCE(wi.team_id, c.team_id) = $${paramIndex}`);
+    params.push(filters.teamId);
+    paramIndex++;
+  }
+
+  if (filters.startDate) {
+    conditions.push(`su.status_changed_at::date >= $${paramIndex}`);
+    params.push(filters.startDate);
+    paramIndex++;
+  }
+
+  if (filters.endDate) {
+    conditions.push(`su.status_changed_at::date <= $${paramIndex}`);
+    params.push(filters.endDate);
+    paramIndex++;
+  }
+
+  if (filters.keyword) {
+    const keywordParamRef = `$${paramIndex}`;
+    conditions.push(`(
+      LOWER(COALESCE(wi.ai_title, '')) LIKE ${keywordParamRef} OR
+      LOWER(wi.content) LIKE ${keywordParamRef} OR
+      LOWER(COALESCE(su.update_content, '')) LIKE ${keywordParamRef}
+    )`);
+    params.push(`%${filters.keyword.toLowerCase()}%`);
+    paramIndex++;
+  }
+
+  const limitParamIndex = paramIndex;
+  params.push(sanitizedLimit);
+
+  const sql = `
+    WITH status_updates AS (
+      SELECT DISTINCT ON (wu.work_item_id)
+        wu.work_item_id,
+        wu.updated_at AS status_changed_at,
+        wu.update_content,
+        wu.progress_status,
+        wu.user_id AS updated_by
+      FROM work_updates wu
+      WHERE wu.progress_status IN ('completed', 'cancelled')
+      ORDER BY wu.work_item_id, wu.updated_at DESC
+    )
+    SELECT
+      wi.id,
+      wi.checkin_id,
+      wi.team_id,
+      wi.user_id,
+      wi.content,
+      wi.item_type,
+      wi.session_id,
+      wi.ai_summary,
+      wi.ai_title,
+      wi.priority,
+      TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
+      wi.is_backlog,
+      wi.created_at,
+      wi.updated_at,
+      su.status_changed_at AS completed_at,
+      su.update_content,
+      su.progress_status AS status,
+      su.updated_by AS completed_by,
+      cb.display_name AS completed_by_name,
+      cb.username AS completed_by_username,
+      COALESCE(wi.team_id, c.team_id) AS derived_team_id,
+      t.name AS team_name,
+      primary_handler.display_name AS primary_handler_name,
+      primary_handler.username AS primary_handler_username
+    FROM status_updates su
+    INNER JOIN work_items wi ON wi.id = su.work_item_id
+    LEFT JOIN checkins c ON wi.checkin_id = c.id
+    LEFT JOIN teams t ON COALESCE(wi.team_id, c.team_id) = t.id
+    INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
+    LEFT JOIN (
+      SELECT wih.work_item_id, u.display_name, u.username
+      FROM work_item_handlers wih
+      INNER JOIN users u ON wih.user_id = u.id
+      WHERE wih.handler_type = 'primary'
+    ) primary_handler ON primary_handler.work_item_id = wi.id
+    LEFT JOIN users cb ON cb.id = su.updated_by
+    WHERE wih.user_id = $1
+      AND wih.handler_type IN ('primary', 'co_handler')
+      ${conditions.length ? `AND ${conditions.join(' AND ')}` : ''}
+    ORDER BY su.status_changed_at DESC
+    LIMIT $${limitParamIndex}
+  `;
+
+  const result = await query(sql, params);
+  return normalizeEstimatedDateList(result.rows);
 };
 
 export const deleteWorkItem = async (itemId: number, userId: number) => {

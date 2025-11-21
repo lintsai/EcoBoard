@@ -1,10 +1,11 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp, Calendar, Search } from 'lucide-react';
+import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp, Calendar, Search, Undo2, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
+import PriorityBadge from '../components/PriorityBadge';
 
 interface WorkItemsProps {
   user: any;
@@ -58,7 +59,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [selectedPriority, setSelectedPriority] = useState<number>(3);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const [showIncomplete, setShowIncomplete] = useState(true);
-  const [showBacklog, setShowBacklog] = useState(true);
+  const [showBacklog, setShowBacklog] = useState(false);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const currentUserId = user?.id as number | undefined;
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
@@ -98,31 +99,6 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       return null;
     }
     return value.includes('T') ? value.split('T')[0] : value;
-  };
-
-  // Helper function to get priority badge
-  const getPriorityBadge = (priority: number = 3) => {
-    const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
-      1: { label: '最高', emoji: '🔴', color: '#dc2626' },
-      2: { label: '高', emoji: '🟠', color: '#ea580c' },
-      3: { label: '中', emoji: '🟡', color: '#ca8a04' },
-      4: { label: '低', emoji: '🟢', color: '#16a34a' },
-      5: { label: '最低', emoji: '🔵', color: '#2563eb' }
-    };
-
-    const config = priorityConfig[priority] || priorityConfig[3];
-    return (
-      <span style={{
-        fontSize: '11px',
-        color: config.color,
-        fontWeight: '600',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '2px'
-      }}>
-        {config.emoji} {config.label}
-      </span>
-    );
   };
 
   // Filter function for work items search
@@ -331,6 +307,26 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       }
     } catch (error: any) {
       alert(error.response?.data?.error || '刪除失敗');
+    }
+  };
+
+  const handleMoveWorkItemToBacklog = async (item: WorkItem) => {
+    if (!confirm(`確定要將「${item.ai_title || item.content}」轉回 Backlog 嗎？`)) {
+      return;
+    }
+
+    try {
+      await api.moveWorkItemToBacklog(item.id);
+      await Promise.all([loadWorkItems(), loadIncompleteItems(), loadBacklogItems()]);
+      setExpandedItems((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      alert('已轉回 Backlog，可在下方 Backlog 清單中繼續規劃。');
+    } catch (error: any) {
+      console.error('Move work item to backlog error:', error);
+      alert(error.response?.data?.error || '轉回 Backlog 失敗');
     }
   };
 
@@ -959,7 +955,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             </h4>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                            {getPriorityBadge(item.priority)}
+                            <PriorityBadge priority={item.priority} />
                             <span style={{
                               fontSize: '11px',
                               whiteSpace: 'nowrap',
@@ -1206,7 +1202,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                               </div>
                             )}
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', gap: '12px', flexWrap: 'wrap' }}>
                               <div style={{ fontSize: '11px', color: '#999' }}>
                                 建立於 {new Date(item.created_at).toLocaleString('zh-TW', {
                                   month: '2-digit',
@@ -1216,23 +1212,42 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 })}
                               </div>
                               {item.handlers?.primary?.user_id === user.id && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleEditWorkItem(item);
-                                  }}
-                                  className="btn btn-primary"
-                                  style={{
-                                    padding: '6px 12px',
-                                    fontSize: '13px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                >
-                                  <Edit2 size={14} />
-                                  編輯
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveWorkItemToBacklog(item);
+                                    }}
+                                    className="btn btn-secondary"
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '13px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                  >
+                                    <Undo2 size={14} />
+                                    轉回 Backlog
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditWorkItem(item);
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '13px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                  >
+                                    <Edit2 size={14} />
+                                    編輯
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1348,7 +1363,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   <span style={{ fontSize: '12px', color: '#0369a1', whiteSpace: 'nowrap' }}>
                                     👤 {ownerLabel}
                                   </span>
-                                  {getPriorityBadge(item.priority)}
+                                  <PriorityBadge priority={item.priority} />
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
                                   <span style={{
@@ -1438,7 +1453,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 </div>
                               )}
 
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', gap: '12px', flexWrap: 'wrap' }}>
                                 <div style={{ fontSize: '11px', color: '#92400e' }}>
                                   建立於 {new Date(item.created_at).toLocaleString('zh-TW', {
                                     month: '2-digit',
@@ -1447,24 +1462,44 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                     minute: '2-digit'
                                   })}
                                 </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleMoveIncompleteToToday(item);
-                                  }}
-                                  className="btn btn-warning"
-                                  style={{
-                                    padding: '6px 12px',
-                                    fontSize: '13px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                  disabled={loading}
-                                >
-                                  <Send size={14} />
-                                  移動到今日
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveWorkItemToBacklog(item);
+                                    }}
+                                    className="btn btn-secondary"
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '13px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                    disabled={loading}
+                                  >
+                                    <Undo2 size={14} />
+                                    轉回 Backlog
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveIncompleteToToday(item);
+                                    }}
+                                    className="btn btn-warning"
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: '13px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                    disabled={loading}
+                                  >
+                                    <Send size={14} />
+                                    移動到今日
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           )}
@@ -1628,7 +1663,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                     }}>
                                       #{item.id} {item.ai_title || item.content}
                                     </h4>
-                                    {getPriorityBadge(item.priority)}
+                                    <PriorityBadge priority={item.priority} />
                                   </div>
                                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '11px', color: '#0369a1' }}>
                                     <span style={{ whiteSpace: 'nowrap' }}>👤 {ownerLabel}</span>

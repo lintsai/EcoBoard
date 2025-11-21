@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, Sparkles, RefreshCw, FileText, Loader2, History, Save, X } from 'lucide-react';
+import { ArrowLeft, Calendar, Sparkles, RefreshCw, FileText, Loader2, History, Save, X, Download } from 'lucide-react';
 import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import Breadcrumbs from '../components/Breadcrumbs';
+import { exportElementAsPdf } from '../utils/pdfExport';
 
 interface DailySummaryData {
   summary: string;
@@ -47,6 +48,8 @@ function DailySummary({ user, teamId }: any) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
+  const summaryCardRef = useRef<HTMLDivElement | null>(null);
+  const [exportingSummaryPdf, setExportingSummaryPdf] = useState(false);
 
   useEffect(() => {
     if (teamId) {
@@ -211,6 +214,31 @@ function DailySummary({ user, teamId }: any) {
       createdAt: item.created_at
     });
     setShowHistory(false);
+  };
+
+  const handleExportSummaryPdf = async () => {
+    if (!summary && !previewSummary) {
+      alert('目前沒有可匯出的總結內容');
+      return;
+    }
+
+    if (!summaryCardRef.current) {
+      setError('找不到總結內容區塊，請稍後再試');
+      return;
+    }
+
+    try {
+      setExportingSummaryPdf(true);
+      const dateLabel = (summary?.date || selectedDate || getTodayDate()).replace(/[\\/:*?"<>|]/g, '-');
+      await exportElementAsPdf(summaryCardRef.current, {
+        filename: `daily-summary-${dateLabel}.pdf`
+      });
+    } catch (err) {
+      console.error('Export daily summary PDF error:', err);
+      setError('匯出每日總結 PDF 失敗，請稍後再試');
+    } finally {
+      setExportingSummaryPdf(false);
+    }
   };
 
   return (
@@ -396,7 +424,7 @@ function DailySummary({ user, teamId }: any) {
           </div>
         ) : previewSummary ? (
           // 預覽模式：顯示生成的內容和儲存/取消按鈕
-          <div className="card" style={{ border: '2px solid #ffa500' }}>
+          <div className="card" ref={summaryCardRef} style={{ border: '2px solid #ffa500' }}>
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -414,7 +442,24 @@ function DailySummary({ user, teamId }: any) {
                   預覽：AI 生成的總結（尚未儲存）
                 </h2>
               </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }} data-export-hidden="true">
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleExportSummaryPdf}
+                  disabled={exportingSummaryPdf}
+                >
+                  {exportingSummaryPdf ? (
+                    <>
+                      <Loader2 size={16} className="spinner" />
+                      產出中...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={16} />
+                      匯出 PDF
+                    </>
+                  )}
+                </button>
                 <button
                   className="btn btn-success"
                   onClick={handleSaveSummary}
@@ -460,7 +505,7 @@ function DailySummary({ user, teamId }: any) {
             </div>
           </div>
         ) : summary ? (
-          <div className="card">
+          <div className="card" ref={summaryCardRef}>
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -480,16 +525,37 @@ function DailySummary({ user, teamId }: any) {
                   })}
                 </h2>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {summary.cached && (
-                  <span className="badge" style={{ backgroundColor: '#28a745' }}>
-                    已儲存
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {summary.cached && (
+                    <span className="badge" style={{ backgroundColor: '#28a745' }}>
+                      已儲存
+                    </span>
+                  )}
+                  <span className="badge badge-primary">
+                    <Sparkles size={14} />
+                    AI 生成
                   </span>
-                )}
-                <span className="badge badge-primary">
-                  <Sparkles size={14} />
-                  AI 生成
-                </span>
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleExportSummaryPdf}
+                  disabled={exportingSummaryPdf}
+                  data-export-hidden="true"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  {exportingSummaryPdf ? (
+                    <>
+                      <Loader2 size={16} className="spinner" />
+                      產出中...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={16} />
+                      匯出 PDF
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 

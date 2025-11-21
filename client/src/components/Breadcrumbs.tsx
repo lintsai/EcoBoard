@@ -21,6 +21,7 @@ const routeLabels: Record<string, string> = {
   '/update-work': '更新工作進度',
   '/daily-summary': '每日總結',
   '/team-management': '團隊管理',
+  '/completed-history': '已完成項目調閱',
   '/weekly-reports': '週報管理'
 };
 

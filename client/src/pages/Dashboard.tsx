@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar, FileBarChart } from 'lucide-react';
+import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar, FileBarChart, History } from 'lucide-react';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
 
@@ -68,6 +68,13 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
   ];
 
   const managementItems = [
+    {
+      title: '已完成項目調閱',
+      description: '查詢歷史完成紀錄，了解成果與負責人',
+      icon: History,
+      path: '/completed-history',
+      color: '#f97316'
+    },
     {
       title: '週報管理',
       description: '產生和查看團隊週報，支援多種報表類型',
@@ -313,6 +320,7 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
               <li><strong style={{ color: '#0f172a' }}>這是您的工作中樞</strong>，點擊任一功能卡片可快速進入對應頁面，減少多次點擊的麻煩。</li>
               <li>建議<strong style={{ color: '#2563eb' }}>週一先整理 Backlog</strong>，將本週需求拆解並填寫預計日期，後續每日打卡時能直接加入今日。</li>
               <li>每日流程依時間順序排列：<strong style={{ color: '#047857' }}>打卡 → 工作項目 → 站立會議 → 更新進度 → 每日總結</strong>，按此節奏可確保資料完整。</li>
+              <li>完成後記得使用<strong style={{ color: '#0ea5e9' }}>「已完成項目調閱」</strong>回顧成果，可搭配<strong style={{ color: '#047857' }}>狀態篩選</strong>（已完成/已取消）與<strong style={{ color: '#b91c1c' }}>更新紀錄</strong>還原整個流程。</li>
               <li>切換團隊請點右上角<strong style={{ color: '#b91c1c' }}>「切換團隊」</strong>按鈕，各團隊資料完全獨立，不會互相干擾。</li>
             </ul>
           </div>
@@ -324,7 +332,7 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
             <li><strong style={{ color: '#0f172a' }}>填寫今日工作項目：</strong>用 AI 對話或 Backlog 清單產出卡片，補上 <strong style={{ color: '#b91c1c' }}>優先序</strong> 與 <strong style={{ color: '#2563eb' }}>預計時間</strong>。</li>
             <li><strong style={{ color: '#0f172a' }}>站立會議 Review：</strong>全員完成後檢閱，AI 彙整重點並提供 <strong style={{ color: '#2563eb' }}>再分配</strong> 建議，追蹤未到齊人數。</li>
             <li><strong style={{ color: '#0f172a' }}>執行中追蹤：</strong>隨時在工作卡 <strong style={{ color: '#2563eb' }}>更新進度/優先</strong> 或新增 <strong style={{ color: '#2563eb' }}>共同負責人</strong>。</li>
-            <li><strong style={{ color: '#0f172a' }}>收尾與產出：</strong>下班前更新進度，查看 AI 每日總結；週末匯出 <strong style={{ color: '#2563eb' }}>週報/績效報表</strong>。</li>
+            <li><strong style={{ color: '#0f172a' }}>收尾與產出：</strong>下班前更新進度，查看 AI 每日總結；善用 <strong style={{ color: '#0ea5e9' }}>已完成項目調閱</strong> 留存證據，週末匯出 <strong style={{ color: '#2563eb' }}>週報/績效報表</strong>。</li>
           </ol>
         </div>
       </div>

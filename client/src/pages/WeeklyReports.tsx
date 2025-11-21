@@ -7,8 +7,7 @@ import rehypeRaw from 'rehype-raw';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import mermaid from 'mermaid';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { exportElementAsPdf } from '../utils/pdfExport';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
 
@@ -371,79 +370,16 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
       return;
     }
 
-    let printable: HTMLElement | null = null;
-
     try {
       setDownloading(true);
-      const source = reportContentRef.current;
-      printable = source.cloneNode(true) as HTMLElement;
-      printable.style.maxHeight = 'none';
-      printable.style.overflow = 'visible';
-      printable.style.height = 'auto';
-      printable.style.width = `${source.offsetWidth}px`;
-      printable.style.position = 'absolute';
-      printable.style.left = '-9999px';
-      printable.style.top = '0';
-      printable.style.backgroundColor = '#ffffff';
-      const hiddenElements = printable.querySelectorAll('[data-export-hidden="true"]');
-      hiddenElements.forEach((element) => element.remove());
-      document.body.appendChild(printable);
-
-      const canvas = await html2canvas(printable, {
-        scale: window.devicePixelRatio > 1 ? window.devicePixelRatio : 2,
-        backgroundColor: '#ffffff',
-        useCORS: true
-      });
-
-      const pdf = new jsPDF('p', 'pt', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const marginX = 32;
-      const marginY = 32;
-      const usableWidth = pageWidth - marginX * 2;
-      const usableHeight = pageHeight - marginY * 2;
-      const pdfScale = usableWidth / canvas.width;
-      const sliceHeight = usableHeight / pdfScale;
-      const totalHeight = canvas.height;
-
-      for (let offset = 0, pageIndex = 0; offset < totalHeight; offset += sliceHeight, pageIndex++) {
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = canvas.width;
-        const pageHeightPx = Math.min(sliceHeight, totalHeight - offset);
-        pageCanvas.height = Math.max(1, Math.floor(pageHeightPx));
-        const pageContext = pageCanvas.getContext('2d');
-        if (!pageContext) {
-          continue;
-        }
-
-        pageContext.drawImage(
-          canvas,
-          0,
-          offset,
-          canvas.width,
-          pageHeightPx,
-          0,
-          0,
-          canvas.width,
-          pageCanvas.height
-        );
-
-        const imgHeight = pageCanvas.height * pdfScale;
-        if (pageIndex > 0) {
-          pdf.addPage();
-        }
-        pdf.addImage(pageCanvas.toDataURL('image/png'), 'PNG', marginX, marginY, usableWidth, imgHeight);
-      }
-
       const safeName = (selectedReport.report_name || 'weekly-report').replace(/[\\/:*?"<>|]/g, '_');
-      pdf.save(`${safeName}.pdf`);
+      await exportElementAsPdf(reportContentRef.current, {
+        filename: `${safeName}.pdf`
+      });
     } catch (error) {
       console.error('Download PDF error:', error);
       setError('PDF 下載失敗，請稍後再試');
     } finally {
-      if (printable?.parentNode) {
-        printable.parentNode.removeChild(printable);
-      }
       setDownloading(false);
     }
   };

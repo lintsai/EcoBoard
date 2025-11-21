@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useMemo } from 'react';
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -56,6 +56,7 @@ function Backlog({ user, teamId }: BacklogProps) {
   const [unassignedTargets, setUnassignedTargets] = useState<Record<number, number | ''>>({});
   const currentUserId = user?.id as number | undefined;
   const [selectedCreator, setSelectedCreator] = useState<'all' | number>('all');
+  const contentInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isItemOwner = (item: BacklogItem) => typeof currentUserId === 'number' && item.user_id === currentUserId;
 
@@ -84,6 +85,15 @@ function Backlog({ user, teamId }: BacklogProps) {
   useEffect(() => {
     loadUnassignedItems();
   }, [teamId]);
+
+  useEffect(() => {
+    if (showAddForm && editingItem && contentInputRef.current) {
+      const textarea = contentInputRef.current;
+      textarea.focus();
+      const length = textarea.value.length;
+      textarea.setSelectionRange(length, length);
+    }
+  }, [showAddForm, editingItem]);
 
   const loadBacklogItems = async () => {
     try {
@@ -574,6 +584,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                     placeholder="補充背景、工作重點、完成定義等資訊"
                     rows={5}
                     style={{ resize: 'vertical' }}
+                    ref={contentInputRef}
                   />
                 </div>
 
@@ -1044,7 +1055,6 @@ function Backlog({ user, teamId }: BacklogProps) {
 }
 
 export default Backlog;
-
 
 
 

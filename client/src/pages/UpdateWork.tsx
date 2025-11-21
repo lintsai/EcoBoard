@@ -67,6 +67,15 @@ function UpdateWork({ user, teamId }: any) {
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
 
+  const selectedWorkItemDetails =
+    [...workItems, ...incompleteItems].find(i => i.id === selectedItem) || null;
+  const isPrimaryHandler =
+    selectedWorkItemDetails?.handlers?.primary?.user_id === user.id;
+  const isFinalizedItem =
+    selectedWorkItemDetails?.progress_status === 'completed' ||
+    selectedWorkItemDetails?.progress_status === 'cancelled';
+  const lockStatusChange = Boolean(selectedItem && !isPrimaryHandler && isFinalizedItem);
+
   // Helper function to get priority badge
   const getPriorityBadge = (priority: number = 3) => {
     const priorityConfig: Record<number, { label: string; emoji: string; color: string }> = {
@@ -256,6 +265,14 @@ function UpdateWork({ user, teamId }: any) {
     // 共同處理人不能將工作標記為完成或取消
     if (!isPrimary && (progressStatus === 'completed' || progressStatus === 'cancelled')) {
       setError('只有主要處理人可以將工作標記為完成或取消');
+      return;
+    }
+
+    const itemFinalized =
+      item.progress_status === 'completed' || item.progress_status === 'cancelled';
+
+    if (!isPrimary && itemFinalized && progressStatus !== item.progress_status) {
+      setError('此項目已結束，僅主要處理人可以調整狀態');
       return;
     }
 
@@ -806,38 +823,31 @@ function UpdateWork({ user, teamId }: any) {
                       className="form-control"
                       value={progressStatus}
                       onChange={(e) => setProgressStatus(e.target.value)}
+                      disabled={lockStatusChange}
                     >
                       <option value="not_started">未開始</option>
                       <option value="in_progress">進行中</option>
                       {/* 只有主要處理人可以選擇完成或取消 */}
-                      {(() => {
-                        const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
-                        const isPrimary = item?.handlers?.primary?.user_id === user.id;
-                        return (
-                          <>
-                            <option value="completed" disabled={!isPrimary}>
-                              已完成{!isPrimary ? ' (僅主要處理人)' : ''}
-                            </option>
-                            <option value="blocked">受阻</option>
-                            <option value="cancelled" disabled={!isPrimary}>
-                              已取消{!isPrimary ? ' (僅主要處理人)' : ''}
-                            </option>
-                          </>
-                        );
-                      })()}
+                      <>
+                        <option value="completed" disabled={!isPrimaryHandler}>
+                          已完成{!isPrimaryHandler ? ' (僅主要處理人)' : ''}
+                        </option>
+                        <option value="blocked">受阻</option>
+                        <option value="cancelled" disabled={!isPrimaryHandler}>
+                          已取消{!isPrimaryHandler ? ' (僅主要處理人)' : ''}
+                        </option>
+                      </>
                     </select>
-                    {(() => {
-                      const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
-                      const isPrimary = item?.handlers?.primary?.user_id === user.id;
-                      if (!isPrimary) {
-                        return (
-                          <div style={{ fontSize: '12px', color: '#f59e0b', marginTop: '4px' }}>
-                            提示：共同處理人只能更新進度，不能標記為完成或取消
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
+                    {!isPrimaryHandler && !lockStatusChange && (
+                      <div style={{ fontSize: '12px', color: '#f59e0b', marginTop: '4px' }}>
+                        提示：共同處理人只能更新進度，不能標記為完成或取消
+                      </div>
+                    )}
+                    {lockStatusChange && (
+                      <div style={{ fontSize: '12px', color: '#ef4444', marginTop: '4px' }}>
+                        此項目已{selectedWorkItemDetails?.progress_status === 'completed' ? '完成' : '取消'}，僅主要處理人可以調整狀態
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-group">

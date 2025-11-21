@@ -182,6 +182,11 @@ class ApiService {
     return response.data;
   }
 
+  async moveWorkItemToBacklog(itemId: number) {
+    const response = await this.api.put(`/workitems/${itemId}/move-to-backlog`);
+    return response.data;
+  }
+
   async deleteWorkItem(itemId: number) {
     const response = await this.api.delete(`/workitems/${itemId}`);
     return response.data;
@@ -194,6 +199,13 @@ class ApiService {
 
   async removeCoHandler(itemId: number, userId: number) {
     const response = await this.api.delete(`/workitems/${itemId}/co-handlers/${userId}`);
+    return response.data;
+  }
+
+  async getCompletedWorkHistory(params: { teamId?: number; startDate?: string; endDate?: string; keyword?: string; limit?: number }) {
+    const response = await this.api.get('/workitems/completed/history', {
+      params
+    });
     return response.data;
   }
 

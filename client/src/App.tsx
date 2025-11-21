@@ -12,6 +12,7 @@ import UpdateWork from './pages/UpdateWork';
 import DailySummary from './pages/DailySummary';
 import TeamManagement from './pages/TeamManagement';
 import { WeeklyReports } from './pages';
+import CompletedHistory from './pages/CompletedHistory';
 import api from './services/api';
 import './App.css';
 
@@ -162,6 +163,16 @@ function App() {
           element={
             user && selectedTeam ? (
               <TeamManagement user={user} teamId={selectedTeam} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/teams" />
+            )
+          }
+        />
+        <Route
+          path="/completed-history"
+          element={
+            user && selectedTeam ? (
+              <CompletedHistory user={user} teamId={selectedTeam} onLogout={handleLogout} />
             ) : (
               <Navigate to="/teams" />
             )
