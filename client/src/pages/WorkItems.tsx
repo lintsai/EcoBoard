@@ -28,6 +28,7 @@ interface WorkItem {
   session_id?: string;
   ai_summary?: string;
   ai_title?: string;
+  progress_status?: string;
   handlers?: {
     primary: {
       user_id: number;
@@ -954,12 +955,25 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                               }}
                               title={item.ai_title || item.content}
                             >
-                              {item.ai_title || item.content}
+                              #{item.id} {item.ai_title || item.content}
                             </h4>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                             {getPriorityBadge(item.priority)}
-                            <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
+                            <span style={{
+                              fontSize: '11px',
+                              whiteSpace: 'nowrap',
+                              ...(() => {
+                                if (!item.estimated_date) return { color: '#999' };
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                const itemDate = new Date(item.estimated_date.split('T')[0]);
+                                if (itemDate < today) {
+                                  return { color: 'red', fontWeight: 'bold' };
+                                }
+                                return { color: '#0891b2' };
+                              })()
+                            }}>
                               📅 {item.estimated_date
                                 ? (() => {
                                   const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
@@ -1329,7 +1343,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                     whiteSpace: isExpanded ? 'normal' : 'nowrap',
                                     flex: 1
                                   }}>
-                                    {item.ai_title || item.content.substring(0, 50) + '...'}
+                                    #{item.id} {item.ai_title || item.content.substring(0, 50) + '...'}
                                   </h4>
                                   <span style={{ fontSize: '12px', color: '#0369a1', whiteSpace: 'nowrap' }}>
                                     👤 {ownerLabel}
@@ -1337,7 +1351,18 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                   {getPriorityBadge(item.priority)}
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-                                  <span style={{ color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                  <span style={{
+                                    ...(() => {
+                                      if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: '#999' };
+                                      const today = new Date();
+                                      today.setHours(0, 0, 0, 0);
+                                      const itemDate = new Date(item.estimated_date.split('T')[0]);
+                                      if (itemDate < today) {
+                                        return { color: 'red', fontWeight: 'bold' };
+                                      }
+                                      return { color: '#0891b2' };
+                                    })()
+                                  }}>
                                     📅 {item.estimated_date
                                       ? (() => {
                                         const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
@@ -1601,13 +1626,25 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                       whiteSpace: isExpanded ? 'normal' : 'nowrap',
                                       flex: 1
                                     }}>
-                                      {item.ai_title || item.content}
+                                      #{item.id} {item.ai_title || item.content}
                                     </h4>
                                     {getPriorityBadge(item.priority)}
                                   </div>
                                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '11px', color: '#0369a1' }}>
                                     <span style={{ whiteSpace: 'nowrap' }}>👤 {ownerLabel}</span>
-                                    <span style={{ color: item.estimated_date ? '#0891b2' : '#999', whiteSpace: 'nowrap' }}>
+                                    <span style={{
+                                      whiteSpace: 'nowrap',
+                                      ...(() => {
+                                        if (!item.estimated_date) return { color: '#999' };
+                                        const today = new Date();
+                                        today.setHours(0, 0, 0, 0);
+                                        const itemDate = new Date(item.estimated_date.split('T')[0]);
+                                        if (itemDate < today) {
+                                          return { color: 'red', fontWeight: 'bold' };
+                                        }
+                                        return { color: '#0891b2' };
+                                      })()
+                                    }}>
                                       📅 {estimatedDate}
                                     </span>
                                   </div>

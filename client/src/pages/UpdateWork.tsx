@@ -483,7 +483,7 @@ function UpdateWork({ user, teamId }: any) {
                         }}
                       >
                         <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px', lineHeight: '1.4' }}>
-                          {title}
+                          #{item.id} {title}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
                           {getPriorityBadge(item.priority)}
@@ -501,7 +501,19 @@ function UpdateWork({ user, teamId }: any) {
                               </span>
                             </div>
                           )}
-                          <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                          <span style={{
+                            fontSize: '11px',
+                            ...(() => {
+                              if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              const itemDate = new Date(item.estimated_date.split('T')[0]);
+                              if (itemDate < today) {
+                                return { color: 'red', fontWeight: 'bold' };
+                              }
+                              return { color: '#0891b2' };
+                            })()
+                          }}>
                             📅 {item.estimated_date
                               ? (() => {
                                 const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
@@ -589,7 +601,7 @@ function UpdateWork({ user, teamId }: any) {
                         }}
                       >
                         <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px', lineHeight: '1.4' }}>
-                          {title}
+                          #{item.id} {title}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
                           {getPriorityBadge(item.priority)}
@@ -608,7 +620,19 @@ function UpdateWork({ user, teamId }: any) {
                             </div>
                           )}
                           <span style={{ color: '#f59e0b' }}>📅 {itemDate}</span>
-                          <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                          <span style={{
+                            fontSize: '11px',
+                            ...(() => {
+                              if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              const itemDate = new Date(item.estimated_date.split('T')[0]);
+                              if (itemDate < today) {
+                                return { color: 'red', fontWeight: 'bold' };
+                              }
+                              return { color: '#0891b2' };
+                            })()
+                          }}>
                             📅 {item.estimated_date
                               ? (() => {
                                 const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')

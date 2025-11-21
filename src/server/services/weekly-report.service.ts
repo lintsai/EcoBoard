@@ -102,14 +102,26 @@ const isMemberOwner = (item: any, memberId: number) => {
 };
 
 const summarizeWorkItemsForPrompt = (items: any[]) => {
+  const isOverdue = (item: any) => {
+    if (!item.estimated_date || ['completed', 'cancelled'].includes(item.current_status || '')) {
+      return false;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const itemDate = new Date(item.estimated_date);
+    return itemDate < today;
+  };
+
   return items.map((item: any) => ({
     id: item.id,
-    title: item.ai_title || (item.content ? String(item.content).substring(0, 80) : '未命名工作項目'),
+    title: `#${item.id} ${item.ai_title || (item.content ? String(item.content).substring(0, 80) : '未命名工作項目')}`,
     owner: item.handlers?.primary?.display_name || item.display_name || '未指派',
     coOwners: (item.handlers?.co_handlers || []).map((handler: any) => handler.display_name),
     priority: item.priority || 3,
     status: item.current_status,
     createdDate: item.checkin_date,
+    estimatedDate: item.estimated_date,
+    isOverdue: isOverdue(item),
     lastUpdateTime: item.last_update_time
   }));
 };
@@ -881,7 +893,7 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.7,
-        max_tokens: 8000
+        max_tokens: 12000
       },
       {
         headers: {

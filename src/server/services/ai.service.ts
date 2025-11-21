@@ -1009,13 +1009,23 @@ export const generateDailySummary = async (
   const totalMembers = allMembers.rows.length;
   const absentCount = absentMembers.length;
 
+  const isOverdue = (item: any) => {
+    if (!item.estimated_date || ['completed', 'cancelled'].includes(item.current_status || '')) {
+      return false;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const itemDate = new Date(item.estimated_date);
+    return itemDate < today;
+  };
+
   const prompt = `請根據以下資訊產生 ${summaryDate} 的團隊工作總結：
 
 ## 團隊基本數據
 - 團隊總人數：${totalMembers}
 - 出勤人數：${stats.checkin_count}
 - 休假人數：${absentCount}
-- 出勤率：${((stats.checkin_count / totalMembers) * 100).toFixed(1)}%
+- 出勤率：${totalMembers > 0 ? ((stats.checkin_count / totalMembers) * 100).toFixed(1) : '0.0'}%
 - 工作項目總數：${stats.total_work_items}
 - 更新記錄數：${stats.total_updates}
 
@@ -1027,6 +1037,7 @@ ${checkedInMembers.rows.map((m: any) => `- ${m.display_name || m.username}`).joi
 
 ## 工作項目及狀態
 ${JSON.stringify(workItems.rows.map((item: any) => ({
+    ID: item.id,
     建立者: item.display_name || item.username,
     主要處理人: item.handlers?.primary ?
       (item.handlers.primary.display_name || item.handlers.primary.username) :
@@ -1043,6 +1054,8 @@ ${JSON.stringify(workItems.rows.map((item: any) => ({
       return '低優先級 🟢🔵';
     })(),
     建立日期: item.checkin_date,
+    預計完成日: item.estimated_date,
+    是否逾期: isOverdue(item) ? '是' : '否',
     是否今日新建: item.created_today ? '是' : '否（跨日期追蹤）',
     當前狀態: item.current_status,
     最後更新時間: item.last_update_time
@@ -1051,6 +1064,7 @@ ${JSON.stringify(workItems.rows.map((item: any) => ({
 ## 今日工作更新記錄（時間順序）
 ${JSON.stringify(updates.rows.map((update: any) => ({
     成員: update.display_name || update.username,
+    工作項目ID: update.work_item_id,
     工作項目: update.work_item_title || update.work_item_content.substring(0, 50),
     項目建立日期: update.item_created_date,
     更新時間: update.updated_at,

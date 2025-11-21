@@ -240,15 +240,26 @@ const stopEvent = (e: SyntheticEvent) => {
   nativeEvent.stopImmediatePropagation?.();
 };
 
-const renderItemMetaBadges = (item: WorkItem, estimatedColor = '#0891b2') => {
+const renderItemMetaBadges = (item: WorkItem) => {
   const statusBadge = getStatusBadge(item.progress_status);
+  const overdueStyle = (() => {
+    if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const itemDate = new Date(item.estimated_date.split('T')[0]);
+    if (itemDate < today) {
+      return { color: 'red', fontWeight: 'bold' };
+    }
+    return { color: '#0891b2' };
+  })();
+
   return (
     <>
       {getPriorityBadge(item.priority)}
       <span
         style={{
           fontSize: '11px',
-          color: item.estimated_date ? estimatedColor : '#999'
+          ...overdueStyle
         }}
       >
         📅 預計時間：{formatEstimatedDateLabel(item.estimated_date)}
@@ -2097,10 +2108,23 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                         {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                         <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                                          {item.ai_title || item.content}
+                                          #{item.id} {item.ai_title || item.content}
                                         </div>
                                         {getPriorityBadge(item.priority)}
-                                        <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                        <span style={{
+                                          fontSize: '11px',
+                                          whiteSpace: 'nowrap',
+                                          ...(() => {
+                                            if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
+                                            const today = new Date();
+                                            today.setHours(0, 0, 0, 0);
+                                            const itemDate = new Date(item.estimated_date.split('T')[0]);
+                                            if (itemDate < today) {
+                                              return { color: 'red', fontWeight: 'bold' };
+                                            }
+                                            return { color: '#0891b2' };
+                                          })()
+                                        }}>
                                           📅 預計時間：
                                           {item.estimated_date
                                             ? (() => {
@@ -2362,10 +2386,23 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                           {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                           <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                                            {item.ai_title || item.content}
+                                            #{item.id} {item.ai_title || item.content}
                                           </div>
                                           {getPriorityBadge(item.priority)}
-                                          <span style={{ fontSize: '11px', color: item.estimated_date ? '#0891b2' : '#999' }}>
+                                          <span style={{
+                                            fontSize: '11px',
+                                            whiteSpace: 'nowrap',
+                                            ...(() => {
+                                              if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
+                                              const today = new Date();
+                                              today.setHours(0, 0, 0, 0);
+                                              const itemDate = new Date(item.estimated_date.split('T')[0]);
+                                              if (itemDate < today) {
+                                                return { color: 'red', fontWeight: 'bold' };
+                                              }
+                                              return { color: '#0891b2' };
+                                            })()
+                                          }}>
                                             📅 預計時間：
                                             {item.estimated_date
                                               ? (() => {
@@ -2646,7 +2683,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                               {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                               <div style={{ fontSize: '13px' }}>
-                                                {item.ai_title || item.content}
+                                                #{item.id} {item.ai_title || item.content}
                                               </div>
                                               {renderItemMetaBadges(item)}
                                             </div>
@@ -2761,9 +2798,9 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
                                               {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                               <div style={{ fontSize: '13px' }}>
-                                                {item.ai_title || item.content}
+                                                #{item.id} {item.ai_title || item.content}
                                               </div>
-                                              {renderItemMetaBadges(item, '#0891b2')}
+                                              {renderItemMetaBadges(item)}
                                             </div>
                                             <button
                                               className="jump-to-original"
