@@ -202,7 +202,16 @@ class ApiService {
     return response.data;
   }
 
-  async getCompletedWorkHistory(params: { teamId?: number; startDate?: string; endDate?: string; keyword?: string; limit?: number }) {
+  async getCompletedWorkHistory(params: {
+    teamId?: number;
+    startDate?: string;
+    endDate?: string;
+    keyword?: string;
+    limit?: number;
+    page?: number;
+    status?: 'completed' | 'cancelled';
+    sortBy?: 'completed_desc' | 'completed_asc' | 'id_desc' | 'id_asc';
+  }) {
     const response = await this.api.get('/workitems/completed/history', {
       params
     });

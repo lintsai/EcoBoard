@@ -347,6 +347,12 @@ router.get(
     expressQuery('startDate').optional().isISO8601().withMessage('開始日期格式錯誤'),
     expressQuery('endDate').optional().isISO8601().withMessage('結束日期格式錯誤'),
     expressQuery('limit').optional().isInt({ min: 1, max: 200 }).withMessage('limit 需在 1-200 之間'),
+    expressQuery('page').optional().isInt({ min: 1 }).withMessage('page 必須大於 0'),
+    expressQuery('status').optional().isIn(['completed', 'cancelled']).withMessage('狀態參數無效'),
+    expressQuery('sortBy')
+      .optional()
+      .isIn(['completed_desc', 'completed_asc', 'id_desc', 'id_asc'])
+      .withMessage('排序參數無效'),
     expressQuery('keyword').optional().isString().withMessage('關鍵字格式錯誤')
   ],
   async (req: AuthRequest, res: Response) => {
@@ -356,13 +362,16 @@ router.get(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { teamId, startDate, endDate, limit, keyword } = req.query;
+      const { teamId, startDate, endDate, limit, keyword, page, status, sortBy } = req.query;
       const history = await workItemService.getCompletedWorkHistory(req.user!.id, {
         teamId: teamId ? parseInt(teamId as string, 10) : undefined,
         startDate: startDate ? String(startDate) : undefined,
         endDate: endDate ? String(endDate) : undefined,
         limit: limit ? parseInt(limit as string, 10) : undefined,
-        keyword: keyword ? String(keyword) : undefined
+        keyword: keyword ? String(keyword) : undefined,
+        page: page ? parseInt(page as string, 10) : undefined,
+        status: status ? (status as 'completed' | 'cancelled') : undefined,
+        sortBy: sortBy ? (sortBy as 'completed_desc' | 'completed_asc' | 'id_desc' | 'id_asc') : undefined
       });
 
       preventCache(res);

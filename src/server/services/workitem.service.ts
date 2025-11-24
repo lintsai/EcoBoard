@@ -46,6 +46,21 @@ interface CompletedHistoryFilters {
   endDate?: string;
   keyword?: string;
   limit?: number;
+  page?: number;
+  status?: 'completed' | 'cancelled';
+  sortBy?: 'completed_desc' | 'completed_asc' | 'id_desc' | 'id_asc';
+}
+
+interface CompletedHistoryPagination {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+interface CompletedHistoryResult {
+  items: any[];
+  pagination: CompletedHistoryPagination;
 }
 
 // 獲取工作項目的所有處理人
@@ -850,8 +865,10 @@ export const getIncompleteTeamWorkItems = async (teamId: number) => {
 export const getCompletedWorkHistory = async (
   userId: number,
   filters: CompletedHistoryFilters
-) => {
+): Promise<CompletedHistoryResult> => {
   const sanitizedLimit = Math.min(Math.max(filters.limit ?? 30, 1), 200);
+  const requestedPage = Math.max(filters.page ?? 1, 1);
+  const sortBy = filters.sortBy ?? 'completed_desc';
   const params: any[] = [userId];
   let paramIndex = 2;
   const conditions: string[] = [];
@@ -885,10 +902,13 @@ export const getCompletedWorkHistory = async (
     paramIndex++;
   }
 
-  const limitParamIndex = paramIndex;
-  params.push(sanitizedLimit);
+  if (filters.status) {
+    conditions.push(`su.progress_status = $${paramIndex}`);
+    params.push(filters.status);
+    paramIndex++;
+  }
 
-  const sql = `
+  const statusUpdatesCte = `
     WITH status_updates AS (
       SELECT DISTINCT ON (wu.work_item_id)
         wu.work_item_id,
@@ -900,6 +920,49 @@ export const getCompletedWorkHistory = async (
       WHERE wu.progress_status IN ('completed', 'cancelled')
       ORDER BY wu.work_item_id, wu.updated_at DESC
     )
+  `;
+
+  const baseFromClause = `
+    FROM status_updates su
+    INNER JOIN work_items wi ON wi.id = su.work_item_id
+    LEFT JOIN checkins c ON wi.checkin_id = c.id
+    LEFT JOIN teams t ON COALESCE(wi.team_id, c.team_id) = t.id
+    INNER JOIN team_members tm ON tm.team_id = COALESCE(wi.team_id, c.team_id)
+      AND tm.user_id = $1
+  `;
+
+  const whereClause = `
+    WHERE 1=1
+      ${conditions.length ? `AND ${conditions.join(' AND ')}` : ''}
+  `;
+
+  const countSql = `
+    ${statusUpdatesCte}
+    SELECT COUNT(*) AS total
+    ${baseFromClause}
+    ${whereClause}
+  `;
+
+  const countResult = await query(countSql, params);
+  const total = Number(countResult.rows[0]?.total ?? 0);
+  const totalPages = total === 0 ? 1 : Math.ceil(total / sanitizedLimit);
+  const effectivePage = total === 0 ? 1 : Math.min(requestedPage, totalPages);
+  const offset = (effectivePage - 1) * sanitizedLimit;
+
+  const sortMap: Record<string, string> = {
+    completed_desc: 'su.status_changed_at DESC, wi.id DESC',
+    completed_asc: 'su.status_changed_at ASC, wi.id ASC',
+    id_desc: 'wi.id DESC',
+    id_asc: 'wi.id ASC'
+  };
+  const orderClause = sortMap[sortBy] ?? sortMap.completed_desc;
+
+  const limitParamIndex = paramIndex;
+  const offsetParamIndex = paramIndex + 1;
+  const dataParams = [...params, sanitizedLimit, offset];
+
+  const dataSql = `
+    ${statusUpdatesCte}
     SELECT
       wi.id,
       wi.checkin_id,
@@ -925,11 +988,7 @@ export const getCompletedWorkHistory = async (
       t.name AS team_name,
       primary_handler.display_name AS primary_handler_name,
       primary_handler.username AS primary_handler_username
-    FROM status_updates su
-    INNER JOIN work_items wi ON wi.id = su.work_item_id
-    LEFT JOIN checkins c ON wi.checkin_id = c.id
-    LEFT JOIN teams t ON COALESCE(wi.team_id, c.team_id) = t.id
-    INNER JOIN work_item_handlers wih ON wi.id = wih.work_item_id
+    ${baseFromClause}
     LEFT JOIN (
       SELECT wih.work_item_id, u.display_name, u.username
       FROM work_item_handlers wih
@@ -937,15 +996,24 @@ export const getCompletedWorkHistory = async (
       WHERE wih.handler_type = 'primary'
     ) primary_handler ON primary_handler.work_item_id = wi.id
     LEFT JOIN users cb ON cb.id = su.updated_by
-    WHERE wih.user_id = $1
-      AND wih.handler_type IN ('primary', 'co_handler')
-      ${conditions.length ? `AND ${conditions.join(' AND ')}` : ''}
-    ORDER BY su.status_changed_at DESC
+    ${whereClause}
+    ORDER BY ${orderClause}
     LIMIT $${limitParamIndex}
+    OFFSET $${offsetParamIndex}
   `;
 
-  const result = await query(sql, params);
-  return normalizeEstimatedDateList(result.rows);
+  const result = await query(dataSql, dataParams);
+  const items = normalizeEstimatedDateList(result.rows);
+
+  return {
+    items,
+    pagination: {
+      total,
+      page: effectivePage,
+      limit: sanitizedLimit,
+      totalPages
+    }
+  };
 };
 
 export const deleteWorkItem = async (itemId: number, userId: number) => {

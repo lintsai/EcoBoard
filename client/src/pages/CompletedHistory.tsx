@@ -13,7 +13,7 @@ interface CompletedHistoryProps {
   onLogout: () => void;
 }
 
-type HistorySort = 'completed_desc' | 'completed_asc';
+type HistorySort = 'completed_desc' | 'completed_asc' | 'id_desc' | 'id_asc';
 type StatusFilter = 'all' | 'completed' | 'cancelled';
 
 interface CompletedHistoryItem {
@@ -69,6 +69,16 @@ const getDefaultHistoryRange = () => {
   };
 };
 
+const createDefaultFilters = (): HistoryFilterState => {
+  const range = getDefaultHistoryRange();
+  return {
+    startDate: range.startDate,
+    endDate: range.endDate,
+    keyword: '',
+    limit: 30
+  };
+};
+
 const formatHistoryDateTime = (value: string) => {
   try {
     return new Date(value).toLocaleString('zh-TW', {
@@ -85,15 +95,8 @@ const formatHistoryDateTime = (value: string) => {
 
 function CompletedHistory({ teamId }: CompletedHistoryProps) {
   const navigate = useNavigate();
-  const [historyFilters, setHistoryFilters] = useState<HistoryFilterState>(() => {
-    const range = getDefaultHistoryRange();
-    return {
-      startDate: range.startDate,
-      endDate: range.endDate,
-      keyword: '',
-      limit: 30
-    };
-  });
+  const [historyFiltersInput, setHistoryFiltersInput] = useState<HistoryFilterState>(createDefaultFilters);
+  const [appliedHistoryFilters, setAppliedHistoryFilters] = useState<HistoryFilterState>(createDefaultFilters);
   const [completedHistory, setCompletedHistory] = useState<CompletedHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -107,12 +110,35 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   const [updatesError, setUpdatesError] = useState('');
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(() => new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [paginationInfo, setPaginationInfo] = useState({
+    total: 0,
+    totalPages: 1,
+    limit: historyFiltersInput.limit,
+    page: 1
+  });
 
-  const loadCompletedHistory = async (override?: HistoryFilterState) => {
-    const filters = override || historyFilters;
+  const loadCompletedHistory = async (
+    filtersOverride?: HistoryFilterState,
+    pageOverride?: number,
+    statusOverride?: StatusFilter,
+    sortOverride?: HistorySort
+  ) => {
+    const filters = filtersOverride || appliedHistoryFilters;
+    const targetPage = pageOverride ?? currentPage;
+    const targetStatus = statusOverride ?? statusFilter;
+    const targetSort = sortOverride ?? sortBy;
 
     if (!teamId) {
       setCompletedHistory([]);
+      setPaginationInfo((prev) => ({
+        ...prev,
+        total: 0,
+        totalPages: 1,
+        page: 1,
+        limit: filters.limit
+      }));
+      setCurrentPage(1);
       return;
     }
 
@@ -124,9 +150,33 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
         startDate: filters.startDate,
         endDate: filters.endDate,
         keyword: filters.keyword || undefined,
-        limit: filters.limit
+        limit: filters.limit,
+        page: targetPage,
+        status: targetStatus === 'all' ? undefined : targetStatus,
+        sortBy: targetSort
       });
-      setCompletedHistory(data);
+
+      const items = Array.isArray(data) ? data : data?.items ?? [];
+      setCompletedHistory(items);
+
+      if (!Array.isArray(data) && data?.pagination) {
+        const totalPages = Math.max(1, data.pagination.totalPages || 1);
+        setPaginationInfo({
+          total: data.pagination.total,
+          totalPages,
+          limit: data.pagination.limit ?? filters.limit,
+          page: data.pagination.page ?? targetPage
+        });
+        setCurrentPage(data.pagination.page ?? targetPage);
+      } else {
+        setPaginationInfo({
+          total: items.length,
+          totalPages: 1,
+          limit: filters.limit,
+          page: targetPage
+        });
+        setCurrentPage(targetPage);
+      }
     } catch (err: any) {
       console.error('Load completed history error:', err);
       setError(err.response?.data?.error || '載入已完成項目失敗');
@@ -138,9 +188,17 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   useEffect(() => {
     if (!teamId) {
       setCompletedHistory([]);
+      setPaginationInfo((prev) => ({
+        ...prev,
+        total: 0,
+        totalPages: 1,
+        page: 1
+      }));
+      setCurrentPage(1);
       return;
     }
-    loadCompletedHistory();
+    setCurrentPage(1);
+    loadCompletedHistory(appliedHistoryFilters, 1);
   }, [teamId]);
 
   useEffect(() => {
@@ -169,49 +227,32 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   }, []);
 
   const handleHistoryFilterChange = (field: keyof HistoryFilterState, value: string | number) => {
-    setHistoryFilters((prev) => ({
+    setHistoryFiltersInput((prev) => ({
       ...prev,
       [field]: field === 'limit' ? Number(value) : String(value)
     }));
   };
 
   const handleApplyHistoryFilters = () => {
+    const nextFilters = { ...historyFiltersInput };
+    setAppliedHistoryFilters(nextFilters);
     setSortBy(sortByInput);
     setStatusFilter(statusFilterInput);
-    loadCompletedHistory();
+    setCurrentPage(1);
+    loadCompletedHistory(nextFilters, 1, statusFilterInput, sortByInput);
   };
 
   const handleResetHistoryFilters = () => {
-    const defaults = getDefaultHistoryRange();
-    const nextFilters: HistoryFilterState = {
-      startDate: defaults.startDate,
-      endDate: defaults.endDate,
-      keyword: '',
-      limit: 30
-    };
-    setHistoryFilters(nextFilters);
+    const nextFilters = createDefaultFilters();
+    setHistoryFiltersInput(nextFilters);
+    setAppliedHistoryFilters(nextFilters);
     setSortBy('completed_desc');
     setSortByInput('completed_desc');
     setStatusFilter('all');
     setStatusFilterInput('all');
-    loadCompletedHistory(nextFilters);
+    setCurrentPage(1);
+    loadCompletedHistory(nextFilters, 1, 'all', 'completed_desc');
   };
-
-  const sortedHistory = [...completedHistory].sort((a, b) => {
-    const timestamp = (value: string) => new Date(value).getTime();
-    if (sortBy === 'completed_asc') {
-      return timestamp(a.completed_at) - timestamp(b.completed_at);
-    }
-    return timestamp(b.completed_at) - timestamp(a.completed_at);
-  });
-
-  const filteredHistory = sortedHistory.filter((item) => {
-    if (statusFilter === 'all') {
-      return true;
-    }
-    const normalized = item.status === 'cancelled' ? 'cancelled' : 'completed';
-    return normalized === statusFilter;
-  });
 
   const toggleItemExpanded = (itemId: number) => {
     setExpandedItems((prev) => {
@@ -223,6 +264,31 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
       }
       return next;
     });
+  };
+
+  const totalPagesDisplay = Math.max(1, paginationInfo.totalPages || 1);
+  const hasItems = completedHistory.length > 0 && paginationInfo.total > 0;
+  const startIndex = hasItems ? (paginationInfo.page - 1) * paginationInfo.limit + 1 : 0;
+  const endIndex = hasItems ? startIndex + completedHistory.length - 1 : 0;
+  const statusLabelMap: Record<StatusFilter, string> = {
+    all: '全部狀態',
+    completed: '僅顯示已完成',
+    cancelled: '僅顯示已取消'
+  };
+  const canPrev = paginationInfo.page > 1;
+  const canNext = paginationInfo.page < totalPagesDisplay && paginationInfo.total > 0;
+  const currentPageDisplay = Math.min(paginationInfo.page, totalPagesDisplay);
+
+  const handlePageChange = (nextPage: number) => {
+    if (nextPage < 1) {
+      return;
+    }
+    const maxPages = Math.max(1, paginationInfo.totalPages || 1);
+    if (nextPage > maxPages || nextPage === currentPage) {
+      return;
+    }
+    setCurrentPage(nextPage);
+    loadCompletedHistory(undefined, nextPage);
   };
 
   const getStatusBadge = (status?: string | null) => {
@@ -336,8 +402,8 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               <label style={{ fontSize: '12px', color: '#475467' }}>開始日期</label>
               <input
                 type="date"
-                value={historyFilters.startDate}
-                max={historyFilters.endDate}
+                value={historyFiltersInput.startDate}
+                max={historyFiltersInput.endDate}
                 onChange={(e) => handleHistoryFilterChange('startDate', e.target.value)}
                 className="input"
                 style={{ minWidth: '150px' }}
@@ -347,8 +413,8 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               <label style={{ fontSize: '12px', color: '#475467' }}>結束日期</label>
               <input
                 type="date"
-                value={historyFilters.endDate}
-                min={historyFilters.startDate}
+                value={historyFiltersInput.endDate}
+                min={historyFiltersInput.startDate}
                 max={formatLocalISODate(new Date())}
                 onChange={(e) => handleHistoryFilterChange('endDate', e.target.value)}
                 className="input"
@@ -359,7 +425,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               <label style={{ fontSize: '12px', color: '#475467' }}>關鍵字</label>
               <input
                 type="text"
-                value={historyFilters.keyword}
+                value={historyFiltersInput.keyword}
                 onChange={(e) => handleHistoryFilterChange('keyword', e.target.value)}
                 placeholder="搜尋標題、內容或備註"
                 className="input"
@@ -368,7 +434,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontSize: '12px', color: '#475467' }}>顯示筆數</label>
               <select
-                value={historyFilters.limit}
+                value={historyFiltersInput.limit}
                 onChange={(e) => handleHistoryFilterChange('limit', Number(e.target.value))}
                 className="input"
               >
@@ -386,6 +452,8 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               >
                 <option value="completed_desc">完成時間（新 → 舊）</option>
                 <option value="completed_asc">完成時間（舊 → 新）</option>
+                <option value="id_desc">工作項目 ID（大 → 小）</option>
+                <option value="id_asc">工作項目 ID（小 → 大）</option>
               </select>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -411,6 +479,47 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
           </div>
 
           <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>
+            {!loading && !error && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  marginBottom: '12px'
+                }}
+              >
+                <div style={{ fontSize: '12px', color: '#475467', lineHeight: 1.6 }}>
+                  <div>
+                    顯示筆數：{hasItems ? `${startIndex} - ${endIndex}` : '0'} / 共{' '}
+                    {paginationInfo.total} 筆
+                  </div>
+                  <div>篩選狀態：{statusLabelMap[statusFilter]}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '4px 12px', fontSize: '12px' }}
+                    disabled={!canPrev || loading}
+                    onClick={() => handlePageChange(paginationInfo.page - 1)}
+                  >
+                    上一頁
+                  </button>
+                  <span style={{ fontSize: '12px', color: '#111827' }}>
+                    第 {currentPageDisplay} / {totalPagesDisplay} 頁
+                  </span>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '4px 12px', fontSize: '12px' }}
+                    disabled={!canNext || loading}
+                    onClick={() => handlePageChange(paginationInfo.page + 1)}
+                  >
+                    下一頁
+                  </button>
+                </div>
+              </div>
+            )}
             {loading ? (
               <div style={{ textAlign: 'center', padding: '20px' }}>
                 <Loader2 size={32} className="spinner" style={{ margin: '0 auto' }} />
@@ -419,12 +528,12 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               <div className="alert alert-error" style={{ marginBottom: 0 }}>
                 {error}
               </div>
-            ) : filteredHistory.length === 0 ? (
+            ) : completedHistory.length === 0 ? (
               <p style={{ textAlign: 'center', color: '#6b7280', padding: '20px 0' }}>
                 尚無符合條件的完成項目
               </p>
             ) : (
-              filteredHistory.map((item) => {
+              completedHistory.map((item) => {
                 const summary = item.ai_summary || item.ai_title || item.content;
                 const isExpanded = expandedItems.has(item.id);
 
