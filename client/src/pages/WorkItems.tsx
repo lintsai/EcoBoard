@@ -17,6 +17,7 @@ interface ChatMessage {
   role: 'user' | 'ai';
   content: string;
   timestamp: string;
+  author?: string;
 }
 
 interface WorkItem {
@@ -175,7 +176,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     setMessages([{
       role: 'ai',
       content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      author: 'AI 助手'
     }]);
   }, [teamId]);
 
@@ -268,29 +270,38 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     }
   };
 
-  const loadChatHistory = async (itemSessionId: string) => {
+  const loadChatHistory = async (itemSessionId: string): Promise<boolean> => {
     try {
       const history = await api.getChatHistory(itemSessionId);
       const formattedMessages: ChatMessage[] = [];
 
       history.forEach((msg: any) => {
+        const authorLabel =
+          msg.display_name || msg.username
+            ? (msg.display_name || msg.username)
+            : '使用者';
+
         formattedMessages.push({
           role: 'user',
           content: msg.content,
-          timestamp: msg.created_at
+          timestamp: msg.created_at,
+          author: authorLabel
         });
         if (msg.ai_response) {
           formattedMessages.push({
             role: 'ai',
             content: msg.ai_response,
-            timestamp: msg.created_at
+            timestamp: msg.created_at,
+            author: 'AI 助手'
           });
         }
       });
 
       setMessages(formattedMessages);
+      return formattedMessages.length > 0;
     } catch (error) {
       console.error('Failed to load chat history:', error);
+      return false;
     }
   };
 
@@ -308,7 +319,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         setMessages([{
           role: 'ai',
           content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          author: 'AI 助手'
         }]);
       }
     } catch (error: any) {
@@ -378,7 +390,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setMessages([{
         role: 'ai',
         content: `正在編輯工作項目：「${item.ai_title || item.content}」\n\n您可以繼續與我討論這個項目的細節。`,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        author: 'AI 助手'
       }]);
     }
   };
@@ -389,7 +402,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     const userMessage: ChatMessage = {
       role: 'user',
       content: inputMessage,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      author: user.display_name || user.username || '你'
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -406,7 +420,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       const aiMessage: ChatMessage = {
         role: 'ai',
         content: response.response,
-        timestamp: response.timestamp
+        timestamp: response.timestamp,
+        author: 'AI 助手'
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -415,7 +430,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setMessages(prev => [...prev, {
         role: 'ai',
         content: '抱歉，發生錯誤。請稍後再試。',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        author: 'AI 助手'
       }]);
     } finally {
       setLoading(false);
@@ -465,7 +481,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setMessages([{
         role: 'ai',
         content: '✅ 工作項目已成功儲存！\n\n您可以繼續新增其他工作項目。',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        author: 'AI 助手'
       }]);
     } catch (error) {
       console.error('Failed to save work item:', error);
@@ -530,7 +547,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       setMessages([{
         role: 'ai',
         content: '✅ 工作項目已更新！\n\n您可以繼續新增或編輯其他工作項目。',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        author: 'AI 助手'
       }]);
 
       alert('工作項目已更新！');
@@ -550,7 +568,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     setMessages([{
       role: 'ai',
       content: '已取消編輯。您可以新增其他工作項目或編輯現有項目。',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      author: 'AI 助手'
     }]);
   };
 
@@ -604,34 +623,41 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
 
       // 使用 Backlog 項目的標題作為第一次 AI 對談
       const backlogTitle = backlogItem.ai_title || backlogItem.content;
+      const sessionFromBackend = movedItem.session_id;
+
+      if (!sessionFromBackend) {
+        throw new Error('無法取得 AI 對談 Session，請稍後再試');
+      }
 
       // 設定為編輯模式，而不是新增模式
       // 這樣儲存時會更新現有項目，而不是創建新項目
-      setSelectedItemId(backlogItem.id);  // 設置選中的項目 ID
-      setCurrentItemAiSummary(backlogItem.ai_summary || backlogItem.content);
-      setSelectedPriority(backlogItem.priority || 3);
+      setSelectedItemId(movedItem.id);  // 設置選中的項目 ID
+      setCurrentItemAiSummary(movedItem.ai_summary || backlogItem.ai_summary || backlogItem.content);
+      setSelectedPriority(movedItem.priority || backlogItem.priority || 3);
+      setSessionId(sessionFromBackend);
 
-      // 使用後端生成的新 session_id
-      const newSessionId = movedItem.session_id;
-      console.log('[WorkItems] Using new session from backend:', newSessionId);
-      setSessionId(newSessionId);
+      // 優先載入既有對談紀錄，無紀錄時才啟動新的 AI 對話
+      const hasHistory = await loadChatHistory(sessionFromBackend);
+      if (!hasHistory) {
+        setMessages([{
+          role: 'ai',
+          content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
+          timestamp: new Date().toISOString(),
+          author: 'AI 助手'
+        }]);
 
-      // 設置初始訊息
-      setMessages([{
-        role: 'ai',
-        content: '您好！我會協助您規劃今日的工作項目。請告訴我您今天計劃想完成的工作？',
-        timestamp: new Date().toISOString()
-      }]);
+        // 自動發送 Backlog 標題作為第一次對談
+        setInputMessage(backlogTitle);
 
-      // 自動發送 Backlog 標題作為第一次對談
-      setInputMessage(backlogTitle);
+        // 稍作延遲後自動送出（確保 UI 已更新）
+        setTimeout(() => {
+          handleSend();
+        }, 100);
+      } else {
+        setInputMessage('');
+      }
 
-      // 稍作延遲後自動送出（確保 UI 已更新）
-      setTimeout(() => {
-        handleSend();
-      }, 100);
-
-      alert('Backlog 項目已加入今日工作！AI 正在協助您完善工作內容...\n\n完成對談後，請點擊「更新此工作項目」儲存變更。');
+      alert('Backlog 項目已加入今日工作！既有的 AI 對談已保留，完成討論後請點擊「更新此工作項目」。');
     } catch (error: any) {
       console.error('Failed to add backlog to today:', error);
       const errorMsg = error.response?.data?.error || '加入失敗';
@@ -723,6 +749,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                       color: msg.role === 'user' ? 'white' : '#374151'
                     }}
                   >
+                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', opacity: 0.9 }}>
+                      {msg.author || (msg.role === 'ai' ? 'AI 助手' : '使用者')}
+                    </div>
                     {msg.role === 'ai' ? (
                       <div className="markdown-content" style={{ fontSize: '14px', lineHeight: '1.6' }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>

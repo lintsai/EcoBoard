@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, CheckCircle, AlertCircle, Loader2, Send, Sparkles, ChevronDown, ChevronRight, ChevronUp, User, X } from 'lucide-react';
+import { ArrowLeft, Clock, CheckCircle, AlertCircle, Loader2, Send, Sparkles, ChevronDown, ChevronRight, ChevronUp, User, X, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
+import AIChatHistoryModal from '../components/AIChatHistoryModal';
 
 interface WorkItem {
   id: number;
@@ -66,6 +67,8 @@ function UpdateWork({ user, teamId }: any) {
   const [showIncomplete, setShowIncomplete] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [chatModalTitle, setChatModalTitle] = useState('');
 
   const selectedWorkItemDetails =
     [...workItems, ...incompleteItems].find(i => i.id === selectedItem) || null;
@@ -106,6 +109,16 @@ function UpdateWork({ user, teamId }: any) {
       return null;
     }
     return value.includes('T') ? value.split('T')[0] : value;
+  };
+
+  const openChatHistory = (item?: WorkItem | null) => {
+    const target = item || selectedWorkItemDetails;
+    if (!target?.session_id) {
+      alert('此工作項目尚未綁定 AI 對談');
+      return;
+    }
+    setChatSessionId(target.session_id);
+    setChatModalTitle(`#${target.id} AI 對談`);
   };
 
   // Sorting function
@@ -713,9 +726,20 @@ function UpdateWork({ user, teamId }: any) {
                         }}>
                           {getPriorityBadge(item.priority)}
                           <div>{getStatusBadge(status)}</div>
-                          <span style={{ fontSize: '12px', color: '#999', marginLeft: 'auto' }}>
-                            建立於 {formatTime(item.created_at)}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: '6px 10px', fontSize: '12px' }}
+                              onClick={() => openChatHistory(item)}
+                              disabled={!item.session_id}
+                            >
+                              <MessageSquare size={14} />
+                              查看AI對談
+                            </button>
+                            <span style={{ fontSize: '12px', color: '#999' }}>
+                              建立於 {formatTime(item.created_at)}
+                            </span>
+                          </div>
                         </div>
 
                         {/* 處理人資訊 */}
@@ -950,6 +974,15 @@ function UpdateWork({ user, teamId }: any) {
           </ul>
         </div>
       </div>
+      <AIChatHistoryModal
+        open={Boolean(chatSessionId)}
+        sessionId={chatSessionId}
+        onClose={() => {
+          setChatSessionId(null);
+          setChatModalTitle('');
+        }}
+        title={chatModalTitle}
+      />
     </div>
   );
 }

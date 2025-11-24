@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Breadcrumbs from '../components/Breadcrumbs';
 import PriorityBadge from '../components/PriorityBadge';
+import AIChatHistoryModal from '../components/AIChatHistoryModal';
 import api from '../services/api';
 
 interface CompletedHistoryProps {
@@ -23,6 +24,7 @@ interface CompletedHistoryItem {
   content: string;
   priority?: number;
   estimated_date?: string | null;
+  session_id?: string | null;
   completed_at: string;
   update_content?: string | null;
   status?: string | null;
@@ -111,6 +113,8 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Set<number>>(() => new Set());
   const [currentPage, setCurrentPage] = useState(1);
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [chatModalTitle, setChatModalTitle] = useState('');
   const [paginationInfo, setPaginationInfo] = useState({
     total: 0,
     totalPages: 1,
@@ -367,6 +371,15 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
     setUpdatesError('');
   };
 
+  const handleViewChat = (item: CompletedHistoryItem) => {
+    if (!item.session_id) {
+      alert('此項目尚未綁定 AI 對談紀錄');
+      return;
+    }
+    setChatSessionId(item.session_id);
+    setChatModalTitle(`#${item.id} AI 對談`);
+  };
+
   return (
     <div className="app-container">
       <div className="main-content">
@@ -604,6 +617,14 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                               <button
                                 className="btn btn-secondary"
                                 style={{ padding: '6px 12px', fontSize: '12px' }}
+                                onClick={() => handleViewChat(item)}
+                                disabled={!item.session_id}
+                              >
+                                查看AI對談
+                              </button>
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: '6px 12px', fontSize: '12px' }}
                                 onClick={() => handleViewUpdates(item)}
                               >
                                 查看更新資訊
@@ -740,6 +761,15 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
             </div>
           </div>
         )}
+        <AIChatHistoryModal
+          open={Boolean(chatSessionId)}
+          sessionId={chatSessionId}
+          onClose={() => {
+            setChatSessionId(null);
+            setChatModalTitle('');
+          }}
+          title={chatModalTitle}
+        />
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 調閱小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#6b7280' }}>

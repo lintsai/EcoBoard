@@ -1588,10 +1588,18 @@ export const getDailySummaryByDate = async (
 export const getChatHistory = async (sessionId: string) => {
   try {
     const result = await query(
-      `SELECT id, content, ai_response, message_type, created_at
-       FROM chat_messages
-       WHERE session_id = $1
-       ORDER BY created_at ASC`,
+      `SELECT cm.id,
+              cm.content,
+              cm.ai_response,
+              cm.message_type,
+              cm.created_at,
+              cm.user_id,
+              u.username,
+              u.display_name
+       FROM chat_messages cm
+       LEFT JOIN users u ON cm.user_id = u.id
+       WHERE cm.session_id = $1
+       ORDER BY cm.created_at ASC`,
       [sessionId]
     );
 

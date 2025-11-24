@@ -423,8 +423,8 @@ export const moveBacklogToWorkItem = async (
 
   const checkinId = checkinResult.rows[0].id;
 
-  // 生成新的 session_id 用於 AI 對談
-  const newSessionId = `session_${Date.now()}_${userId}`;
+  // 優先沿用既有的 session_id，確保 Backlog ↔ 今日的 AI 對談可延續
+  const sessionIdToUse = backlogItem.session_id || `session_${Date.now()}_${userId}`;
 
   // 更新工作項目：綁定到今日 checkin，設定 is_backlog = false，並設置新的 session_id 與負責人
   const result = await query(
@@ -437,7 +437,7 @@ export const moveBacklogToWorkItem = async (
          updated_at = CURRENT_TIMESTAMP
      WHERE id = $5
      RETURNING *`,
-    [checkinId, effectiveTeamId, userId, newSessionId, backlogItemId]
+    [checkinId, effectiveTeamId, userId, sessionIdToUse, backlogItemId]
   );
 
   const updatedItem = result.rows[0];

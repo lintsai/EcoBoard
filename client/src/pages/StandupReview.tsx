@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, type SyntheticEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown, FileText } from 'lucide-react';
+import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown, FileText, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { exportElementAsPdf } from '../utils/pdfExport';
+import AIChatHistoryModal from '../components/AIChatHistoryModal';
 
 interface TeamMember {
   user_id: number;
@@ -309,6 +310,8 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const [selectedPrimaryHandler, setSelectedPrimaryHandler] = useState<number | null>(null);
   const [selectedCoHandlers, setSelectedCoHandlers] = useState<number[]>([]);
   const [selectedPriority, setSelectedPriority] = useState(3);
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [chatModalTitle, setChatModalTitle] = useState('');
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
   const [participantStats, setParticipantStats] = useState({ required: 0, current: 0 });
   const [activeParticipants, setActiveParticipants] = useState<ActiveParticipant[]>([]);
@@ -419,6 +422,15 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     },
     [removeToast]
   );
+
+  const openChatHistory = (item: WorkItem) => {
+    if (!item.session_id) {
+      showToast('此工作項目尚未綁定 AI 對談', 'warning');
+      return;
+    }
+    setChatSessionId(item.session_id);
+    setChatModalTitle(`#${item.id} AI 對談`);
+  };
 
   const persistLogs = useCallback((logs: RealtimeLogEntry[]) => {
     if (!logStorageKey || typeof window === 'undefined') {
@@ -2185,16 +2197,28 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           );
                                         })()}
                                       </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <div style={{ fontSize: '11px', color: '#999' }}>
-                                          {formatTime(item.created_at).split(' ')[1]}
-                                        </div>
-                                        <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
-                                          <button
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <div style={{ fontSize: '11px', color: '#999' }}>
+                                            {formatTime(item.created_at).split(' ')[1]}
+                                          </div>
+                                          <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ fontSize: '11px', padding: '4px 8px' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openChatHistory(item);
+                                              }}
+                                              disabled={!item.session_id}
+                                              title="查看 AI 對談"
+                                            >
+                                              <MessageSquare size={12} />
+                                            </button>
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ fontSize: '11px', padding: '4px 8px' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
                                               openPriorityModal(item);
                                             }}
                                             title="調整優先順序"
@@ -2469,6 +2493,18 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             style={{ fontSize: '11px', padding: '4px 8px' }}
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              openChatHistory(item);
+                                            }}
+                                            disabled={!item.session_id}
+                                            title="查看 AI 對談"
+                                          >
+                                            <MessageSquare size={12} />
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
                                               openPriorityModal(item);
                                             }}
                                             title="調整優先順序"
@@ -2715,6 +2751,31 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                               {renderItemMetaBadges(item)}
                                             </div>
                                             <button
+                                              className="btn btn-secondary"
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openChatHistory(item);
+                                              }}
+                                              disabled={!item.session_id}
+                                              style={{
+                                                background: 'none',
+                                                border: '1px solid #0066cc',
+                                                color: '#0066cc',
+                                                cursor: 'pointer',
+                                                padding: '2px 6px',
+                                                borderRadius: '4px',
+                                                fontSize: '10px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '2px'
+                                              }}
+                                              title="查看 AI 對談"
+                                            >
+                                              <MessageSquare size={12} />
+                                              AI 對談
+                                            </button>
+                                            <button
                                               className="jump-to-original"
                                               type="button"
                                               onClick={(e) => {
@@ -2829,6 +2890,31 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                               </div>
                                               {renderItemMetaBadges(item)}
                                             </div>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openChatHistory(item);
+                                              }}
+                                              disabled={!item.session_id}
+                                              style={{
+                                                background: 'none',
+                                                border: '1px solid #f59e0b',
+                                                color: '#f59e0b',
+                                                cursor: 'pointer',
+                                                padding: '2px 6px',
+                                                borderRadius: '4px',
+                                                fontSize: '10px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '2px',
+                                                marginLeft: '6px'
+                                              }}
+                                              title="查看 AI 對談"
+                                            >
+                                              <MessageSquare size={12} />
+                                              AI 對談
+                                            </button>
                                             <button
                                               className="jump-to-original"
                                               type="button"
@@ -3116,6 +3202,15 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
             </div>
           </div>
         )}
+        <AIChatHistoryModal
+          open={Boolean(chatSessionId)}
+          sessionId={chatSessionId}
+          onClose={() => {
+            setChatSessionId(null);
+            setChatModalTitle('');
+          }}
+          title={chatModalTitle}
+        />
       </div>
       {participantPanel}
     </div>
