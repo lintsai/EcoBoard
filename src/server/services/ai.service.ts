@@ -249,7 +249,7 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number, checked
   };
 
   // 統計每個成員的工作量（包含主要處理人和共同處理人）
-  const memberWorkload = workItems.reduce((acc: any, item) => {
+  const memberWorkload: Record<number, any> = workItems.reduce((acc: Record<number, any>, item) => {
     const priority = item.priority || 3;
     const priorityWeight = PRIORITY_WEIGHTS[priority as keyof typeof PRIORITY_WEIGHTS] || 1.0;
     const timeWeight = calculateTimeUrgencyWeight(item.estimated_date);
@@ -405,7 +405,7 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number, checked
     }
 
     return acc;
-  }, {});
+  }, {} as Record<number, any>);
 
   const workloadSummary = Object.values(memberWorkload).map((member: any) => ({
     ...member,
@@ -564,6 +564,145 @@ ${JSON.stringify(workItemsDetail, null, 2)}
       if (jsonMatch) {
         const parsedResult = JSON.parse(jsonMatch[0]);
 
+        type MemberWorkloadEntry = {
+          userId: number;
+          username?: string;
+          displayName?: string;
+          combinedWeightedWorkload: number;
+          onLeave?: boolean;
+          primaryCount: number;
+          coHandlerCount: number;
+          overdueCount: number;
+          dueTodayCount: number;
+          dueWithin3DaysCount: number;
+          dueWithinWeekCount?: number;
+        };
+
+        const memberWorkloadList = Object.values(memberWorkload) as MemberWorkloadEntry[];
+        const memberCount = memberWorkloadList.length;
+        const totalCombinedWeightedWorkload = memberWorkloadList.reduce(
+          (sum: number, m) => sum + m.combinedWeightedWorkload,
+          0
+        );
+        const avgCombinedWeightedWorkload = memberCount ? totalCombinedWeightedWorkload / memberCount : 0;
+        const overloadedThreshold = Math.max(
+          avgCombinedWeightedWorkload * 1.2,
+          avgCombinedWeightedWorkload + 0.75,
+          3
+        );
+        const targetThreshold = Math.max(avgCombinedWeightedWorkload * 1.05, avgCombinedWeightedWorkload + 0.3);
+        const underloadedThreshold = Math.max(
+          Math.min(avgCombinedWeightedWorkload * 0.85, avgCombinedWeightedWorkload - 0.5),
+          0
+        );
+
+        const normalizeLabel = (label?: string | null) =>
+          (label || '')
+            .replace(/[（(].*?[)）]/g, '')
+            .trim()
+            .toLowerCase();
+
+        const findMemberByLabel = (label?: string | null) => {
+          const normalized = normalizeLabel(label);
+          if (!normalized) return null;
+          return (
+            memberWorkloadList.find((member) => {
+              const display = (member.displayName || '').toLowerCase();
+              const username = (member.username || '').toLowerCase();
+              return (
+                (display && (normalized === display || normalized.includes(display) || display.includes(normalized))) ||
+                (username && (normalized === username || normalized.includes(username) || username.includes(normalized)))
+              );
+            }) || null
+          );
+        };
+
+        const memberById = new Map<number, MemberWorkloadEntry>();
+        memberWorkloadList.forEach((member) => {
+          if (member.userId !== undefined && member.userId !== null) {
+            memberById.set(Number(member.userId), member);
+          }
+        });
+
+        const workItemById = new Map<string, any>();
+        workItemsDetail.forEach((item) => workItemById.set(String(item.id), item));
+
+        const sortedActiveMembers = memberWorkloadList
+          .filter((m) => !m.onLeave)
+          .sort((a, b) => a.combinedWeightedWorkload - b.combinedWeightedWorkload);
+
+        const pickBalancedTarget = (suggestion: any, originalTarget: MemberWorkloadEntry | null) => {
+          const task = suggestion?.taskId ? workItemById.get(String(suggestion.taskId)) : undefined;
+          const coHandlerCandidates = (task?.co_handlers || [])
+            .map((co: any) => memberById.get(Number(co.user_id)))
+            .filter((m: any) => m && !m.onLeave);
+
+          const candidatePool: MemberWorkloadEntry[] = [];
+          coHandlerCandidates.forEach((candidate: MemberWorkloadEntry) => {
+            if (!candidatePool.some((c) => c.userId === candidate.userId)) {
+              candidatePool.push(candidate);
+            }
+          });
+          sortedActiveMembers.forEach((member) => {
+            if (!candidatePool.some((c) => c.userId === member.userId)) {
+              candidatePool.push(member);
+            }
+          });
+
+          const targetIsOverloaded =
+            originalTarget && originalTarget.combinedWeightedWorkload > overloadedThreshold;
+          const targetIsUnavailable = originalTarget?.onLeave;
+
+          if (!targetIsOverloaded && originalTarget && !targetIsUnavailable) {
+            return originalTarget;
+          }
+
+          const underloadedCandidate = candidatePool.find(
+            (candidate) => candidate.combinedWeightedWorkload <= underloadedThreshold
+          );
+          if (underloadedCandidate) return underloadedCandidate;
+
+          const balancedCandidate = candidatePool.find(
+            (candidate) => candidate.combinedWeightedWorkload <= targetThreshold
+          );
+          if (balancedCandidate) return balancedCandidate;
+
+          return originalTarget || candidatePool[0] || null;
+        };
+
+        if (Array.isArray(parsedResult.redistributionSuggestions)) {
+          const balancedSuggestions = parsedResult.redistributionSuggestions
+            .map((suggestion: any) => {
+              const originalTarget = findMemberByLabel(suggestion.to);
+              const fromMember = findMemberByLabel(suggestion.from);
+              const chosenTarget = pickBalancedTarget(suggestion, originalTarget);
+              if (!chosenTarget) {
+                return null;
+              }
+
+              const targetChanged =
+                !originalTarget || (originalTarget?.userId ?? null) !== (chosenTarget?.userId ?? null);
+              const isOriginalOverloaded =
+                !!originalTarget && (originalTarget.combinedWeightedWorkload ?? 0) > overloadedThreshold;
+
+              const adjustedReason =
+                targetChanged && isOriginalOverloaded
+                  ? `${suggestion.reason || '重新分配建議'}（原建議接收者負載過重，改由負載較低的 ${chosenTarget?.displayName || chosenTarget?.username || '其他成員'} 接手）`
+                  : suggestion.reason;
+
+              return {
+                ...suggestion,
+                from: fromMember ? fromMember.displayName || fromMember.username : suggestion.from,
+                to: chosenTarget?.displayName || chosenTarget?.username || suggestion.to,
+                taskId: suggestion.taskId,
+                reason: adjustedReason
+              };
+            })
+            .filter(Boolean);
+
+          parsedResult.redistributionSuggestions = balancedSuggestions;
+        }
+
         // Format as markdown analysis text
         let analysisText = `## 📊 團隊工作分配分析\n\n`;
 
@@ -572,11 +711,7 @@ ${JSON.stringify(workItemsDetail, null, 2)}
         analysisText += `| 成員 | 主要處理 | 共同處理 | 逾期 | 今日 | 3日內 | 綜合負載 | 負載狀態 |\n`;
         analysisText += `|------|----------|----------|------|------|-------|----------|----------|\n`;
 
-        const totalCombinedWeightedWorkload = Object.values(memberWorkload as any).reduce((sum: number, m: any) => sum + m.combinedWeightedWorkload, 0);
-        const memberCount = Object.keys(memberWorkload).length;
-        const avgCombinedWeightedWorkload = totalCombinedWeightedWorkload / (memberCount || 1);
-
-        Object.values(memberWorkload as any).forEach((member: any) => {
+        memberWorkloadList.forEach((member: any) => {
           let loadStatus = '🔵 正常';
           const load = member.combinedWeightedWorkload;
           const avg = avgCombinedWeightedWorkload;

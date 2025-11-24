@@ -1859,6 +1859,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                 onClick={handleExportAnalysisPdf}
                 disabled={exportingAnalysisPdf}
                 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                data-export-hidden="true"
               >
                 {exportingAnalysisPdf ? (
                   <>
