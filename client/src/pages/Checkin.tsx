@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckSquare, ArrowLeft, FileText } from 'lucide-react';
+import { CheckSquare, ArrowLeft, FileText, Lightbulb, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
 
@@ -18,10 +20,117 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
   const [checkinTime, setCheckinTime] = useState<string>('');
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [suggestionLoading, setSuggestionLoading] = useState(true);
+  const [suggestionError, setSuggestionError] = useState('');
+  const [todaySuggestion, setTodaySuggestion] = useState('');
+  const [taskIndexSection, setTaskIndexSection] = useState('');
+  const [suggestionSourceDate, setSuggestionSourceDate] = useState('');
+  const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
+  const suggestionCardRef = useRef<HTMLDivElement | null>(null);
+
+  const formatDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getYesterdayDate = () => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - 1);
+    return formatDate(date);
+  };
+
+  const extractSectionByKeyword = (content: string, keyword: string) => {
+    if (!content) return '';
+
+    const lines = content.split('\n');
+    const lowerKeyword = keyword.toLowerCase();
+    let startIndex = -1;
+
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(lowerKeyword)) {
+        startIndex = i;
+        break;
+      }
+    }
+
+    if (startIndex === -1) return '';
+
+    const collected: string[] = [];
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i];
+      if (i !== startIndex) {
+        const isNewHeading = /^#{1,6}\s+/.test(line) || (/^\d+\.\s+\*\*[^*]+\*\*/.test(line) && !line.toLowerCase().includes(lowerKeyword));
+        if (isNewHeading || line.includes('任務索引')) {
+          break;
+        }
+      }
+      collected.push(line);
+    }
+
+    return collected.join('\n').trim();
+  };
+
+  const stripKeywordHeading = (section: string, keyword: string) => {
+    if (!section) return '';
+    const lowerKeyword = keyword.toLowerCase();
+    const lines = section.split('\n');
+    const filtered = lines.filter((line, index) => {
+      if (index === 0 && line.toLowerCase().includes(lowerKeyword)) return false;
+      if (/^#{1,6}\s+/.test(line) && line.toLowerCase().includes(lowerKeyword)) return false;
+      return true;
+    });
+    return filtered.join('\n').trim();
+  };
+
+  const extractTaskIndexSection = (content: string) => {
+    if (!content) return '';
+    const headingMatch = content.match(/(?:^|\n)(#{2,6}\s*任務索引[^\n]*\n[\s\S]*)/);
+    if (headingMatch) return headingMatch[1].trim();
+
+    const boldMatch = content.match(/(?:^|\n)\*\*?任務索引\*?\*[^\n]*\n([\s\S]*)/);
+    if (boldMatch) return `### 任務索引\n${boldMatch[1].trim()}`;
+
+    return '';
+  };
 
   useEffect(() => {
     checkTodayCheckin();
   }, [teamId]);
+
+  useEffect(() => {
+    if (teamId) {
+      fetchYesterdaySuggestion();
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    const handleTableClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const table = target.closest('.markdown-content table');
+      if (table && suggestionCardRef.current?.contains(table) && !target.closest('.table-modal-content')) {
+        e.preventDefault();
+        e.stopPropagation();
+        setEnlargedTable((table as HTMLElement).outerHTML);
+      }
+    };
+
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEnlargedTable(null);
+      }
+    };
+
+    document.addEventListener('click', handleTableClick);
+    document.addEventListener('keydown', handleEscKey);
+
+    return () => {
+      document.removeEventListener('click', handleTableClick);
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, []);
 
   const checkTodayCheckin = async () => {
     try {
@@ -35,6 +144,43 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
       console.error('Error checking today checkin:', err);
     } finally {
       setCheckingStatus(false);
+    }
+  };
+
+  const fetchYesterdaySuggestion = async () => {
+    if (!teamId) {
+      setSuggestionLoading(false);
+      return;
+    }
+
+    setSuggestionLoading(true);
+    setSuggestionError('');
+    setTodaySuggestion('');
+    setTaskIndexSection('');
+
+    try {
+      const yesterday = getYesterdayDate();
+      setSuggestionSourceDate(yesterday);
+
+      const data = await api.getDailySummaryByDate(teamId, yesterday);
+      const summaryContent = data.summary_content || data.summary || '';
+      const suggestionSection = stripKeywordHeading(
+        extractSectionByKeyword(summaryContent, '明日建議'),
+        '明日建議'
+      );
+      const indexSection = extractTaskIndexSection(summaryContent);
+
+      setTodaySuggestion(suggestionSection);
+      setTaskIndexSection(indexSection);
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        setSuggestionError('');
+      } else {
+        console.error('Error loading yesterday suggestion:', err);
+        setSuggestionError(err.response?.data?.error || '無法取得昨日的建議');
+      }
+    } finally {
+      setSuggestionLoading(false);
     }
   };
 
@@ -136,6 +282,73 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
             </p>
           </div>
         )}
+
+        {/* Table Modal */}
+        {enlargedTable && (
+          <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
+            <div className="table-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="table-modal-close" onClick={() => setEnlargedTable(null)}>
+                ×
+              </button>
+              <div dangerouslySetInnerHTML={{ __html: enlargedTable }} />
+              <div className="table-modal-hint">
+                💡 點擊外部區域、按 ESC 鍵或 × 按鈕關閉
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card" ref={suggestionCardRef} style={{ marginTop: '20px', background: '#f8fafc' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Lightbulb size={20} style={{ color: '#f59e0b' }} />
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#111827' }}>今日建議（來源：昨日總結）</h3>
+                <p style={{ margin: 0, color: '#6b7280', fontSize: '13px' }}>
+                  {suggestionSourceDate ? `來源日期：${suggestionSourceDate}` : '來源日期：昨日總結'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {suggestionLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#6b7280' }}>
+              <Loader2 size={18} className="spinner" />
+              <span>載入昨日的建議...</span>
+            </div>
+          ) : suggestionError ? (
+            <div className="alert alert-error">
+              {suggestionError}
+            </div>
+          ) : todaySuggestion ? (
+            <div className="markdown-content prose-sm" style={{ fontSize: '14px', lineHeight: '1.7', color: '#374151' }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {todaySuggestion}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <p style={{ color: '#6b7280', margin: 0 }}>昨日尚未有建議，暫無今日建議可供參考。</p>
+          )}
+
+          {taskIndexSection && (
+            <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #e5e7eb' }}>
+              {!taskIndexSection.includes('任務索引') && (
+                <p style={{ margin: '0 0 8px 0', color: '#4b5563', fontSize: '13px', fontWeight: 600 }}>任務索引（對照上述提及的 ID）</p>
+              )}
+              <div className="markdown-content prose-sm" style={{ fontSize: '13px', color: '#374151' }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {taskIndexSection}
+                </ReactMarkdown>
+              </div>
+            </div>
+          )}
+
+          {!taskIndexSection && todaySuggestion && !suggestionLoading && !suggestionError && (
+            <p style={{ marginTop: '12px', color: '#9ca3af', fontSize: '13px' }}>
+              未找到任務索引對照表，若需 ID 對應請重新生成昨日的每日總結。
+            </p>
+          )}
+        </div>
 
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px', color: '#374151' }}>💡 打卡小提示</h3>
