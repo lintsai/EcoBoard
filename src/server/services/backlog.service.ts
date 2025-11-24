@@ -133,13 +133,16 @@ export const createBacklogItem = async (
   title: string,
   content: string,
   priority: number = 3,
-  estimatedDate?: string
+  estimatedDate?: string | null
 ) => {
   // Backlog 項目不需要 checkin_id，設為 NULL 或使用特殊值
   // 這裡我們需要一個虛擬的 checkin_id，或者修改 work_items 表結構
   // 為了保持兼容性，我們創建一個特殊的 "backlog" checkin 記錄
   
   await ensureTeamMembership(teamId, userId);
+
+  const normalizedEstimatedDate =
+    estimatedDate === undefined ? null : (estimatedDate || null);
 
   const result = await query(
     `INSERT INTO work_items (
@@ -148,7 +151,7 @@ export const createBacklogItem = async (
     )
     VALUES (NULL, $1, $2, $3, 'task', $4, $3, $5, CAST($6 AS DATE), TRUE)
     RETURNING *`,
-    [teamId, userId, content, title, priority, estimatedDate]
+    [teamId, userId, content, title, priority, normalizedEstimatedDate]
   );
 
   const workItem = result.rows[0];
@@ -172,7 +175,7 @@ export const createBacklogItemsBatch = async (
     title: string;
     content: string;
     priority: number;
-    estimatedDate?: string;
+    estimatedDate?: string | null;
   }>
 ) => {
   const results = [];
@@ -283,11 +286,15 @@ export const updateBacklogItem = async (
     title?: string;
     content?: string;
     priority?: number;
-    estimatedDate?: string;
+    estimatedDate?: string | null;
     teamId?: number;
   }
 ) => {
   const item = await ensureBacklogPermission(itemId, userId);
+  const normalizedEstimatedDate =
+    Object.prototype.hasOwnProperty.call(updates, 'estimatedDate')
+      ? updates.estimatedDate || null
+      : undefined;
 
   const updateFields: string[] = [];
   const values: any[] = [];
@@ -309,10 +316,10 @@ export const updateBacklogItem = async (
     values.push(updates.priority);
   }
 
-  if (updates.estimatedDate !== undefined) {
+  if (normalizedEstimatedDate !== undefined) {
     // 使用 CAST 確保日期正確儲存，避免時區問題
     updateFields.push(`estimated_date = CAST($${paramCount++} AS DATE)`);
-    values.push(updates.estimatedDate);
+    values.push(normalizedEstimatedDate);
   }
 
   if (updates.teamId !== undefined) {

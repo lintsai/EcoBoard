@@ -294,7 +294,7 @@ class ApiService {
   }
 
   // Backlog Items
-  async createBacklogItem(teamId: number, title: string, content: string, priority?: number, estimatedDate?: string) {
+  async createBacklogItem(teamId: number, title: string, content: string, priority?: number, estimatedDate?: string | null) {
     const response = await this.api.post('/backlog', { 
       teamId,
       title, 
@@ -305,7 +305,7 @@ class ApiService {
     return response.data;
   }
 
-  async createBacklogItemsBatch(teamId: number, items: Array<{title: string; content: string; priority: number; estimatedDate?: string}>) {
+  async createBacklogItemsBatch(teamId: number, items: Array<{title: string; content: string; priority: number; estimatedDate?: string | null}>) {
     const response = await this.api.post('/backlog/batch', { teamId, items });
     return response.data;
   }
@@ -322,7 +322,7 @@ class ApiService {
     return response.data;
   }
 
-  async updateBacklogItem(itemId: number, data: { title?: string; content?: string; priority?: number; estimatedDate?: string; teamId?: number }) {
+  async updateBacklogItem(itemId: number, data: { title?: string; content?: string; priority?: number; estimatedDate?: string | null; teamId?: number }) {
     const response = await this.api.put(`/backlog/${itemId}`, data);
     return response.data;
   }

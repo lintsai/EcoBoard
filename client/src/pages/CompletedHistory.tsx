@@ -427,7 +427,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                 type="text"
                 value={historyFiltersInput.keyword}
                 onChange={(e) => handleHistoryFilterChange('keyword', e.target.value)}
-                placeholder="搜尋標題、內容或備註"
+                placeholder="搜尋標題、內容、備註或 #ID"
                 className="input"
               />
             </div>

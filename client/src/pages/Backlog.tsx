@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, Search } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -48,8 +48,9 @@ function Backlog({ user, teamId }: BacklogProps) {
   const [tableText, setTableText] = useState('');
   const [parsedItems, setParsedItems] = useState<any[]>([]);
   const [showParsedPreview, setShowParsedPreview] = useState(false);
-  const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
+  const [sortBy, setSortBy] = useState<'priority' | 'estimated_date' | 'id_desc' | 'id_asc'>('priority');
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const [unassignedItems, setUnassignedItems] = useState<BacklogItem[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
   const [assigningItemId, setAssigningItemId] = useState<number | null>(null);
@@ -57,6 +58,8 @@ function Backlog({ user, teamId }: BacklogProps) {
   const currentUserId = user?.id as number | undefined;
   const [selectedCreator, setSelectedCreator] = useState<'all' | number>('all');
   const contentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const isItemOwner = (item: BacklogItem) => typeof currentUserId === 'number' && item.user_id === currentUserId;
 
@@ -102,6 +105,7 @@ function Backlog({ user, teamId }: BacklogProps) {
         ? await api.getTeamBacklogItems(teamId)
         : await api.getUserBacklogItems();
       setBacklogItems(items);
+      setExpandedItems(new Set());
     } catch (error) {
       console.error('Failed to load backlog items:', error);
       alert('載入 Backlog 項目失敗，請稍後再試');
@@ -194,10 +198,13 @@ function Backlog({ user, teamId }: BacklogProps) {
     if (!searchQuery.trim()) return filtered;
 
     const query = searchQuery.toLowerCase();
+    const numericQuery = query.replace(/#/g, '').trim();
     return filtered.filter(item => {
       const title = (item.ai_title || '').toLowerCase();
       const content = item.content.toLowerCase();
-      return title.includes(query) || content.includes(query);
+      const idLabel = `#${item.id}`.toLowerCase();
+      const idMatches = idLabel.includes(query) || (numericQuery ? String(item.id).includes(numericQuery) : false);
+      return idMatches || title.includes(query) || content.includes(query);
     });
   };
 
@@ -205,7 +212,11 @@ function Backlog({ user, teamId }: BacklogProps) {
   const sortItems = (items: BacklogItem[]): BacklogItem[] => {
     const sorted = [...items];
 
-    if (sortBy === 'priority') {
+    if (sortBy === 'id_desc') {
+      sorted.sort((a, b) => b.id - a.id);
+    } else if (sortBy === 'id_asc') {
+      sorted.sort((a, b) => a.id - b.id);
+    } else if (sortBy === 'priority') {
       sorted.sort((a, b) => a.priority - b.priority);
     } else {
       // Sort by estimated_date: items without date go to bottom
@@ -223,6 +234,36 @@ function Backlog({ user, teamId }: BacklogProps) {
     return sorted;
   };
 
+  const filteredItems = useMemo(
+    () => filterItems(backlogItems),
+    [backlogItems, searchQuery, selectedCreator]
+  );
+
+  const sortedItems = useMemo(
+    () => sortItems(filteredItems),
+    [filteredItems, sortBy]
+  );
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(sortedItems.length / itemsPerPage)),
+    [sortedItems, itemsPerPage]
+  );
+
+  const paginatedItems = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedItems.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedItems, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCreator, sortBy, itemsPerPage, teamId]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const handleCreatorFilterChange = (value: string) => {
     if (value === 'all') {
       setSelectedCreator('all');
@@ -238,6 +279,8 @@ function Backlog({ user, teamId }: BacklogProps) {
       return;
     }
 
+    const normalizedEstimatedDate = estimatedDate ? estimatedDate : null;
+
     try {
       setLoading(true);
 
@@ -246,7 +289,7 @@ function Backlog({ user, teamId }: BacklogProps) {
           title,
           content,
           priority,
-          estimatedDate: estimatedDate || undefined
+          estimatedDate: normalizedEstimatedDate
         });
       } else {
         await api.createBacklogItem(
@@ -254,7 +297,7 @@ function Backlog({ user, teamId }: BacklogProps) {
           title,
           content,
           priority,
-          estimatedDate || undefined
+          normalizedEstimatedDate
         );
       }
 
@@ -341,6 +384,18 @@ function Backlog({ user, teamId }: BacklogProps) {
     });
   }, []);
 
+  const toggleItemExpansion = useCallback((itemId: number) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }, []);
+
   const handleParseTable = async () => {
     if (!tableText.trim()) {
       alert('請貼上要解析的表格內容');
@@ -372,7 +427,7 @@ function Backlog({ user, teamId }: BacklogProps) {
         title: item.title,
         content: item.content,
         priority: item.priority || 3,
-        estimatedDate: item.estimatedDate
+        estimatedDate: item.estimatedDate || null
       }));
 
       await api.createBacklogItemsBatch(teamId, normalizedItems);
@@ -839,7 +894,7 @@ function Backlog({ user, teamId }: BacklogProps) {
           <div style={{ padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
               <h3 style={{ margin: 0 }}>
-                Backlog 項目（{filterItems(backlogItems).length}{searchQuery && ` / ${backlogItems.length}`}）
+                Backlog 項目（{filteredItems.length}{searchQuery && ` / ${backlogItems.length}`}）
               </h3>
               {backlogItems.length > 0 && (
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -868,7 +923,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                     <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
                     <input
                       type="text"
-                      placeholder="搜尋 Backlog 項目..."
+                      placeholder="搜尋 Backlog 項目或 #ID..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       style={{
@@ -899,21 +954,25 @@ function Backlog({ user, teamId }: BacklogProps) {
                       </button>
                     )}
                   </div>
-                  <button
-                    onClick={() => setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority')}
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
                     style={{
-                      padding: '4px 12px',
-                      fontSize: '12px',
+                      padding: '6px 10px',
+                      fontSize: '13px',
                       borderRadius: '4px',
                       border: '1px solid #667eea',
-                      backgroundColor: '#667eea',
-                      color: '#fff',
-                      cursor: 'pointer'
+                      backgroundColor: '#eef2ff',
+                      color: '#4338ca',
+                      minWidth: '150px'
                     }}
-                    title="切換排序方式"
+                    title="選擇排序方式"
                   >
-                    {sortBy === 'priority' ? '按優先順序' : '按預計日期'}
-                  </button>
+                    <option value="priority">按優先順序</option>
+                    <option value="estimated_date">按預計日期</option>
+                    <option value="id_desc">按 ID（新到舊）</option>
+                    <option value="id_asc">按 ID（舊到新）</option>
+                  </select>
                 </div>
               )}
             </div>
@@ -926,116 +985,191 @@ function Backlog({ user, teamId }: BacklogProps) {
               <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
                 目前沒有 Backlog 項目，點擊「新增項目」開始規劃！
               </p>
-            ) : filterItems(backlogItems).length === 0 ? (
+            ) : filteredItems.length === 0 ? (
               <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
                 找不到符合目前篩選條件的項目
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {sortItems(filterItems(backlogItems)).map((item) => {
-                  const ownerLabel = getOwnerLabel(item);
-                  const normalizedEstimate = normalizeEstimatedDate(item.estimated_date || null);
-                  const estimatedText = normalizedEstimate
-                    ? (() => {
-                      const [year, month, day] = normalizedEstimate.split('-');
-                      return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
-                    })()
-                    : '未設定';
-                  return (
-                    <div
-                      key={item.id}
-                      style={{
-                        padding: '15px',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        backgroundColor: '#fff',
-                        transition: 'box-shadow 0.2s',
-                        cursor: 'pointer'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.boxShadow = 'none';
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
-                        <div style={{ flex: 1 }}>
-                          <h4 style={{ margin: 0, marginBottom: '5px', fontSize: '15px', fontWeight: '600' }}>
-                            #{item.id} {item.ai_title || item.content.substring(0, 50)}
-                          </h4>
-                          <div style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>
-                            建立者：{ownerLabel}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#666' }}>
-                            {getPriorityBadge(item.priority)}
-                            <span style={{
-                              fontSize: '11px',
-                              ...(() => {
-                                if (!item.estimated_date) return { color: '#999' };
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0);
-                                const itemDate = new Date(item.estimated_date.split('T')[0]);
-                                if (itemDate < today) {
-                                  return { color: 'red', fontWeight: 'bold' };
-                                }
-                                return { color: '#0891b2' };
-                              })()
-                            }}>
-                              預計：{estimatedText}
-                            </span>
-                            <span>
-                              建立於 {new Date(item.created_at).toLocaleDateString('zh-TW')}
-                            </span>
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {paginatedItems.map((item) => {
+                    const ownerLabel = getOwnerLabel(item);
+                    const normalizedEstimate = normalizeEstimatedDate(item.estimated_date || null);
+                    const estimatedText = normalizedEstimate
+                      ? (() => {
+                        const [year, month, day] = normalizedEstimate.split('-');
+                        return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
+                      })()
+                      : '未設定';
+                    const isExpanded = expandedItems.has(item.id);
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '15px',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          backgroundColor: '#fff',
+                          transition: 'box-shadow 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                          <button
+                            onClick={() => toggleItemExpansion(item.id)}
+                            style={{
+                              border: '1px solid #e5e7eb',
+                              background: '#f8fafc',
+                              borderRadius: '6px',
+                              padding: '6px',
+                              cursor: 'pointer'
+                            }}
+                            aria-label={isExpanded ? '摺疊' : '展開'}
+                          >
+                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </button>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                              <div style={{ flex: 1 }}>
+                                <h4 style={{ margin: 0, marginBottom: '5px', fontSize: '15px', fontWeight: '600' }}>
+                                  #{item.id} {item.ai_title || item.content.substring(0, 50)}
+                                </h4>
+                                <div style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>
+                                  建立者：{ownerLabel}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#666', flexWrap: 'wrap' }}>
+                                  {getPriorityBadge(item.priority)}
+                                  <span style={{
+                                    fontSize: '11px',
+                                    ...(() => {
+                                      if (!item.estimated_date) return { color: '#999' };
+                                      const today = new Date();
+                                      today.setHours(0, 0, 0, 0);
+                                      const itemDate = new Date(item.estimated_date.split('T')[0]);
+                                      if (itemDate < today) {
+                                        return { color: 'red', fontWeight: 'bold' };
+                                      }
+                                      return { color: '#0891b2' };
+                                    })()
+                                  }}>
+                                    預計：{estimatedText}
+                                  </span>
+                                  <span>
+                                    建立於 {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                                  </span>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                                <button
+                                  onClick={() => handleMoveToToday(item)}
+                                  className="btn btn-success"
+                                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                                  disabled={loading}
+                                  title="加入今日工作"
+                                >
+                                  <Send size={14} />
+                                  加入今日
+                                </button>
+                                <button
+                                  onClick={() => handleEditItem(item)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#667eea',
+                                    cursor: 'pointer',
+                                    padding: '4px'
+                                  }}
+                                  title="編輯這筆 Backlog"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteItem(item)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#dc2626',
+                                    cursor: 'pointer',
+                                    padding: '4px'
+                                  }}
+                                  title="刪除這筆 Backlog"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </div>
+                            {isExpanded && (
+                              <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '10px' }}>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                          <button
-                            onClick={() => handleMoveToToday(item)}
-                            className="btn btn-success"
-                            style={{ padding: '6px 12px', fontSize: '13px' }}
-                            disabled={loading}
-                            title="加入今日工作"
-                          >
-                            <Send size={14} />
-                            加入今日
-                          </button>
-                          <button
-                            onClick={() => handleEditItem(item)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: '#667eea',
-                              cursor: 'pointer',
-                              padding: '4px'
-                            }}
-                            title="編輯這筆 Backlog"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteItem(item)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: '#dc2626',
-                              cursor: 'pointer',
-                              padding: '4px'
-                            }}
-                            title="刪除這筆 Backlog"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
                       </div>
-
-                      <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '10px' }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: '12px', color: '#475569' }}>
+                    第 {currentPage} / {totalPages} 頁，共 {filteredItems.length} 筆
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#475569' }}>
+                      <span>每頁</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                      </select>
+                      <span>筆</span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                          backgroundColor: currentPage === 1 ? '#f3f4f6' : '#fff',
+                          color: '#374151',
+                          cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        上一頁
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                        disabled={currentPage === totalPages}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: '4px',
+                          border: '1px solid #d1d5db',
+                          backgroundColor: currentPage === totalPages ? '#f3f4f6' : '#fff',
+                          color: '#374151',
+                          cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        下一頁
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>

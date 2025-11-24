@@ -113,13 +113,20 @@ router.put(
     body('aiSummary').optional(),
     body('aiTitle').optional(),
     body('priority').optional().isInt({ min: 1, max: 5 }).withMessage('優先級必須是 1-5 之間的整數'),
-    body('estimatedDate').optional().isDate().withMessage('預計日期格式錯誤')
+    body('estimatedDate')
+      .optional({ nullable: true, checkFalsy: true })
+      .isDate()
+      .withMessage('預計日期格式錯誤')
   ],
   async (req: AuthRequest, res: Response) => {
     try {
       const itemId = parseInt(req.params.itemId);
       const actorName = getActorName(req);
       const { content, aiSummary, aiTitle, priority, estimatedDate, sessionId } = req.body;
+      const normalizedEstimatedDate =
+        Object.prototype.hasOwnProperty.call(req.body, 'estimatedDate') && (estimatedDate === null || estimatedDate === '')
+          ? null
+          : estimatedDate;
       
       const workItem = await workItemService.updateWorkItem(
         itemId,
@@ -128,7 +135,7 @@ router.put(
         aiSummary,
         aiTitle,
         priority,
-        estimatedDate,
+        normalizedEstimatedDate,
         sessionId
       );
 
@@ -168,6 +175,10 @@ router.patch(
       const itemId = parseInt(req.params.itemId);
       const actorName = getActorName(req);
       const { content, aiSummary, aiTitle, priority, estimated_date, sessionId } = req.body;
+      const normalizedEstimatedDate =
+        Object.prototype.hasOwnProperty.call(req.body, 'estimated_date') && (estimated_date === null || estimated_date === '')
+          ? null
+          : estimated_date;
       
       const workItem = await workItemService.updateWorkItem(
         itemId,
@@ -176,7 +187,7 @@ router.patch(
         aiSummary,
         aiTitle,
         priority,
-        estimated_date,
+        normalizedEstimatedDate,
         sessionId
       );
 

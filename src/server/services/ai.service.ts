@@ -13,6 +13,125 @@ interface ChatMessage {
   content: string;
 }
 
+const formatWorkItemTitle = (item: any) => {
+  const baseTitle = item?.ai_title || (item?.content ? String(item.content).substring(0, 80) : '');
+  const idPart = item?.id ? `#${item.id}` : '#?';
+  return `${idPart} ${baseTitle}`.trim();
+};
+
+const resolveWorkItemTitle = (item: any, fallbackLength: number = 80) => {
+  const baseTitle =
+    item?.ai_title ||
+    (item?.content ? String(item.content).substring(0, fallbackLength) : '');
+  return (baseTitle || '').trim();
+};
+
+const collectReferencedTaskIds = (content: string) => {
+  const referencedIds = new Set<number>();
+  const regex = /(^|[^\w])#(\d+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    const id = Number(match[2]);
+    if (Number.isFinite(id)) {
+      referencedIds.add(id);
+    }
+  }
+  return referencedIds;
+};
+
+const parseExistingTaskIndex = (content: string) => {
+  // Match any heading level that contains 「任務索引」，包含前後可能的 emoji 或附註
+  const matches = Array.from(
+    content.matchAll(/(?:^|\n)(#{2,6}[^\n]*任務索引[^\n]*\n)([\s\S]*?)(?=\n#{2,6}\s|$)/g)
+  );
+  if (!matches.length) return null;
+
+  const map = new Map<number, string>();
+  let start = matches[0].index ?? 0;
+  let end = start + (matches[0][0]?.length || 0);
+
+  matches.forEach((match) => {
+    const sectionStart = match.index ?? 0;
+    const sectionEnd = sectionStart + (match[0]?.length || 0);
+    start = Math.min(start, sectionStart);
+    end = Math.max(end, sectionEnd);
+
+    const rowsPart = (match[2] || '').trim();
+    const rowLines = rowsPart.split('\n').map((line) => line.trim());
+    rowLines.forEach((line) => {
+      const rowMatch = line.match(/^\|\s*#?(\d+)\s*\|\s*(.*?)\s*\|/);
+      if (rowMatch) {
+        const id = Number(rowMatch[1]);
+        const title = rowMatch[2] === '---' ? '' : rowMatch[2];
+        if (Number.isFinite(id)) {
+          map.set(id, title === '標題' ? '' : title);
+        }
+      }
+    });
+  });
+
+  return { start, end, map };
+};
+
+const buildTaskIndexSection = (rows: Map<number, string>) => {
+  if (!rows.size) return '';
+  const header = '| #ID | 標題 |\n| --- | --- |\n';
+  const body = Array.from(rows.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([id, title]) => `| #${id} | ${title || ''} |`)
+    .join('\n');
+  return `### 任務索引\n${header}${body}`;
+};
+
+export const appendTaskIndex = (content: string, workItems: any[]) => {
+  const validIds = new Set<number>();
+  (workItems || []).forEach((item: any) => {
+    const numericId = Number(item?.id);
+    if (Number.isFinite(numericId)) {
+      validIds.add(numericId);
+    }
+  });
+
+  if (validIds.size === 0) return content;
+
+  const existing = parseExistingTaskIndex(content);
+
+  const idTitleMap = new Map<number, string>();
+  (workItems || []).forEach((item: any) => {
+    const numericId = Number(item?.id);
+    if (!Number.isFinite(numericId) || !validIds.has(numericId)) return;
+    idTitleMap.set(numericId, resolveWorkItemTitle(item));
+  });
+
+  const mergedRows = new Map<number, string>();
+  if (existing?.map) {
+    existing.map.forEach((title, id) => {
+      if (validIds.has(id)) {
+        mergedRows.set(id, title);
+      }
+    });
+  }
+
+  collectReferencedTaskIds(content).forEach((id) => {
+    if (!validIds.has(id)) return;
+    const current = mergedRows.get(id);
+    const resolved = current || idTitleMap.get(id) || '';
+    mergedRows.set(id, resolved);
+  });
+
+  if (!mergedRows.size) return content;
+
+  const newSection = buildTaskIndexSection(mergedRows);
+  if (!newSection) return content;
+
+  if (existing) {
+    return `${content.slice(0, existing.start)}${newSection}${content.slice(existing.end)}`;
+  }
+
+  const separator = content.trim().length ? '\n\n' : '';
+  return `${content}${separator}${newSection}`;
+};
+
 // AI 對話功能 - 增強版：生成標題和摘要
 export const chat = async (
   userMessage: string,
@@ -123,7 +242,7 @@ export const generateWorkItemSummary = async (sessionId: string, userId: number)
   if (history.rows.length === 0) {
     console.warn('[AI Service] No chat history found for session:', sessionId);
     return {
-      title: '未命名工作項目',
+      title: '（無可用標題）',
       summary: '無對話記錄'
     };
   }
@@ -178,7 +297,7 @@ ${conversation}
       if (jsonMatch) {
         const result = JSON.parse(jsonMatch[0]);
         return {
-          title: result.title || '未命名工作項目',
+          title: result.title || history.rows[0]?.content.substring(0, 50) || '（無可用標題）',
           summary: result.summary || conversation.substring(0, 500)
         };
       }
@@ -189,14 +308,14 @@ ${conversation}
 
     // Fallback: use first user message as title
     return {
-      title: history.rows[0]?.content.substring(0, 50) || '未命名工作項目',
+      title: history.rows[0]?.content.substring(0, 50) || '（無可用標題）',
       summary: aiResponse || conversation.substring(0, 500)
     };
   } catch (error) {
     console.error('AI work item summary generation error:', error);
     // Fallback
     return {
-      title: history.rows[0]?.content.substring(0, 50) || '未命名工作項目',
+      title: history.rows[0]?.content.substring(0, 50) || '（無可用標題）',
       summary: conversation.substring(0, 500)
     };
   }
@@ -305,7 +424,7 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number, checked
     }
     acc[primaryKey].primaryCount++;
     acc[primaryKey].primaryItems.push({
-      title: item.ai_title || item.content,
+      title: formatWorkItemTitle(item),
       priority: item.priority || 3,
       status: item.progress_status
     });
@@ -373,7 +492,7 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number, checked
         }
         acc[coKey].coHandlerCount++;
         acc[coKey].coHandlerItems.push({
-          title: item.ai_title || item.content,
+          title: formatWorkItemTitle(item),
           priority: item.priority || 3,
           status: item.progress_status
         });
@@ -425,7 +544,7 @@ export const analyzeWorkItems = async (workItems: any[], teamId: number, checked
   // 建立工作項目詳細列表（by 工作項目視角），方便 AI 查看每個任務的處理人關係
   const workItemsDetail = workItems.map(item => ({
     id: item.id,
-    title: item.ai_title || item.content,
+    title: formatWorkItemTitle(item),
     priority: item.priority || 3,
     estimated_date: item.estimated_date,
     status: item.progress_status,
@@ -492,6 +611,8 @@ ${JSON.stringify(workItemsDetail, null, 2)}
 - lowPriorityCount: 低優先級任務數（priority 4-5）
 - 共同處理人雖然責任較輕，但也需要投入時間協作
 
+請在所有建議與摘要中引用任務時，一律使用粗體「**#ID 任務標題**」格式（ID 已在資料中提供），必須使用輸入資料中的真實標題（ai_title 或 content）；如缺少標題請留空。
+
 請分析以下方面：
 1. **加權工作負載均衡度**：使用 combinedWeightedWorkload 評估團隊成員的實際工作壓力是否均衡。
 2. **時間緊迫性分析**：根據 estimated_date，識別哪些成員有逾期或即將到期的任務，評估時間壓力
@@ -510,7 +631,7 @@ ${JSON.stringify(workItemsDetail, null, 2)}
 6. **優先級調整**：建議是否有任務的優先級需要調整
 7. **團隊協作**：評估共同處理的協作模式，建議哪些高 combinedWeightedWorkload 的成員可以透過增加共同處理人來分散壓力
 
-請用繁體中文回答，並以 JSON 格式返回結果，包含以下欄位：
+請用繁體中文回答，並以 JSON 格式返回結果；務必填寫 referencedTasks 與 referencedTasksTable，列出你在分析與建議中有提及的所有任務（使用輸入資料中的真實標題），包含以下欄位：
 {
   "workloadBalance": "加權工作負載均衡度評估（高/中/低）",
   "timeUrgencyAnalysis": "時間緊迫性總體分析（評估團隊整體的時間壓力狀況）",
@@ -533,7 +654,14 @@ ${JSON.stringify(workItemsDetail, null, 2)}
   ],
   "priorityAdjustments": [{"task": "任務", "currentPriority": "目前優先級", "suggestedPriority": "建議優先級", "reason": "原因"}],
   "collaborationOpportunities": ["協作建議（請回傳字串陣列，包含具體任務名稱與建議成員，勿只回傳ID）"],
-  "summary": "整體分析總結（應提及加權負載的使用和時間緊迫性考量）"
+  "summary": "整體分析總結（應提及加權負載的使用和時間緊迫性考量）",
+  "referencedTasks": [
+    {
+      "id": 任務ID,
+      "title": "任務標題（請使用輸入資料中的真實標題，不得輸出占位文字；如缺少標題請留空）"
+    }
+  ],
+  "referencedTasksTable": "Markdown 表格字串（欄位：#ID | 標題），列出分析與建議中提及的所有任務，標題須使用輸入資料中的真實標題；#ID 欄位值需為 #<ID> 格式；如缺少標題請留空"
 }`;
 
   try {
@@ -626,6 +754,19 @@ ${JSON.stringify(workItemsDetail, null, 2)}
 
         const workItemById = new Map<string, any>();
         workItemsDetail.forEach((item) => workItemById.set(String(item.id), item));
+        const formatSuggestionTask = (suggestion: any) => {
+          const mapped = suggestion?.taskId ? workItemById.get(String(suggestion.taskId)) : null;
+          if (mapped) {
+            return formatWorkItemTitle(mapped);
+          }
+          if (suggestion?.task) {
+            return suggestion.task;
+          }
+          if (suggestion?.taskId) {
+            return `#${suggestion.taskId}`;
+          }
+          return '未指定任務';
+        };
 
         const sortedActiveMembers = memberWorkloadList
           .filter((m) => !m.onLeave)
@@ -689,12 +830,14 @@ ${JSON.stringify(workItemsDetail, null, 2)}
                 targetChanged && isOriginalOverloaded
                   ? `${suggestion.reason || '重新分配建議'}（原建議接收者負載過重，改由負載較低的 ${chosenTarget?.displayName || chosenTarget?.username || '其他成員'} 接手）`
                   : suggestion.reason;
+              const formattedTask = formatSuggestionTask(suggestion);
 
               return {
                 ...suggestion,
                 from: fromMember ? fromMember.displayName || fromMember.username : suggestion.from,
                 to: chosenTarget?.displayName || chosenTarget?.username || suggestion.to,
                 taskId: suggestion.taskId,
+                task: formattedTask,
                 reason: adjustedReason
               };
             })
@@ -702,6 +845,58 @@ ${JSON.stringify(workItemsDetail, null, 2)}
 
           parsedResult.redistributionSuggestions = balancedSuggestions;
         }
+
+        const workItemTitleLookup = new Map<number, string>();
+        workItems.forEach((item: any) => {
+          if (typeof item.id === 'number') {
+            const baseTitle = item.ai_title || (item.content ? String(item.content).substring(0, 80) : '');
+            workItemTitleLookup.set(item.id, baseTitle);
+          }
+        });
+
+        const enrichTitle = (id: number | string | null | undefined, title: string | null | undefined) => {
+          const numericId = Number(id);
+          const matchedTitle = Number.isFinite(numericId)
+            ? workItemTitleLookup.get(numericId)
+            : '';
+          const resolved = (title || '').trim() || matchedTitle || '';
+          return { id: numericId, title: resolved };
+        };
+
+        const collectReferencedTasks = () => {
+          const collected: Array<{ id: number; title: string }> = [];
+          const addTask = (id?: number | null, title?: string | null) => {
+            const numericId = Number(id);
+            if (!Number.isFinite(numericId)) return;
+            const resolved = enrichTitle(numericId, title || undefined);
+            if (!collected.some((t) => t.id === numericId)) {
+              collected.push({ id: numericId, title: resolved.title });
+            }
+          };
+
+          if (Array.isArray(parsedResult.referencedTasks)) {
+            parsedResult.referencedTasks.forEach((task: any) => addTask(task.id, task.title));
+          }
+          if (Array.isArray(parsedResult.redistributionSuggestions)) {
+            parsedResult.redistributionSuggestions.forEach((s: any) => addTask(s.taskId, s.task));
+          }
+          return collected;
+        };
+
+        const buildReferencedTasksTable = (tasks: Array<{ id: number; title: string }>) => {
+          if (!tasks || tasks.length === 0) return '';
+          const header = '| #ID | 標題 |\n|-----|------|\n';
+          const rows = tasks
+            .map((task) => `| #${task.id} | ${task.title || ''} |`)
+            .join('\n');
+          return `${header}${rows}`;
+        };
+
+        const referencedTasks = collectReferencedTasks();
+        const referencedTasksTable = parsedResult.referencedTasksTable ||
+          buildReferencedTasksTable(referencedTasks);
+        parsedResult.referencedTasks = referencedTasks;
+        parsedResult.referencedTasksTable = referencedTasksTable;
 
         // Format as markdown analysis text
         let analysisText = `## 📊 團隊工作分配分析\n\n`;
@@ -796,8 +991,14 @@ ${JSON.stringify(workItemsDetail, null, 2)}
           analysisText += `### 📝 總結\n${parsedResult.summary}\n`;
         }
 
+        if (referencedTasksTable) {
+          analysisText += `\n### 🗂️ 任務索引\n${referencedTasksTable}\n`;
+        }
+
+        const analysisWithIndex = appendTaskIndex(analysisText, workItems);
+
         return {
-          analysis: analysisText,
+          analysis: analysisWithIndex,
           data: parsedResult
         };
       }
@@ -834,7 +1035,7 @@ export const distributeTasksToTeam = async (
   // 增強工作項目資訊，包含優先級和處理人
   const enrichedWorkItems = workItems.map(item => ({
     id: item.id,
-    title: item.ai_title || item.content,
+    title: formatWorkItemTitle(item),
     priority: item.priority || 3,
     priorityLabel: (() => {
       const p = item.priority || 3;
@@ -896,6 +1097,8 @@ ${JSON.stringify(memberWorkload, null, 2)}
 4. **協作機會**：識別哪些高優先級或複雜任務適合設定共同處理人
 5. **執行順序**：高優先級任務應安排在前面，考慮任務間的依賴關係
 6. **成員角色**：考慮成員的角色和專長
+
+請在輸出中使用粗體「**#ID 任務標題**」格式標註所有任務名稱（ID 已提供於資料中），避免混淆；標題需使用輸入資料中的真實值（ai_title 或 content），不得輸出占位文字，如缺少標題請留空。
 
 請用繁體中文回答，並以 JSON 格式返回，包含以下欄位：
 {
@@ -1180,7 +1383,7 @@ ${JSON.stringify(workItems.rows.map((item: any) => ({
     共同處理人: item.handlers?.co_handlers?.length > 0 ?
       item.handlers.co_handlers.map((h: any) => h.display_name || h.username).join(', ') :
       '無',
-    項目: item.ai_title || item.content.substring(0, 100),
+    項目: formatWorkItemTitle(item),
     優先級: item.priority || 3,
     優先級說明: (() => {
       const p = item.priority || 3;
@@ -1200,7 +1403,7 @@ ${JSON.stringify(workItems.rows.map((item: any) => ({
 ${JSON.stringify(updates.rows.map((update: any) => ({
     成員: update.display_name || update.username,
     工作項目ID: update.work_item_id,
-    工作項目: update.work_item_title || update.work_item_content.substring(0, 50),
+    工作項目: `#${update.work_item_id} ${update.work_item_title || update.work_item_content.substring(0, 50)}`,
     項目建立日期: update.item_created_date,
     更新時間: update.updated_at,
     進度狀態: update.progress_status,
@@ -1211,6 +1414,8 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
 - 1-2：高優先級 🔴🟠 - 緊急且重要的任務
 - 3：中優先級 🟡 - 正常優先級
 - 4-5：低優先級 🟢🔵 - 較不緊急的任務
+
+所有任務在報告中請以粗體「**#ID 任務標題**」格式呈現，避免混淆（ID 已於資料中提供）；標題必須使用輸入資料中的真實值（ai_title 或 content），不得輸出占位文字，如缺少標題請留空；請在報告結尾附上「任務索引」Markdown 表格（欄位：#ID、標題，ID 值需為 #<ID>，標題不可包含 # 字元）。
 
 請提供專業的工作總結報告，包含：
 
@@ -1232,7 +1437,8 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
 - 必須在報告開頭明確列出休假成員名單（如有）
 - 在分析工作分配時要考慮休假成員的影響
 - 同時考慮主要處理人和共同處理人的貢獻
-- 特別關注優先級的合理性和執行狀況`;
+- 特別關注優先級的合理性和執行狀況
+- 在報告結尾新增「任務索引」Markdown 表格（欄位：#ID、標題），列出報告中提及的所有工作項目，標題須使用輸入資料中的真實標題，如缺少標題請留空`;
 
   try {
     const response = await axios.post(
@@ -1255,6 +1461,7 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
     );
 
     const summary = response.data.choices[0].message.content;
+    const summaryWithIndex = appendTaskIndex(summary, workItems.rows || []);
 
     // Save or update summary in database (不在這裡自動儲存，交由前端決定)
     // 如果是強制重新生成，不自動儲存
@@ -1264,12 +1471,12 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (team_id, summary_date) 
          DO UPDATE SET summary_content = EXCLUDED.summary_content, generated_by = EXCLUDED.generated_by`,
-        [teamId, summaryDate, summary, userId]
+        [teamId, summaryDate, summaryWithIndex, userId]
       );
     }
 
     return {
-      summary,
+      summary: summaryWithIndex,
       date: summaryDate,
       teamId,
       cached: false,

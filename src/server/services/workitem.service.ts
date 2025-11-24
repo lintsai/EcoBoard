@@ -268,7 +268,7 @@ export const updateWorkItem = async (
   aiSummary?: string,
   aiTitle?: string,
   priority?: number,
-  estimatedDate?: string,
+  estimatedDate?: string | null,
   sessionId?: string
 ) => {
   console.log('[updateWorkItem] Called with:', { itemId, userId, content, aiSummary, aiTitle, priority, estimatedDate, sessionId });
@@ -322,10 +322,13 @@ export const updateWorkItem = async (
     values.push(priority);
   }
 
-  if (estimatedDate !== undefined) {
+  const normalizedEstimatedDate =
+    estimatedDate === undefined ? undefined : (estimatedDate || null);
+
+  if (normalizedEstimatedDate !== undefined) {
     // 使用 CAST 確保日期正確儲存，避免時區問題
     updates.push(`estimated_date = CAST($${paramCount++} AS DATE)`);
-    values.push(estimatedDate);
+    values.push(normalizedEstimatedDate);
   }
 
   if (updates.length === 0) {
@@ -892,13 +895,16 @@ export const getCompletedWorkHistory = async (
   }
 
   if (filters.keyword) {
+    const keyword = filters.keyword.toLowerCase().trim();
     const keywordParamRef = `$${paramIndex}`;
     conditions.push(`(
       LOWER(COALESCE(wi.ai_title, '')) LIKE ${keywordParamRef} OR
       LOWER(wi.content) LIKE ${keywordParamRef} OR
-      LOWER(COALESCE(su.update_content, '')) LIKE ${keywordParamRef}
+      LOWER(COALESCE(su.update_content, '')) LIKE ${keywordParamRef} OR
+      CAST(wi.id AS TEXT) LIKE ${keywordParamRef} OR
+      CONCAT('#', wi.id::text) ILIKE ${keywordParamRef}
     )`);
-    params.push(`%${filters.keyword.toLowerCase()}%`);
+    params.push(`%${keyword}%`);
     paramIndex++;
   }
 

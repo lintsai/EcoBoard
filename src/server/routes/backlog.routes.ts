@@ -17,7 +17,10 @@ router.post(
       .isInt({ min: 1, max: 5 })
       .withMessage('Priority must be 1-5'),
     body('teamId').isInt().withMessage('teamId is required'),
-    body('estimatedDate').optional().isDate().withMessage('estimatedDate must be ISO date')
+    body('estimatedDate')
+      .optional({ nullable: true, checkFalsy: true })
+      .isDate()
+      .withMessage('estimatedDate must be ISO date')
   ],
   async (req: AuthRequest, res: Response) => {
     try {
@@ -27,6 +30,10 @@ router.post(
       }
 
       const { title, content, priority, estimatedDate, teamId } = req.body;
+      const normalizedEstimatedDate =
+        Object.prototype.hasOwnProperty.call(req.body, 'estimatedDate') && (estimatedDate === null || estimatedDate === '')
+          ? null
+          : estimatedDate;
       const parsedTeamId = Number(teamId);
       const backlogItem = await backlogService.createBacklogItem(
         req.user!.id,
@@ -34,7 +41,7 @@ router.post(
         title,
         content,
         priority,
-        estimatedDate
+        normalizedEstimatedDate
       );
 
       res.status(201).json(backlogItem);
@@ -137,7 +144,10 @@ router.put(
       .optional()
       .isInt({ min: 1, max: 5 })
       .withMessage('priority must be 1-5'),
-    body('estimatedDate').optional().isDate().withMessage('estimatedDate must be ISO date'),
+    body('estimatedDate')
+      .optional({ nullable: true, checkFalsy: true })
+      .isDate()
+      .withMessage('estimatedDate must be ISO date'),
     body('teamId').optional().isInt().withMessage('teamId must be an integer')
   ],
   async (req: AuthRequest, res: Response) => {
@@ -149,11 +159,21 @@ router.put(
 
       const itemId = Number(req.params.itemId);
       const { title, content, priority, estimatedDate, teamId } = req.body;
+      const normalizedEstimatedDate =
+        Object.prototype.hasOwnProperty.call(req.body, 'estimatedDate') && (estimatedDate === null || estimatedDate === '')
+          ? null
+          : estimatedDate;
 
       const backlogItem = await backlogService.updateBacklogItem(
         itemId,
         req.user!.id,
-        { title, content, priority, estimatedDate, teamId: teamId !== undefined ? Number(teamId) : undefined }
+        {
+          title,
+          content,
+          priority,
+          estimatedDate: normalizedEstimatedDate,
+          teamId: teamId !== undefined ? Number(teamId) : undefined
+        }
       );
 
       res.json(backlogItem);

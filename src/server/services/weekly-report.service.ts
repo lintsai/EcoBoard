@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { query } from '../database/pool';
+import { appendTaskIndex } from './ai.service';
 
 const parseNumberEnv = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
@@ -61,6 +62,19 @@ interface ProductivityRecentUpdate {
   status: string;
   updatedAt: string;
 }
+
+// Hard limits to keep prompts under model context and avoid empty responses
+const MAX_STATS_WORKITEMS = 10;
+const MAX_STATS_UPDATES = 20;
+
+const limitArrayForPrompt = <T>(items: T[], maxItems: number) => {
+  const list = Array.isArray(items) ? items : [];
+  return {
+    total: list.length,
+    data: list.slice(0, maxItems),
+    truncated: list.length > maxItems
+  };
+};
 
 interface ProductivityMetrics {
   summary: ProductivitySummary;
@@ -886,6 +900,42 @@ const generateReportWithAI = async (
   switch (reportType) {
     case 'statistics':
       systemPrompt = '你是一個專業的數據分析師，擅長撰寫統計報表。';
+      const limitedWorkItems = limitArrayForPrompt(data.workItems || [], MAX_STATS_WORKITEMS);
+      const limitedUpdates = limitArrayForPrompt(data.updates || [], MAX_STATS_UPDATES);
+
+      const statusCounts: Record<string, number> = {};
+      (data.workItems || []).forEach((item: any) => {
+        const key = item.current_status || 'unknown';
+        statusCounts[key] = (statusCounts[key] || 0) + 1;
+      });
+
+      const priorityCounts: Record<string, number> = {};
+      (data.workItems || []).forEach((item: any) => {
+        const key = String(item.priority || 3);
+        priorityCounts[key] = (priorityCounts[key] || 0) + 1;
+      });
+
+      const ownerCountMap = (data.workItems || []).reduce((map: Map<string, number>, item: any) => {
+        const owner = item.handlers?.primary?.display_name || item.display_name || '未指派';
+        map.set(owner, (map.get(owner) || 0) + 1);
+        return map;
+      }, new Map<string, number>());
+
+      const ownerCounts = Array.from(ownerCountMap.entries() as Iterable<[string, number]>)
+        .sort((entryA, entryB) => entryB[1] - entryA[1])
+        .slice(0, 20)
+        .map(([owner, count]) => ({ 成員: owner, 任務數: count }));
+
+      const recentUpdatesForPrompt = limitedUpdates.data
+        .slice(0, 80)
+        .map((update: any) => ({
+          成員: update.display_name,
+          工作項目: update.work_item_title ||
+            (update.work_item_content ? String(update.work_item_content).substring(0, 40) : ''),
+          狀態: update.progress_status,
+          更新時間: update.updated_at
+        }));
+
       userPrompt = `請根據以下數據產生 ${startDate} 至 ${endDate} 的週報統計報表：
 
 ## 基本統計
@@ -897,23 +947,17 @@ const generateReportWithAI = async (
 ## 每日打卡統計
 ${JSON.stringify(data.dailyCheckins, null, 2)}
 
-## 工作項目詳情
-${JSON.stringify(data.workItems.map((item: any) => ({
-  標題: item.ai_title || item.content.substring(0, 50),
-  主要處理人: item.handlers?.primary?.display_name || '未指定',
-  共同處理人: item.handlers?.co_handlers?.map((h: any) => h.display_name).join(', ') || '無',
-  優先級: item.priority || 3,
-  狀態: item.current_status,
-  建立日期: item.checkin_date
-})), null, 2)}
+## 工作狀態分布（統計）
+${JSON.stringify(statusCounts, null, 2)}
 
-## 工作更新記錄
-${JSON.stringify(data.updates.map((update: any) => ({
-  成員: update.display_name,
-  工作項目: update.work_item_title || update.work_item_content.substring(0, 50),
-  狀態: update.progress_status,
-  更新時間: update.updated_at
-})), null, 2)}
+## 優先級分布（統計）
+${JSON.stringify(priorityCounts, null, 2)}
+
+## 主要處理人任務數（Top 20）
+${JSON.stringify(ownerCounts, null, 2)}${limitedWorkItems.truncated ? `\n（其餘 ${limitedWorkItems.total - MAX_STATS_WORKITEMS} 筆工作項目已省略以縮短上下文）` : ''}
+
+## 最近工作更新（最多 80 筆）
+${JSON.stringify(recentUpdatesForPrompt, null, 2)}${limitedUpdates.truncated ? `\n（其餘 ${limitedUpdates.total - MAX_STATS_UPDATES} 筆更新已省略以縮短上下文）` : ''}
 
 請提供：
 1. 報表名稱（20字以內，簡潔明瞭）
@@ -1223,8 +1267,36 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
       }
     );
 
-    const aiResponse = response.data.choices[0].message.content;
-    
+    const choice = (response.data && response.data.choices && response.data.choices[0]) || {};
+    const aiResponse = choice.message?.content ?? choice.text ?? '';
+
+    const buildFinalResult = (nameFromAI?: string, contentFromAI?: any) => {
+      const safeName = (typeof nameFromAI === 'string' && nameFromAI.trim())
+        ? nameFromAI.trim()
+        : `週報 ${startDate} - ${endDate}`;
+
+      const normalizedContent =
+        typeof contentFromAI === 'string'
+          ? contentFromAI
+          : contentFromAI
+            ? JSON.stringify(contentFromAI, null, 2)
+            : '';
+
+      const baseContent = (normalizedContent || '').trim()
+        ? normalizedContent
+        : (aiResponse && String(aiResponse).trim())
+          ? aiResponse
+          : '（AI 未返回文字內容，以下為圖形化摘要與任務索引）';
+
+      const withVisualization = appendVisualization(baseContent, visualizationAppendix || '');
+      const withTaskIndex = appendTaskIndex(withVisualization, data.workItems || []);
+
+      return {
+        reportName: safeName,
+        reportContent: withTaskIndex
+      };
+    };
+
     // 嘗試解析 JSON
     try {
       // 移除可能的 markdown 代碼塊標記
@@ -1238,25 +1310,15 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
       const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const result = JSON.parse(jsonMatch[0]);
-        
-        // 確保返回的是字串，而不是物件
-        if (result.reportName && result.reportContent) {
-          return {
-            reportName: result.reportName,
-            reportContent: appendVisualization(result.reportContent, visualizationAppendix || '')
-          };
-        }
+        return buildFinalResult(result.reportName, result.reportContent);
       }
     } catch (e) {
       console.error('Failed to parse AI report response as JSON:', e);
       console.error('AI Response:', aiResponse);
     }
 
-    // Fallback：若無法解析 JSON，直接使用 AI 產出作為內容
-    return {
-      reportName: `週報 ${startDate} - ${endDate}`,
-      reportContent: appendVisualization(aiResponse, visualizationAppendix || '')
-    };
+    // Fallback：若無法解析 JSON，直接使用 AI 產出作為內容並補上任務索引
+    return buildFinalResult(undefined, aiResponse);
   } catch (error) {
     console.error('AI report generation error:', error);
     throw new Error('AI 報表生成失敗');

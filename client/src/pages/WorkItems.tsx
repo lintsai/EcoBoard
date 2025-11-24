@@ -106,11 +106,14 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     if (!searchQuery.trim()) return items;
 
     const query = searchQuery.toLowerCase();
+    const numericQuery = query.replace(/#/g, '').trim();
     return items.filter(item => {
       const title = (item.ai_title || '').toLowerCase();
       const content = item.content.toLowerCase();
       const summary = (item.ai_summary || '').toLowerCase();
-      return title.includes(query) || content.includes(query) || summary.includes(query);
+      const idLabel = `#${item.id}`.toLowerCase();
+      const idMatches = idLabel.includes(query) || (numericQuery ? String(item.id).includes(numericQuery) : false);
+      return idMatches || title.includes(query) || content.includes(query) || summary.includes(query);
     });
   };
 
@@ -119,10 +122,13 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
     if (!backlogSearchQuery.trim()) return items;
 
     const query = backlogSearchQuery.toLowerCase();
+    const numericQuery = query.replace(/#/g, '').trim();
     return items.filter(item => {
       const title = (item.ai_title || '').toLowerCase();
       const content = item.content.toLowerCase();
-      return title.includes(query) || content.includes(query);
+      const idLabel = `#${item.id}`.toLowerCase();
+      const idMatches = idLabel.includes(query) || (numericQuery ? String(item.id).includes(numericQuery) : false);
+      return idMatches || title.includes(query) || content.includes(query);
     });
   };
 
@@ -852,7 +858,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                     <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
                     <input
                       type="text"
-                      placeholder="搜尋標題或內容..."
+                      placeholder="搜尋標題、內容或 #ID..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       style={{
@@ -1556,7 +1562,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                       <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#0369a1' }} />
                       <input
                         type="text"
-                        placeholder="搜尋 Backlog 項目..."
+                        placeholder="搜尋 Backlog 項目或 #ID..."
                         value={backlogSearchQuery}
                         onChange={(e) => setBacklogSearchQuery(e.target.value)}
                         style={{
