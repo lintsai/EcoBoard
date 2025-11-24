@@ -1,11 +1,18 @@
 import axios from 'axios';
 import { query } from '../database/pool';
 
+const parseNumberEnv = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 // 使用函數來延遲讀取環境變數，確保 .env 已經載入
 const getVLLMConfig = () => ({
   apiUrl: process.env.VLLM_API_URL || 'http://localhost:8000/v1',
   apiKey: process.env.VLLM_API_KEY || '',
-  modelName: process.env.VLLM_MODEL_NAME || 'gpt-3.5-turbo'
+  modelName: process.env.VLLM_MODEL_NAME || 'gpt-3.5-turbo',
+  maxTokens: parseNumberEnv(process.env.VLLM_MAX_TOKENS, 20000),
+  temperature: parseNumberEnv(process.env.VLLM_TEMPERATURE, 0.25)
 });
 
 interface ChatMessage {
@@ -82,6 +89,12 @@ interface BurndownData {
   timeline: BurndownTimelineEntry[];
   scopeChanges: Array<{ date: string; newItems: number }>;
 }
+
+const factualGuardrails = `務必遵守以下規則：
+- 只能使用提供的 JSON 數據計算，不得引用外部資料或自行推測。
+- 若資料缺失或無法計算，請直接標示「無資料」或留空，切勿捏造數字或名稱。
+- 先輸出 JSON 物件，僅包含 reportName 與 reportContent 兩個欄位。
+- reportContent 必須使用 Markdown；可使用表格呈現數據；圖形將由系統自動附加，請不要自行繪製 Mermaid、HTML 或 SVG 圖形。`;
 
 const formatDateOnly = (value: string | Date) => {
   const date = new Date(value);
@@ -315,7 +328,15 @@ const buildBurndownData = (data: any, startDate: string, endDate: string): Burnd
 };
 
 const buildBurndownVisualizationMarkdown = (burndown: BurndownData) => {
-  if (!burndown.timeline.length) {
+  const sanitizedTimeline = (burndown.timeline || []).map((entry) => ({
+    date: entry.date,
+    plannedRemaining: Math.max(Number(entry.plannedRemaining) || 0, 0),
+    actualRemaining: Math.max(Number(entry.actualRemaining) || 0, 0),
+    completedToday: Math.max(Number(entry.completedToday) || 0, 0),
+    completedToDate: Math.max(Number(entry.completedToDate) || 0, 0)
+  }));
+
+  if (!sanitizedTimeline.length) {
     return '';
   }
 
@@ -325,25 +346,25 @@ const buildBurndownVisualizationMarkdown = (burndown: BurndownData) => {
   const chartWidth = width - margin.left - margin.right;
   const chartHeight = height - margin.top - margin.bottom;
   const maxValue =
-    Math.max(...burndown.timeline.map((entry) => Math.max(entry.plannedRemaining, entry.actualRemaining)), 1) || 1;
+    Math.max(...sanitizedTimeline.map((entry) => Math.max(entry.plannedRemaining, entry.actualRemaining)), 1) || 1;
 
   const getX = (index: number) => {
-    if (burndown.timeline.length === 1) {
+    if (sanitizedTimeline.length === 1) {
       return margin.left;
     }
-    return margin.left + (index / (burndown.timeline.length - 1)) * chartWidth;
+    return margin.left + (index / (sanitizedTimeline.length - 1)) * chartWidth;
   };
 
   const getY = (value: number) => margin.top + chartHeight - (value / maxValue) * chartHeight;
 
-  const plannedPath = burndown.timeline
+  const plannedPath = sanitizedTimeline
     .map(
       (entry, index) =>
         `${index === 0 ? 'M' : 'L'} ${getX(index).toFixed(2)} ${getY(entry.plannedRemaining).toFixed(2)}`
     )
     .join(' ');
 
-  const actualPath = burndown.timeline
+  const actualPath = sanitizedTimeline
     .map((entry, index) => `${index === 0 ? 'M' : 'L'} ${getX(index).toFixed(2)} ${getY(entry.actualRemaining).toFixed(2)}`)
     .join(' ');
 
@@ -356,7 +377,7 @@ const buildBurndownVisualizationMarkdown = (burndown: BurndownData) => {
     </g>`;
   }).join('');
 
-  const xLabels = burndown.timeline
+  const xLabels = sanitizedTimeline
     .map((entry, index) => {
       const x = getX(index);
       return `<text x="${x.toFixed(2)}" y="${height - 10}" text-anchor="middle" font-size="10" fill="#6b7280">${entry.date.slice(
@@ -365,15 +386,43 @@ const buildBurndownVisualizationMarkdown = (burndown: BurndownData) => {
     })
     .join('');
 
+  const labelInterval = Math.max(1, Math.ceil(sanitizedTimeline.length / 6));
+  const pointLabels = sanitizedTimeline
+    .map((entry, index) => {
+      if (index !== 0 && index !== sanitizedTimeline.length - 1 && index % labelInterval !== 0) return '';
+      const x = getX(index);
+      const y = getY(entry.actualRemaining) - 6;
+      return `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="middle" font-size="10" fill="#111827">${entry.actualRemaining}</text>`;
+    })
+    .filter(Boolean)
+    .join('');
+
+  const plannedPoints = sanitizedTimeline
+    .map(
+      (entry, index) =>
+        `<circle cx="${getX(index).toFixed(2)}" cy="${getY(entry.plannedRemaining).toFixed(2)}" r="3" fill="#f97316" />`
+    )
+    .join('');
+
+  const actualPoints = sanitizedTimeline
+    .map(
+      (entry, index) =>
+        `<circle cx="${getX(index).toFixed(2)}" cy="${getY(entry.actualRemaining).toFixed(2)}" r="3.5" fill="#2563eb" />`
+    )
+    .join('');
+
   const svg = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="260" role="img" aria-label="燃盡圖">
     <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff" stroke="#e5e7eb"/>
     ${yTicks}
     ${xLabels}
     <path d="${plannedPath}" fill="none" stroke="#f97316" stroke-width="2" />
     <path d="${actualPath}" fill="none" stroke="#2563eb" stroke-width="2" />
+    ${plannedPoints}
+    ${actualPoints}
+    ${pointLabels}
   </svg>`;
 
-  const tableRows = burndown.timeline
+  const tableRows = sanitizedTimeline
     .map(
       (entry) =>
         `| ${entry.date} | ${entry.plannedRemaining} | ${entry.actualRemaining} | ${entry.completedToday} | ${entry.completedToDate} |`
@@ -402,6 +451,262 @@ const appendVisualization = (content: string, visualization: string) => {
     return content;
   }
   return `${content}\n\n${visualization}`;
+};
+
+const escapeHtml = (value: string) =>
+  String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+const buildSparkline = (points: Array<{ label: string; value: number }>, title: string) => {
+  const sanitized = points.map((point) => ({
+    label: formatDateOnly(point.label) || point.label || '',
+    value: Number.isFinite(Number(point.value)) ? Math.max(Number(point.value), 0) : 0
+  }));
+
+  if (!sanitized.length) {
+    return '';
+  }
+
+  const width = 720;
+  const height = 180;
+  const margin = { top: 24, right: 16, bottom: 30, left: 40 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  const maxValue = Math.max(...sanitized.map((p) => p.value), 0);
+  const denominator = Math.max(maxValue, 1);
+
+  const getX = (index: number) => {
+    if (sanitized.length === 1) {
+      return margin.left;
+    }
+    return margin.left + (index / (sanitized.length - 1)) * chartWidth;
+  };
+
+  const getY = (value: number) => margin.top + chartHeight - (value / denominator) * chartHeight;
+
+  const path = sanitized
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${getX(index).toFixed(2)} ${getY(point.value).toFixed(2)}`)
+    .join(' ');
+
+  const circles = sanitized
+    .map(
+      (point, index) =>
+        `<circle cx="${getX(index).toFixed(2)}" cy="${getY(point.value).toFixed(2)}" r="3" fill="#2563eb" />`
+    )
+    .join('');
+
+  const yTicks = Array.from({ length: 4 }, (_, idx) => {
+    const value = Math.round((denominator / 3) * idx);
+    const y = getY(value);
+    return `<g>
+      <line x1="${margin.left}" y1="${y.toFixed(2)}" x2="${width - margin.right}" y2="${y.toFixed(2)}" stroke="#f3f4f6" stroke-width="1" />
+      <text x="${margin.left - 8}" y="${(y + 4).toFixed(2)}" text-anchor="end" font-size="10" fill="#9ca3af">${value}</text>
+    </g>`;
+  }).join('');
+
+  const pointLabels = sanitized
+    .map((point, index) => {
+      const x = getX(index);
+      const y = getY(point.value) - 6;
+      return `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="middle" font-size="10" fill="#111827">${point.value}</text>`;
+    })
+    .join('');
+
+  const labelInterval = Math.max(1, Math.ceil(sanitized.length / Math.min(sanitized.length, 6)));
+  const xLabels = sanitized
+    .map((point, index) => {
+      if (index !== 0 && index !== sanitized.length - 1 && index % labelInterval !== 0) return '';
+      const x = getX(index);
+      return `<text x="${x.toFixed(2)}" y="${height - 8}" text-anchor="middle" font-size="10" fill="#6b7280">${escapeHtml(
+        point.label.slice(5)
+      )}</text>`;
+    })
+    .filter(Boolean)
+    .join('');
+
+  return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#ffffff;">
+  <div style="font-weight:600;margin:4px 0;">${escapeHtml(title)}</div>
+  <svg viewBox="0 0 ${width} ${height}" width="100%" height="200" role="img" aria-label="${escapeHtml(title)}">
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#fff" stroke="#e5e7eb" />
+    ${yTicks}
+    <path d="${path}" fill="none" stroke="#2563eb" stroke-width="2" />
+    ${circles}
+    ${pointLabels}
+    ${xLabels}
+  </svg>
+</div>`;
+};
+
+const buildHorizontalBarChart = (
+  items: Array<{ label: string; value: number }>,
+  title: string,
+  maxItems: number = 12
+) => {
+  const dataset = items
+    .filter((item) => Number.isFinite(Number(item.value)) && Number(item.value) >= 0)
+    .slice(0, maxItems)
+    .map((item) => ({ label: escapeHtml(item.label), value: Number(item.value) }));
+
+  if (!dataset.length) {
+    return '';
+  }
+
+  const width = 720;
+  const margin = { top: 24, right: 80, bottom: 16, left: 200 };
+  const barHeight = 26;
+  const barGap = 12;
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = dataset.length * barHeight + (dataset.length - 1) * barGap;
+  const height = chartHeight + margin.top + margin.bottom;
+  const maxValue = Math.max(...dataset.map((item) => item.value), 0);
+  const denominator = Math.max(maxValue, 1);
+
+  const bars = dataset
+    .map((item, index) => {
+      const y = margin.top + index * (barHeight + barGap);
+      const rawWidth = (item.value / denominator) * chartWidth;
+      const barWidth = Math.max(rawWidth, item.value > 0 ? 6 : 3);
+      return `<g>
+        <text x="${margin.left - 12}" y="${y + barHeight / 1.5}" text-anchor="end" font-size="11" fill="#374151">
+          ${item.label}
+        </text>
+        <rect x="${margin.left}" y="${y}" width="${barWidth.toFixed(2)}" height="${barHeight}" rx="4" fill="#10b981" />
+        <text x="${margin.left + barWidth + 8}" y="${y + barHeight / 1.5}" font-size="11" fill="#111827">
+          ${item.value}
+        </text>
+      </g>`;
+    })
+    .join('');
+
+  return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#ffffff;">
+  <div style="font-weight:600;margin:4px 0;">${escapeHtml(title)}</div>
+  <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="${escapeHtml(title)}">
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#fff" stroke="#e5e7eb" />
+    ${bars}
+  </svg>
+</div>`;
+};
+
+const buildStatisticsVisualization = (data: any) => {
+  const checkinTrend = buildSparkline(
+    (data.dailyCheckins || []).map((entry: any) => ({
+      label: entry.date,
+      value: Number(entry.checkin_count) || 0
+    })),
+    '每日出勤趨勢'
+  );
+
+  const statusCounts: Record<string, number> = {};
+  (data.workItems || []).forEach((item: any) => {
+    const key = item.current_status || 'unknown';
+    statusCounts[key] = (statusCounts[key] || 0) + 1;
+  });
+
+  const statusChart = buildHorizontalBarChart(
+    Object.entries(statusCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value })),
+    '工作狀態分布'
+  );
+
+  const ownerMap = new Map<string, number>();
+  (data.workItems || []).forEach((item: any) => {
+    const owner = item.handlers?.primary?.display_name || item.display_name || '未指派';
+    ownerMap.set(owner, (ownerMap.get(owner) || 0) + 1);
+  });
+
+  const ownerChart = buildHorizontalBarChart(
+    Array.from(ownerMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value })),
+    '主要處理人任務數 (Top 8)',
+    8
+  );
+
+  const charts = [checkinTrend, statusChart, ownerChart].filter(Boolean).join('\n\n');
+
+  return charts
+    ? `### 圖形化摘要
+- 工作項目：${data.workItems?.length || 0}，更新：${data.updates?.length || 0}，成員：${
+        data.teamMembers?.length || 0
+      }
+${charts}`
+    : '';
+};
+
+const buildProductivityVisualization = (metrics: ProductivityMetrics) => {
+  const workloadChart = buildHorizontalBarChart(
+    [...metrics.memberMetrics]
+      .sort((a, b) => b.ownedItems - a.ownedItems)
+      .map((metric) => ({ label: metric.member, value: metric.ownedItems })),
+    '工作量 Top 10 (任務數)'
+  );
+
+  const completionChart = buildHorizontalBarChart(
+    [...metrics.memberMetrics]
+      .sort((a, b) => b.completionRate - a.completionRate)
+      .map((metric) => ({ label: metric.member, value: metric.completionRate })),
+    '完成率 Top 10 (%)'
+  );
+
+  const updateChart = buildHorizontalBarChart(
+    [...metrics.memberMetrics]
+      .sort((a, b) => b.updatesAuthored - a.updatesAuthored)
+      .map((metric) => ({ label: metric.member, value: metric.updatesAuthored })),
+    '更新頻率 Top 10 (筆數)'
+  );
+
+  const charts = [workloadChart, completionChart, updateChart].filter(Boolean).join('\n\n');
+
+  const completionTable = (() => {
+    const top = [...metrics.memberMetrics].sort((a, b) => b.completionRate - a.completionRate).slice(0, 10);
+    if (!top.length) return '';
+    const rows = top
+      .map(
+        (metric) =>
+          `| ${escapeHtml(metric.member)} | ${metric.completionRate}% | ${metric.completedItems}/${metric.ownedItems} | ${metric.updatesAuthored} |`
+      )
+      .join('\n');
+    return `### 成員完成率表格 (Top 10)\n| 成員 | 完成率 | 已完成/任務 | 更新數 |\n| --- | --- | --- | --- |\n${rows}`;
+  })();
+
+  const sections = [
+    charts
+      ? `### 視覺化生產力概覽
+- 總任務：${metrics.summary.totalWorkItems}，完成：${metrics.summary.completedItems} (${metrics.summary.completionRate}%)
+- 平均每任務更新：${metrics.summary.avgUpdatesPerItem}
+${charts}`
+      : '',
+    completionTable
+  ].filter(Boolean);
+
+  return sections.join('\n\n');
+};
+
+const buildTaskDistributionVisualization = (metrics: ProductivityMetrics) => {
+  const distributionChart = buildHorizontalBarChart(
+    [...metrics.memberMetrics]
+      .sort((a, b) => b.activeItems - a.activeItems)
+      .map((metric) => ({ label: metric.member, value: metric.activeItems })),
+    '任務分布 Top 12 (活躍工項)'
+  );
+
+  const blockedChart = buildHorizontalBarChart(
+    [...metrics.memberMetrics]
+      .sort((a, b) => b.blockedItems - a.blockedItems)
+      .map((metric) => ({ label: metric.member, value: metric.blockedItems })),
+    '阻塞工項 (需協助)'
+  );
+
+  const charts = [distributionChart, blockedChart].filter(Boolean).join('\n\n');
+
+  return charts
+    ? `### 任務分布視覺化
+- 成員數：${metrics.summary.totalMembers}，活躍工項：${metrics.summary.totalWorkItems}
+${charts}`
+    : '';
 };
 
 // 取得團隊週報列表
@@ -619,6 +924,7 @@ ${JSON.stringify(data.updates.map((update: any) => ({
   "reportName": "報表名稱",
   "reportContent": "報表內容（Markdown 格式）"
 }`;
+      visualizationAppendix = buildStatisticsVisualization(data);
       break;
 
     case 'analysis': {
@@ -705,6 +1011,8 @@ ${JSON.stringify(data.dailyCheckins, null, 2)}
 
 }`;
 
+      visualizationAppendix = buildProductivityVisualization(productivitySnapshot);
+
       break;
 
     }
@@ -765,7 +1073,7 @@ ${JSON.stringify(workItemPromptData, null, 2)}
 
 1. 報表名稱（20 字以內）
 
-2. 燃盡圖分析（必須包含一個 Markdown 表格呈現 timeline 數據、風險與建議）
+2. 燃盡圖分析（僅需文字敘述風險與建議，無需再繪製表格或圖形，視覺化由系統附加）
 
 3. 對於落後或超前進度的解釋，以及下一步調整策略
 
@@ -845,9 +1153,11 @@ ${JSON.stringify(workItemPromptData, null, 2)}
 
   "reportName": "報表名稱",
 
-  "reportContent": "報表內容（Markdown 格式）"
+ "reportContent": "報表內容（Markdown 格式）"
 
 }`;
+
+      visualizationAppendix = buildProductivityVisualization(productivityData);
 
       break;
 
@@ -856,6 +1166,7 @@ ${JSON.stringify(workItemPromptData, null, 2)}
 
 
     case 'task_distribution':
+      const distributionMetrics = buildProductivityMetrics(data);
       systemPrompt = '你是一個資源配置專家，擅長分析任務分配的合理性。';
       userPrompt = `請根據以下數據產生 ${startDate} 至 ${endDate} 的任務分布報表：
 
@@ -873,14 +1184,23 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
 
 請提供：
 1. 報表名稱（20字以內）
-2. 任務分布報表（包含：成員工作量統計、任務分配均衡度、優先級分布、協作模式分析、重新分配建議等，使用 Markdown 格式）
+2. 任務分布報表（包含：成員工作量統計、任務分配均衡度、優先級分布、協作模式分析、重新分配建議等，使用 Markdown 格式；圖形請用內嵌 HTML/SVG 或表格，不可使用 Mermaid）
 
 回傳 JSON 格式：
 {
   "reportName": "報表名稱",
   "reportContent": "報表內容（Markdown 格式）"
 }`;
+      visualizationAppendix = buildTaskDistributionVisualization(distributionMetrics);
       break;
+  }
+
+  const safetyFooter = `請完全依據以上真實資料撰寫，缺失的資訊請標示「無資料」，不要臆測或添加未提供的數字；禁止使用 Mermaid 或其他需要前端額外解析的圖表語法。`;
+  userPrompt = `${userPrompt}\n\n${safetyFooter}`;
+  const finalSystemPrompt = `${systemPrompt || '你是一位週報產生助手。'}\n\n${factualGuardrails}`;
+
+  if (!visualizationAppendix) {
+    visualizationAppendix = buildStatisticsVisualization(data);
   }
 
   try {
@@ -889,11 +1209,11 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
       {
         model: config.modelName,
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: finalSystemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7,
-        max_tokens: 12000
+        temperature: config.temperature,
+        max_tokens: config.maxTokens
       },
       {
         headers: {
