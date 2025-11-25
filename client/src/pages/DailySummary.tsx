@@ -399,7 +399,13 @@ function DailySummary({ user, teamId }: any) {
                         <div style={{ fontSize: '13px', color: '#6b7280' }}>
                           {item.generated_by_name && `由 ${item.generated_by_name} 生成`}
                           {' · '}
-                          {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                          {new Date(item.created_at).toLocaleString('zh-TW', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
                         </div>
                       </div>
                     </div>

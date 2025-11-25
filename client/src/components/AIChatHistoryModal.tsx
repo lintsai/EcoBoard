@@ -185,6 +185,9 @@ const AIChatHistoryModal = ({ sessionId, open, onClose, title }: AIChatHistoryMo
                     )}
                     <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '6px', textAlign: msg.role === 'user' ? 'right' : 'left' }}>
                       {new Date(msg.timestamp).toLocaleString('zh-TW', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit'
                       })}

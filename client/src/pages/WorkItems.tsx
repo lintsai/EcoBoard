@@ -808,7 +808,13 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                         opacity: 0.7
                       }}
                     >
-                      {new Date(msg.timestamp).toLocaleTimeString('zh-TW')}
+                      {new Date(msg.timestamp).toLocaleString('zh-TW', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
                     </div>
                   </div>
                 </div>
