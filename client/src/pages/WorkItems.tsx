@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp, Calendar, Search, Undo2, Loader2 } from 'lucide-react';
+import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp, Calendar, Search, Undo2, Loader2, LayoutGrid, AlignJustify } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -68,7 +68,11 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
   const [searchQuery, setSearchQuery] = useState('');
   const [backlogSearchQuery, setBacklogSearchQuery] = useState('');
+  const [isCompactLayout, setIsCompactLayout] = useState(false);
+  const [forceSingleColumn, setForceSingleColumn] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const useSingleColumn = isCompactLayout || forceSingleColumn;
+  const layoutLabel = forceSingleColumn ? '單欄 (手動)' : isCompactLayout ? '單欄 (自動)' : '雙欄';
 
   const isBacklogOwner = (item: { user_id?: number }) =>
     typeof currentUserId === 'number' && typeof item?.user_id === 'number' && item.user_id === currentUserId;
@@ -212,6 +216,16 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const updateLayout = () => {
+      setIsCompactLayout(window.innerWidth < 1400);
+    };
+
+    updateLayout();
+    window.addEventListener('resize', updateLayout);
+    return () => window.removeEventListener('resize', updateLayout);
+  }, []);
 
   const loadTodayCheckin = async () => {
     try {
@@ -688,6 +702,16 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
               <Calendar size={18} />
               Backlog 規劃
             </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setForceSingleColumn(prev => !prev)}
+              title="切換單欄 / 雙欄，視窗較窄時會自動改為單欄"
+              aria-label={`切換排版：${layoutLabel}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 10px' }}
+            >
+              {useSingleColumn ? <AlignJustify size={18} /> : <LayoutGrid size={18} />}
+              <span style={{ fontSize: '12px', color: '#374151', fontWeight: 600 }}>{layoutLabel}</span>
+            </button>
             <div style={{ fontSize: '14px', color: '#666' }}>
               {user.display_name || user.username}
             </div>
@@ -710,9 +734,21 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
         )}
 
         {/* Main Content */}
-        <div style={{ display: 'grid', gridTemplateColumns: '60% 38%', gap: '20px', minHeight: 'calc(100vh - 250px)', alignItems: 'start' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: useSingleColumn ? '1fr' : '60% 38%',
+          gap: useSingleColumn ? '16px' : '20px',
+          minHeight: useSingleColumn ? 'auto' : 'calc(100vh - 250px)',
+          alignItems: 'start'
+        }}>
           {/* Left: Chat Dialog - 60% */}
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 250px)', position: 'sticky', top: '20px' }}>
+          <div className="card" style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: useSingleColumn ? 'auto' : 'calc(100vh - 250px)',
+            position: useSingleColumn ? 'static' : 'sticky',
+            top: useSingleColumn ? undefined : '20px'
+          }}>
             {/* Chat Header */}
             <div style={{ padding: '15px', borderBottom: '1px solid #e5e7eb' }}>
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
@@ -730,7 +766,13 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
             </div>
 
             {/* Chat Messages */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '20px',
+              minHeight: useSingleColumn ? '260px' : undefined,
+              maxHeight: useSingleColumn ? '60vh' : undefined
+            }}>
               {messages.map((msg, idx) => (
                 <div
                   key={idx}
@@ -854,7 +896,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
           </div>
 
           {/* Right: AI Summary + Work Items List - 40% */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', minWidth: 0 }}>
 
 
             {/* Work Items List */}
@@ -1224,7 +1266,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             </div>
 
                             {item.ai_summary && (
-                              <div className="markdown-content" style={{
+                              <div className="markdown-content workitems-markdown" style={{
                                 fontSize: '13px',
                                 color: '#666',
                                 marginTop: '12px',
@@ -1475,7 +1517,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 />
                               </div>
                               {item.ai_summary && (
-                                <div className="markdown-content" style={{
+                                <div className="markdown-content workitems-markdown" style={{
                                   fontSize: '13px',
                                   color: '#92400e',
                                   marginTop: '12px',
@@ -1726,7 +1768,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             {isExpanded && (
                               <div style={{ padding: '0 12px 12px 12px', borderTop: '1px solid #bae6fd' }}>
                                 {item.content && (
-                                  <div className="markdown-content" style={{
+                                  <div className="markdown-content workitems-markdown" style={{
                                     fontSize: '13px',
                                     color: '#0369a1',
                                     marginTop: '12px',

@@ -646,6 +646,16 @@ select.form-control {
   border-bottom: none;
 }
 
+.workitems-markdown table {
+  min-width: 560px;
+}
+
+@media (max-width: 1024px) {
+  .workitems-markdown table {
+    min-width: 480px;
+  }
+}
+
 /* Table Modal */
 .table-modal-overlay {
   position: fixed;
