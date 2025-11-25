@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type SyntheticEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown, FileText, MessageSquare } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown, FileText, MessageSquare, Megaphone } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -136,6 +136,14 @@ const describeRealtimeEvent = (event: any) => {
       return `${actorName} 加入了站立會議`;
     case 'standup-participant-left':
       return `${actorName} 離開了站立會議`;
+    case 'standup-focus-started':
+      return `${actorName} 開啟了報告聚焦模式`;
+    case 'standup-focus-stopped':
+      return `${actorName} 結束了報告聚焦模式`;
+    case 'standup-auto-start-prompt':
+      return `${actorName} 觸發自動開始確認`;
+    case 'standup-auto-start-cancelled':
+      return `${actorName} 取消了自動開始站立會議`;
     default:
       return `${actorName} 更新了站立會議資訊`;
   }
@@ -286,6 +294,10 @@ const renderItemMetaBadges = (item: WorkItem) => {
   );
 };
 
+const getCoHandlerExpandId = (userId: number) => -(userId * 1000);
+const getCoHandlerItemKey = (userId: number, itemId: number) => `co-handler-${userId}-${itemId}`;
+const getCoHandlerItemDomId = (userId: number, itemId: number) => `cohandler-item-${userId}-${itemId}`;
+
 function StandupReview({ user, teamId }: StandupReviewProps) {
   const navigate = useNavigate();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -300,7 +312,6 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const [error, setError] = useState('');
   const [expandedMembers, setExpandedMembers] = useState<Set<number>>(new Set());
   const [expandedWorkItems, setExpandedWorkItems] = useState<Set<string | number>>(new Set());
-  const [showAllWorkItems, setShowAllWorkItems] = useState(true);
   const [showIncompleteItems, setShowIncompleteItems] = useState(true);
   const [assigningItem, setAssigningItem] = useState<number | null>(null);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
@@ -339,6 +350,17 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const twoMinuteWarningShownRef = useRef(false);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
+  const focusStateRef = useRef<{ presenterId: number; presenterName?: string; itemId?: number | null; startedAt?: number } | null>(null);
+  const followFocusRef = useRef(true);
+  const workItemsRef = useRef<WorkItem[]>([]);
+  const incompleteItemsRef = useRef<WorkItem[]>([]);
+  const [focusState, setFocusState] = useState<{ presenterId: number; presenterName?: string; itemId?: number | null; startedAt?: number } | null>(null);
+  const [followFocus, setFollowFocus] = useState(true);
+  const [isRequestingFocus, setIsRequestingFocus] = useState(false);
+  const [pendingAutoStart, setPendingAutoStart] = useState<{ actorId?: number; actorName?: string; requiredParticipants?: number; currentParticipants?: number } | null>(null);
+  const [autoStartModalOpen, setAutoStartModalOpen] = useState(false);
+  const [handlingAutoStart, setHandlingAutoStart] = useState(false);
+  const location = useLocation();
 
   const socketStatusLabel =
     socketStatus === 'connected'
@@ -544,11 +566,80 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     [teamId, showToast]
   );
 
+  const jumpToFocusCard = useCallback((focus: { presenterId: number; itemId?: number | null }) => {
+    if (!focus?.presenterId) {
+      return;
+    }
+    const itemId = focus.itemId;
+    const hasItem = typeof itemId === 'number';
+
+    const targetItem = hasItem
+      ? [...workItemsRef.current, ...incompleteItemsRef.current].find((it) => it.id === itemId)
+      : null;
+
+    const primaryId = targetItem?.handlers?.primary?.user_id || targetItem?.user_id || null;
+    const presenterIsPrimary = primaryId === focus.presenterId;
+    const presenterIsCoHandler = !!targetItem?.handlers?.co_handlers?.some(
+      (h) => h.user_id === focus.presenterId
+    );
+    const shouldOpenCoHandlerCard =
+      presenterIsCoHandler && !presenterIsPrimary && hasItem;
+
+    setExpandedMembers((prev) => {
+      const next = new Set(prev);
+      next.add(focus.presenterId);
+      if (!presenterIsPrimary && primaryId) {
+        next.add(primaryId);
+      }
+      return next;
+    });
+
+    if (hasItem && typeof itemId === 'number') {
+      setExpandedWorkItems((prev) => {
+        const next = new Set(prev);
+        if (shouldOpenCoHandlerCard) {
+          next.add(getCoHandlerExpandId(focus.presenterId));
+          next.add(getCoHandlerItemKey(focus.presenterId, itemId));
+        } else {
+          next.add(itemId);
+        }
+        return next;
+      });
+    }
+
+    setShowIncompleteItems(true);
+
+    setTimeout(() => {
+      const targetId = (() => {
+        if (!hasItem) {
+          return `member-${focus.presenterId}`;
+        }
+        if (shouldOpenCoHandlerCard) {
+          return getCoHandlerItemDomId(focus.presenterId, itemId);
+        }
+        return `work-item-${itemId}`;
+      })();
+      const element =
+        document.getElementById(targetId) ||
+        (hasItem ? document.getElementById(`work-item-${itemId}`) : null);
+      if (element) {
+        const originalBg = element.style.backgroundColor;
+        const rect = element.getBoundingClientRect();
+        const targetTop = window.scrollY + rect.top - 120;
+        window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' });
+        element.style.backgroundColor = '#e0e7ff';
+        setTimeout(() => {
+          element.style.backgroundColor = originalBg || '';
+        }, 1200);
+      }
+    }, 160);
+  }, []);
+
   useEffect(() => {
     if (teamId) {
       loadStandupData();
     }
-  }, [teamId, loadStandupData, appendRealtimeLog, showToast]);
+  }, [teamId, loadStandupData, appendRealtimeLog, showToast, jumpToFocusCard, user?.id]);
 
   useEffect(() => {
     setParticipantStats({ required: 0, current: 0 });
@@ -601,6 +692,28 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
       participantPanelMinimized ? '1' : '0'
     );
   }, [participantPanelMinimized]);
+
+  useEffect(() => {
+    focusStateRef.current = focusState;
+  }, [focusState]);
+
+  useEffect(() => {
+    followFocusRef.current = followFocus;
+  }, [followFocus]);
+
+  useEffect(() => {
+    workItemsRef.current = workItems;
+  }, [workItems]);
+
+  useEffect(() => {
+    incompleteItemsRef.current = incompleteItems;
+  }, [incompleteItems]);
+
+  useEffect(() => {
+    if (focusState && followFocusRef.current) {
+      jumpToFocusCard(focusState);
+    }
+  }, [focusState, incompleteItems, jumpToFocusCard, workItems]);
 
   useEffect(() => {
     if (!logStorageKey || typeof window === 'undefined') {
@@ -817,6 +930,45 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
               });
               setActiveParticipants(Array.isArray(payload.participants) ? payload.participants : []);
 
+              const incomingFocus = payload.currentFocus;
+              const normalizedFocus = incomingFocus
+                ? {
+                  presenterId: Number(incomingFocus.presenterId),
+                  presenterName: incomingFocus.presenterName,
+                  itemId: typeof incomingFocus.itemId === 'number' ? incomingFocus.itemId : null,
+                  startedAt: incomingFocus.startedAt
+                }
+                : null;
+              if (normalizedFocus) {
+                const previous = focusStateRef.current;
+                const changed =
+                  !previous ||
+                  previous.presenterId !== normalizedFocus.presenterId ||
+                  (previous.itemId ?? null) !== (normalizedFocus.itemId ?? null);
+                setFocusState(normalizedFocus);
+                if (changed && followFocusRef.current) {
+                  jumpToFocusCard(normalizedFocus);
+                }
+              } else {
+                setFocusState(null);
+              }
+
+              if (payload.pendingAutoStart) {
+                const auto = {
+                  actorId: payload.pendingAutoStart.actorId,
+                  actorName: payload.pendingAutoStart.actorName,
+                  requiredParticipants: payload.pendingAutoStart.requiredParticipants,
+                  currentParticipants: payload.pendingAutoStart.currentParticipants
+                };
+                setPendingAutoStart(auto);
+                if (auto.actorId === user?.id) {
+                  setAutoStartModalOpen(true);
+                }
+              } else {
+                setPendingAutoStart(null);
+                setAutoStartModalOpen(false);
+              }
+
               if (payload.active) {
                 syncServerTime(payload.serverTimestamp);
                 setSessionInfo(buildSessionInfoFromPayload(payload));
@@ -853,6 +1005,8 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                 setSessionInfo(buildSessionInfoFromPayload(metadata));
                 setOverdueMinutes(null);
                 lastOverdueToastRef.current = null;
+                setPendingAutoStart(null);
+                setAutoStartModalOpen(false);
                 shouldRefreshData = false;
               } else if (payload.action === 'standup-session-warning') {
                 syncServerTime(metadata.serverTimestamp);
@@ -869,10 +1023,49 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                 setSessionInfo(null);
                 setOverdueMinutes(null);
                 lastOverdueToastRef.current = null;
+                setFocusState(null);
                 showToast(
                   `${metadata.actorName || '系統'} 結束了站立會議`,
                   'warning'
                 );
+                shouldRefreshData = false;
+                setPendingAutoStart(null);
+                setAutoStartModalOpen(false);
+              } else if (payload.action === 'standup-auto-start-prompt') {
+                const auto = {
+                  actorId: payload.actorId,
+                  actorName: metadata.actorName,
+                  requiredParticipants: metadata.requiredParticipants,
+                  currentParticipants: metadata.currentParticipants
+                };
+                setPendingAutoStart(auto);
+                if (payload.actorId === user?.id) {
+                  setAutoStartModalOpen(true);
+                } else if (metadata.actorName) {
+                  showToast(`等待 ${metadata.actorName} 確認是否開始站立會議`, 'info');
+                }
+                shouldRefreshData = false;
+              } else if (payload.action === 'standup-auto-start-cancelled') {
+                setPendingAutoStart(null);
+                setAutoStartModalOpen(false);
+                if (metadata.actorName) {
+                  showToast(`${metadata.actorName} 取消了自動開始`, 'warning');
+                }
+                shouldRefreshData = false;
+              } else if (payload.action === 'standup-focus-started') {
+                const nextFocus = {
+                  presenterId: metadata.presenterId || payload.actorId,
+                  presenterName: metadata.presenterName || metadata.actorName,
+                  itemId: typeof metadata.itemId === 'number' ? metadata.itemId : null,
+                  startedAt: metadata.startedAt
+                };
+                setFocusState(nextFocus);
+                if (followFocusRef.current && nextFocus.presenterId) {
+                  jumpToFocusCard(nextFocus);
+                }
+                shouldRefreshData = false;
+              } else if (payload.action === 'standup-focus-stopped') {
+                setFocusState(null);
                 shouldRefreshData = false;
               }
 
@@ -963,11 +1156,11 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     setForcingStop(true);
     try {
       await api.forceStopStandup(teamId);
-      showToast('站立會議已被強制結束', 'warning');
-      appendRealtimeLog('已發送強制結束站立會議的請求');
+      showToast('站立會議已被結束', 'warning');
+      appendRealtimeLog('已發送結束站立會議的請求');
     } catch (err: any) {
       console.error('Force stop standup error:', err);
-      setError(err.response?.data?.error || '強制結束站立會議失敗，請稍後再試');
+      setError(err.response?.data?.error || '結束站立會議失敗，請稍後再試');
     } finally {
       setForcingStop(false);
     }
@@ -1105,10 +1298,6 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     setExpandedMembers(newExpanded);
   };
 
-  const toggleAllWorkItems = () => {
-    setShowAllWorkItems(!showAllWorkItems);
-  };
-
   const handleAssignWorkItem = async (itemId: number, newUserId: number) => {
     if (!newUserId) {
       setAssigningItem(null);
@@ -1131,6 +1320,108 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
       alert(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleStartFocus = async (itemId?: number) => {
+    if (!teamId || isRequestingFocus) {
+      return;
+    }
+    if (!sessionInfo) {
+      showToast('會議開始後才能使用「我要報告」與聚焦', 'warning');
+      return;
+    }
+    const normalizedItemId = typeof itemId === 'number' ? itemId : null;
+    const isAlreadyFocused =
+      focusState?.presenterId === user.id &&
+      (focusState?.itemId ?? null) === (normalizedItemId ?? null);
+    if (isAlreadyFocused) {
+      return;
+    }
+    setIsRequestingFocus(true);
+    try {
+      await api.startStandupFocus(teamId, {
+        itemId: normalizedItemId ?? undefined,
+        presenterId: user.id
+      });
+      setFollowFocus(true);
+      const nextFocus = {
+        presenterId: user.id,
+        presenterName: user.display_name || user.username,
+        itemId: normalizedItemId,
+        startedAt: Date.now()
+      };
+      setFocusState(nextFocus);
+      focusStateRef.current = nextFocus;
+      const message =
+        focusState?.presenterId === user.id
+          ? '已切換聚焦到新的任務，所有人會同步跟上'
+          : '已啟用報告聚焦，所有人會跳轉到你的卡片';
+      showToast(message, 'info');
+    } catch (err: any) {
+      console.error('Start focus error:', err);
+      alert(err?.response?.data?.error || '無法開啟聚焦模式，請稍後再試');
+    } finally {
+      setIsRequestingFocus(false);
+    }
+  };
+
+  const handleStopFocus = async () => {
+    if (!teamId || isRequestingFocus) {
+      return;
+    }
+    if (!sessionInfo) {
+      showToast('會議開始後才能管理聚焦', 'warning');
+      return;
+    }
+    setIsRequestingFocus(true);
+    try {
+      await api.stopStandupFocus(teamId);
+      setFocusState(null);
+      focusStateRef.current = null;
+      setFollowFocus(false);
+    } catch (err: any) {
+      console.error('Stop focus error:', err);
+      alert(err?.response?.data?.error || '無法關閉聚焦模式，請稍後再試');
+    } finally {
+      setIsRequestingFocus(false);
+    }
+  };
+
+  const respondAutoStart = async (decision: 'start' | 'cancel') => {
+    if (!teamId) {
+      return;
+    }
+    setHandlingAutoStart(true);
+    try {
+      await api.respondStandupAutoStart(teamId, decision);
+      if (decision === 'cancel') {
+        showToast('你取消了自動開始站立會議', 'warning');
+        setPendingAutoStart(null);
+      } else {
+        showToast('站立會議即將開始', 'success');
+        setPendingAutoStart(null);
+      }
+      setAutoStartModalOpen(false);
+    } catch (err: any) {
+      console.error('Respond auto start error:', err);
+      alert(err?.response?.data?.error || '無法更新自動開始狀態，請稍後再試');
+    } finally {
+      setHandlingAutoStart(false);
+    }
+  };
+
+  const isCurrentPresenter = focusState?.presenterId === user.id;
+  const shouldAllowFocusControl = !!sessionInfo && isCurrentPresenter;
+
+  const maybeFocusOnItem = (item: WorkItem) => {
+    if (!shouldAllowFocusControl) {
+      return;
+    }
+    const isOwner = item.user_id === user.id || item.handlers?.primary?.user_id === user.id;
+    const isCoHandler = item.handlers?.co_handlers?.some(h => h.user_id === user.id);
+    if (isOwner || isCoHandler) {
+      handleStartFocus(item.id);
     }
   };
 
@@ -1250,7 +1541,9 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     setTimeout(() => {
       const element = document.getElementById(`work-item-${workItemId}`);
       if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const rect = element.getBoundingClientRect();
+        const targetTop = window.scrollY + rect.top - 120;
+        window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' });
         // 短暫高亮提示
         element.style.backgroundColor = '#fef3c7';
         setTimeout(() => {
@@ -1300,6 +1593,20 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     paddingTop:
       participantPanelPosition === 'top' && shouldShowFloatingPanel ? `${panelOffset}px` : undefined
   };
+  const isFloatingMode = (() => {
+    try {
+      const params = new URLSearchParams(location.search);
+      return params.get('floating') === '1';
+    } catch {
+      return false;
+    }
+  })();
+
+  const openFloatingWindow = () => {
+    if (typeof window === 'undefined') return;
+    const url = `${window.location.origin}/standup-review?floating=1`;
+    window.open(url, 'standup-floating', 'width=520,height=840,noopener,noreferrer');
+  };
 
   const participantPanel = shouldShowFloatingPanel ? (
     <div
@@ -1328,37 +1635,68 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
             position: 'relative'
           }}
         >
-          {sessionInfo && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+            {sessionInfo && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '12px',
+                  color: isCountdownPositive ? '#2563eb' : '#dc2626',
+                  backgroundColor: isCountdownPositive ? '#e0f2fe' : '#fee2e2',
+                  borderRadius: '999px',
+                  padding: '4px 8px',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <Clock size={12} />
+                {formatCountdown(countdownMs)}
+              </span>
+            )}
             <div
               style={{
-                position: 'absolute',
-                left: '-60px',
-                top: '50%',
-                transform: 'translateY(-50%)',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
-                fontSize: '12px',
-                color: isCountdownPositive ? '#2563eb' : '#dc2626',
-                backgroundColor: isCountdownPositive ? '#e0f2fe' : '#fee2e2',
+                flexWrap: 'wrap',
+                rowGap: '4px',
+                columnGap: '8px',
+                padding: '6px 10px',
+                backgroundColor: '#eef2ff',
                 borderRadius: '999px',
-                padding: '4px 10px',
-                fontWeight: 600,
-                boxShadow: '0 4px 14px rgba(15, 23, 42, 0.15)'
+                fontSize: '12px',
+                color: '#1e1b4b',
+                minWidth: '220px',
+                flex: 1
               }}
             >
-              <Clock size={12} />
-              {formatCountdown(countdownMs)}
-            </div>
-          )}
-          <div>
-            <div style={{ fontWeight: 600, color: '#1e1b4b', fontSize: '14px' }}>
-              {hasParticipantData
-                ? `在線 ${activeParticipants.length}/${targetParticipantCount}`
-                : '站立會議監控面板'}
-            </div>
-            <div style={{ fontSize: '12px', color: '#4338ca' }}>
-              {autoStartWarning || `連線狀態：${socketStatusLabel}`}
+              <span
+                style={{
+                  width: '10px',
+                  height: '10px',
+                  borderRadius: '50%',
+                  backgroundColor: socketStatusColor,
+                  flexShrink: 0
+                }}
+              />
+              <span style={{ color: '#4338ca' }}>
+                {hasParticipantData
+                  ? `在線 ${activeParticipants.length}/${targetParticipantCount}`
+                  : '待加入'}
+              </span>
+              <span style={{ color: '#6b7280' }}>
+                {autoStartWarning || `連線：${socketStatusLabel}`}
+              </span>
+              {focusState && (
+                <span
+                  style={{ color: '#1f2937', maxWidth: '100%' }}
+                  title={`${focusState.presenterName || `成員 #${focusState.presenterId}`}${focusState.itemId ? ` · #${focusState.itemId}` : ''}`}
+                >
+                  📢 {focusState.presenterName || `成員 #${focusState.presenterId}`}
+                  {focusState.itemId ? ` · #${focusState.itemId}` : ''}
+                </span>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1514,10 +1852,69 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
               )}
               {sessionInfo && (
                 <button className="btn btn-danger" onClick={handleForceStopStandup} disabled={forcingStop}>
-                  {forcingStop ? '結束中...' : '強制結束'}
+                  {forcingStop ? '結束中...' : '結束會議'}
                 </button>
               )}
             </div>
+          </div>
+          <div
+            style={{
+              marginTop: '12px',
+              padding: '12px',
+              borderRadius: '12px',
+              backgroundColor: '#fff',
+              border: '1px solid #e5e7ff'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Megaphone size={16} style={{ color: '#4338ca' }} />
+                <div>
+                  <div style={{ fontWeight: 600, color: '#1e1b4b', fontSize: '14px' }}>報告聚焦</div>
+                  <div style={{ fontSize: '12px', color: '#4338ca' }}>
+                    {focusState
+                      ? `目前：${focusState.presenterName || `成員 #${focusState.presenterId}`}${focusState.itemId ? ` · #${focusState.itemId}` : ''}`
+                      : '尚未有人啟用聚焦'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {focusState && focusState.presenterId !== user.id && (
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                    onClick={() => setFollowFocus(!followFocus)}
+                  >
+                    {followFocus ? '離開跟隨' : '重新跟隨'}
+                  </button>
+                )}
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                  onClick={() => {
+                    const myItems = getUserWorkItems(user.id);
+                    if (focusState?.presenterId === user.id) {
+                      handleStopFocus();
+                    } else {
+                      handleStartFocus(myItems[0]?.id);
+                    }
+                  }}
+                  disabled={
+                    focusState?.presenterId === user.id
+                      ? isRequestingFocus
+                      : (isRequestingFocus || !sessionInfo)
+                  }
+                  title="會議開始後才可使用"
+                >
+                  {focusState?.presenterId === user.id ? '結束報告' : '我要報告'}
+                </button>
+              </div>
+            </div>
+            {!sessionInfo && (
+              <div style={{ marginTop: '6px', fontSize: '12px', color: '#9ca3af' }}>
+                會議開始後才能啟用聚焦與報告。
+              </div>
+            )}
           </div>
           {sessionInfo && (
             <div
@@ -1746,7 +2143,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
             <h1>站立會議檢閱</h1>
             <p className="subtitle">即時掌握團隊打卡與工作進度，並透過 AI 提供建議</p>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button
               className="btn btn-secondary"
               onClick={() => loadStandupData()}
@@ -1762,6 +2159,15 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                 '重新整理'
               )}
             </button>
+            {!isFloatingMode && (
+              <button
+                className="btn btn-secondary"
+                onClick={openFloatingWindow}
+                title="開啟獨立懸浮窗，可在其他頁面同時參與會議"
+              >
+                懸浮視窗
+              </button>
+            )}
             <button
               className="btn btn-primary"
               onClick={handleAnalyzeWorkItems}
@@ -1781,6 +2187,11 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
             </button>
           </div>
         </div>
+        {pendingAutoStart && pendingAutoStart.actorId !== user.id && !sessionInfo && (
+          <div className="alert alert-info" style={{ marginBottom: '12px' }}>
+            正等待 {pendingAutoStart.actorName || '成員'} 確認是否自動開始站立會議...
+          </div>
+        )}
         {typeof overdueMinutes === 'number' && (
           <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
             <AlertCircle size={18} />
@@ -1991,7 +2402,6 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                 const checkin = checkins.find(c => c.user_id === member.user_id);
                 const memberWorkItems = getUserWorkItems(member.user_id);
 
-                // Debug log
                 console.log(`Member: ${member.display_name || member.username}`, {
                   user_id: member.user_id,
                   status,
@@ -2002,6 +2412,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                 return (
                   <div
                     key={member.user_id}
+                    id={`member-${member.user_id}`}
                     style={{
                       padding: '15px',
                       marginBottom: '15px',
@@ -2135,6 +2546,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                         if ((e.target as HTMLElement).closest('.reassign-area')) {
                                           return;
                                         }
+                                        const willExpand = !isItemExpanded;
                                         const newExpanded = new Set(expandedWorkItems);
                                         if (isItemExpanded) {
                                           newExpanded.delete(item.id);
@@ -2142,6 +2554,9 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           newExpanded.add(item.id);
                                         }
                                         setExpandedWorkItems(newExpanded);
+                                        if (willExpand) {
+                                          maybeFocusOnItem(item);
+                                        }
                                       }}
                                     >
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
@@ -2197,28 +2612,28 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           );
                                         })()}
                                       </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                          <div style={{ fontSize: '11px', color: '#999' }}>
-                                            {formatTime(item.created_at).split(' ')[1]}
-                                          </div>
-                                          <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
-                                            <button
-                                              className="btn btn-secondary"
-                                              style={{ fontSize: '11px', padding: '4px 8px' }}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openChatHistory(item);
-                                              }}
-                                              disabled={!item.session_id}
-                                              title="查看 AI 對談"
-                                            >
-                                              <MessageSquare size={12} />
-                                            </button>
-                                            <button
-                                              className="btn btn-secondary"
-                                              style={{ fontSize: '11px', padding: '4px 8px' }}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ fontSize: '11px', color: '#999' }}>
+                                          {formatTime(item.created_at).split(' ')[1]}
+                                        </div>
+                                        <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openChatHistory(item);
+                                            }}
+                                            disabled={!item.session_id}
+                                            title="查看 AI 對談"
+                                          >
+                                            <MessageSquare size={12} />
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
                                               openPriorityModal(item);
                                             }}
                                             title="調整優先順序"
@@ -2333,7 +2748,8 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                 );
                               })}
                             </div>
-                          )}
+                          )
+                          }
                         </>
                       ) : (
                         <div style={{ fontSize: '13px', color: '#999', padding: '10px 0' }}>
@@ -2425,6 +2841,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           if ((e.target as HTMLElement).closest('.reassign-area')) {
                                             return;
                                           }
+                                          const willExpand = !isItemExpanded;
                                           const newExpanded = new Set(expandedWorkItems);
                                           if (isItemExpanded) {
                                             newExpanded.delete(item.id);
@@ -2432,6 +2849,9 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             newExpanded.add(item.id);
                                           }
                                           setExpandedWorkItems(newExpanded);
+                                          if (willExpand) {
+                                            maybeFocusOnItem(item);
+                                          }
                                         }}
                                       >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
@@ -2631,7 +3051,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                         if (totalCoHandlerItems === 0) return null;
 
                         // 使用負的虛擬 ID，避免與實際 work item id 衝突
-                        const coHandlerExpandId = -(member.user_id * 1000);
+                        const coHandlerExpandId = getCoHandlerExpandId(member.user_id);
 
                         return (
                           <>
@@ -2703,7 +3123,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                     </div>
                                     {coHandlerTodayItems.map((item) => {
                                       // 給協辦卡片獨立的展開 key，避免與主卡重複
-                                      const coHandlerExpandKey = `co-handler-${item.id}`;
+                                      const coHandlerExpandKey = getCoHandlerItemKey(member.user_id, item.id);
                                       const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
                                       const primaryUser = item.handlers?.primary;
                                       const otherCoHandlers = item.handlers?.co_handlers?.filter(
@@ -2713,6 +3133,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                       return (
                                         <div
                                           key={item.id}
+                                          id={getCoHandlerItemDomId(member.user_id, item.id)}
                                           style={{
                                             marginBottom: '6px',
                                             padding: '8px',
@@ -2739,8 +3160,11 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                               } else {
                                                 newExpanded.add(coHandlerExpandKey);
                                               }
-                                              // 更新共同負責卡片的展開狀態
+                                              // 更新共同負責卡片的展開狀態，協辦也啟用聚焦
                                               setExpandedWorkItems(newExpanded);
+                                              if (!isItemExpanded) {
+                                                maybeFocusOnItem(item);
+                                              }
                                             }}
                                           >
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
@@ -2843,7 +3267,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                     </div>
                                     {coHandlerIncompleteItems.map((item: WorkItem) => {
                                       // 為共同負責的卡片建立獨立的展開 key，避免與主卡衝突
-                                      const coHandlerExpandKey = `co-handler-${item.id}`;
+                                      const coHandlerExpandKey = getCoHandlerItemKey(member.user_id, item.id);
                                       const isItemExpanded = expandedWorkItems.has(coHandlerExpandKey);
                                       const primaryUser = item.handlers?.primary;
                                       const otherCoHandlers = item.handlers?.co_handlers?.filter(
@@ -2853,6 +3277,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                       return (
                                         <div
                                           key={item.id}
+                                          id={getCoHandlerItemDomId(member.user_id, item.id)}
                                           style={{
                                             marginBottom: '6px',
                                             padding: '8px',
@@ -2879,8 +3304,11 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                               } else {
                                                 newExpanded.add(coHandlerExpandKey);
                                               }
-                                              // 更新共同負責卡片的展開狀態
+                                              // 更新共同負責卡片的展開狀態，協辦也啟用聚焦
                                               setExpandedWorkItems(newExpanded);
+                                              if (!isItemExpanded) {
+                                                maybeFocusOnItem(item);
+                                              }
                                             }}
                                           >
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
@@ -2985,223 +3413,299 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                 );
               })}
             </div>
-          )}
-        </div>
+          )
+          }
+        </div >
 
         {/* 協作說明 */}
-        <div className="card" style={{ marginTop: '20px', backgroundColor: '#f8f9fa' }}>
+        < div className="card" style={{ marginTop: '20px', backgroundColor: '#f8f9fa' }}>
           <h3 style={{ fontSize: '16px', marginBottom: '10px' }}>💡 站立會議小提示</h3>
           <ul style={{ fontSize: '14px', lineHeight: '1.8', paddingLeft: '20px', margin: 0, color: '#666' }}>
-            <li><strong style={{ color: '#0f172a' }}>確保所有成員已完成打卡與工作項目填寫</strong>，系統會顯示未到齊人數，可用此頁面追蹤進度。</li>
-            <li>點擊成員區塊可<strong style={{ color: '#2563eb' }}>展開/收合工作項目</strong>，點開單一項目查看詳細內容、調整優先級或添加共同處理人。</li>
-            <li><strong style={{ color: '#047857' }}>AI 建議</strong>會自動分析團隊工作分配、辨識風險項目並提供再分配建議，可點「套用建議」快速操作。</li>
-            <li>共同處理人的協辦項目會折疊顯示在「共同負責項目」區塊，點擊<strong style={{ color: '#0891b2' }}>「前往原卡片」</strong>可跳轉到主要負責人的完整內容。</li>
-            <li>會議計時超過<strong style={{ color: '#b91c1c' }}> 15 分鐘會提醒收斂</strong>，詳細討論建議會後進行，保持站會簡潔高效。</li>
+            <li>
+              <strong style={{ color: '#0f172a' }}>會前準備：</strong>
+              <span style={{ color: '#111827' }}>確認所有人已 <span style={{ color: '#16a34a', fontWeight: 700 }}>打卡</span> 並填寫 <span style={{ color: '#2563eb', fontWeight: 700 }}>今日任務</span>，未到齊人數會顯示在上方。</span>
+            </li>
+            <li>
+              <strong style={{ color: '#4338ca' }}>聚焦報告：</strong>
+              <span>點「<span style={{ color: '#4338ca', fontWeight: 700 }}>我要報告</span>」或直接點自己的任務卡即可啟用聚焦；其他人可用「<span style={{ color: '#f97316', fontWeight: 700 }}>離開跟隨/重新跟隨</span>」切換。</span>
+            </li>
+            <li>
+              <strong style={{ color: '#0891b2' }}>協辦任務：</strong>
+              <span>共同負責的項目會在「<span style={{ color: '#0891b2', fontWeight: 700 }}>共同負責項目</span>」區塊，點「<span style={{ color: '#0891b2', fontWeight: 700 }}>前往原卡片</span>」可跳回主要負責人視角。</span>
+            </li>
+            <li>
+              <strong style={{ color: '#047857' }}>AI 助攻：</strong>
+              <span>「<span style={{ color: '#047857', fontWeight: 700 }}>AI 建議</span>」會分析負載與風險並提供再分配；可直接套用「<span style={{ color: '#047857', fontWeight: 700 }}>建議指派</span>」快速調整。</span>
+            </li>
+            <li>
+              <strong style={{ color: '#b91c1c' }}>時間控管：</strong>
+              <span>超過 <span style={{ color: '#b91c1c', fontWeight: 700 }}>15 分鐘</span> 會提醒收斂，深入討論移到會後；若需要螢幕投影，可改用上方「<span style={{ color: '#2563eb', fontWeight: 700 }}>懸浮視窗</span>」模式。</span>
+            </li>
           </ul>
-        </div>
+        </div >
+
+        {autoStartModalOpen && pendingAutoStart && (
+          <div
+            className="modal-overlay"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }}
+            onClick={() => !handlingAutoStart && setAutoStartModalOpen(false)}
+          >
+            <div
+              className="modal-content card"
+              style={{
+                width: '90%',
+                maxWidth: '460px',
+                padding: '22px'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Megaphone size={18} />
+                所有人到齊，要開始站立會議嗎？
+              </h3>
+              <p style={{ margin: '0 0 8px 0', color: '#374151' }}>
+                目前在線成員：{pendingAutoStart.currentParticipants ?? '--'}/{pendingAutoStart.requiredParticipants ?? '--'}
+              </p>
+              <div className="alert alert-warning" style={{ marginBottom: '14px' }}>
+                你是最後加入的成員，系統等待你的確認
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => respondAutoStart('cancel')}
+                  disabled={handlingAutoStart}
+                >
+                  暫不開始
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => respondAutoStart('start')}
+                  disabled={handlingAutoStart}
+                >
+                  {handlingAutoStart ? '處理中...' : '立即開始'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 主要負責人設定 Modal */}
-        {showHandlerModal && editingWorkItem && (
-          <div
-            className="modal-overlay"
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000
-            }}
-            onClick={() => setShowHandlerModal(false)}
-          >
+        {
+          showHandlerModal && editingWorkItem && (
             <div
-              className="modal-content card"
+              className="modal-overlay"
               style={{
-                width: '90%',
-                maxWidth: '500px',
-                padding: '24px',
-                maxHeight: '80vh',
-                overflowY: 'auto'
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000
               }}
-              onClick={(e) => e.stopPropagation()}
+              onClick={() => setShowHandlerModal(false)}
             >
-              <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
-                調整負責人：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
-              </h3>
+              <div
+                className="modal-content card"
+                style={{
+                  width: '90%',
+                  maxWidth: '500px',
+                  padding: '24px',
+                  maxHeight: '80vh',
+                  overflowY: 'auto'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
+                  調整負責人：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
+                </h3>
 
-              {/* 主要負責人 */}
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{
-                  display: 'block',
-                  marginBottom: '8px',
-                  fontWeight: 'bold',
-                  fontSize: '14px',
-                  color: '#333'
-                }}>
-                  主要負責人
-                </label>
-                <select
-                  className="input"
-                  value={selectedPrimaryHandler || ''}
-                  onChange={(e) => setSelectedPrimaryHandler(parseInt(e.target.value))}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">請選擇主要負責人</option>
-                  {teamMembers.map(member => (
-                    <option key={member.user_id} value={member.user_id}>
-                      {member.display_name || member.username}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 共同負責人 */}
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{
-                  display: 'block',
-                  marginBottom: '8px',
-                  fontWeight: 'bold',
-                  fontSize: '14px',
-                  color: '#333'
-                }}>
-                  共同負責人（可複選）
-                </label>
-                <div style={{
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  padding: '12px',
-                  maxHeight: '200px',
-                  overflowY: 'auto',
-                  backgroundColor: '#f9f9f9'
-                }}>
-                  {teamMembers
-                    .filter(member => member.user_id !== selectedPrimaryHandler)
-                    .map(member => (
-                      <label
-                        key={member.user_id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: '6px 0',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedCoHandlers.includes(member.user_id)}
-                          onChange={() => toggleCoHandler(member.user_id)}
-                          style={{ marginRight: '8px', cursor: 'pointer' }}
-                        />
-                        <span style={{ fontSize: '14px' }}>
-                          {member.display_name || member.username}
-                        </span>
-                      </label>
+                {/* 主要負責人 */}
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontWeight: 'bold',
+                    fontSize: '14px',
+                    color: '#333'
+                  }}>
+                    主要負責人
+                  </label>
+                  <select
+                    className="input"
+                    value={selectedPrimaryHandler || ''}
+                    onChange={(e) => setSelectedPrimaryHandler(parseInt(e.target.value))}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">請選擇主要負責人</option>
+                    {teamMembers.map(member => (
+                      <option key={member.user_id} value={member.user_id}>
+                        {member.display_name || member.username}
+                      </option>
                     ))}
-                  {teamMembers.filter(m => m.user_id !== selectedPrimaryHandler).length === 0 && (
-                    <div style={{ color: '#999', fontSize: '14px' }}>
-                      暫無可選的共同負責人
-                    </div>
-                  )}
+                  </select>
+                </div>
+
+                {/* 共同負責人 */}
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontWeight: 'bold',
+                    fontSize: '14px',
+                    color: '#333'
+                  }}>
+                    共同負責人（可複選）
+                  </label>
+                  <div style={{
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    padding: '12px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    backgroundColor: '#f9f9f9'
+                  }}>
+                    {teamMembers
+                      .filter(member => member.user_id !== selectedPrimaryHandler)
+                      .map(member => (
+                        <label
+                          key={member.user_id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '6px 0',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCoHandlers.includes(member.user_id)}
+                            onChange={() => toggleCoHandler(member.user_id)}
+                            style={{ marginRight: '8px', cursor: 'pointer' }}
+                          />
+                          <span style={{ fontSize: '14px' }}>
+                            {member.display_name || member.username}
+                          </span>
+                        </label>
+                      ))}
+                    {teamMembers.filter(m => m.user_id !== selectedPrimaryHandler).length === 0 && (
+                      <div style={{ color: '#999', fontSize: '14px' }}>
+                        暫無可選的共同負責人
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 按鈕群組 */}
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setShowHandlerModal(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSaveHandlers}
+                    disabled={!selectedPrimaryHandler}
+                  >
+                    儲存
+                  </button>
                 </div>
               </div>
-
-              {/* 按鈕群組 */}
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setShowHandlerModal(false)}
-                >
-                  取消
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSaveHandlers}
-                  disabled={!selectedPrimaryHandler}
-                >
-                  儲存
-                </button>
-              </div>
             </div>
-          </div>
-        )}
+          )
+        }
 
         {/* 優先順序 Modal */}
-        {showPriorityModal && editingWorkItem && (
-          <div
-            className="modal-overlay"
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000
-            }}
-            onClick={() => setShowPriorityModal(false)}
-          >
+        {
+          showPriorityModal && editingWorkItem && (
             <div
-              className="modal-content card"
+              className="modal-overlay"
               style={{
-                width: '90%',
-                maxWidth: '400px',
-                padding: '24px'
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000
               }}
-              onClick={(e) => e.stopPropagation()}
+              onClick={() => setShowPriorityModal(false)}
             >
-              <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
-                調整優先順序：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
-              </h3>
+              <div
+                className="modal-content card"
+                style={{
+                  width: '90%',
+                  maxWidth: '400px',
+                  padding: '24px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 style={{ marginBottom: '20px', fontSize: '18px' }}>
+                  調整優先順序：{editingWorkItem.ai_title || editingWorkItem.content.substring(0, 30) + '...'}
+                </h3>
 
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{
-                  display: 'block',
-                  marginBottom: '8px',
-                  fontWeight: 'bold',
-                  fontSize: '14px',
-                  color: '#333'
-                }}>
-                  優先順序
-                </label>
-                <select
-                  className="input"
-                  value={selectedPriority}
-                  onChange={(e) => setSelectedPriority(parseInt(e.target.value))}
-                  style={{ width: '100%', fontSize: '16px', padding: '12px' }}
-                >
-                  <option value={1}>🔴 最高</option>
-                  <option value={2}>🟠 高</option>
-                  <option value={3}>🟡 中</option>
-                  <option value={4}>🟢 低</option>
-                  <option value={5}>🔵 最低</option>
-                </select>
-              </div>
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontWeight: 'bold',
+                    fontSize: '14px',
+                    color: '#333'
+                  }}>
+                    優先順序
+                  </label>
+                  <select
+                    className="input"
+                    value={selectedPriority}
+                    onChange={(e) => setSelectedPriority(parseInt(e.target.value))}
+                    style={{ width: '100%', fontSize: '16px', padding: '12px' }}
+                  >
+                    <option value={1}>🔴 最高</option>
+                    <option value={2}>🟠 高</option>
+                    <option value={3}>🟡 中</option>
+                    <option value={4}>🟢 低</option>
+                    <option value={5}>🔵 最低</option>
+                  </select>
+                </div>
 
-              {/* 按鈕群組 */}
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setShowPriorityModal(false)}
-                >
-                  取消
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSavePriority}
-                >
-                  儲存
-                </button>
+                {/* 按鈕群組 */}
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setShowPriorityModal(false)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSavePriority}
+                  >
+                    儲存
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )
+        }
         <AIChatHistoryModal
           open={Boolean(chatSessionId)}
           sessionId={chatSessionId}
@@ -3211,9 +3715,9 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
           }}
           title={chatModalTitle}
         />
-      </div>
+      </div >
       {participantPanel}
-    </div>
+    </div >
   );
 }
 

@@ -384,6 +384,21 @@ class ApiService {
     const response = await this.api.post(`/standup/team/${teamId}/force-stop`);
     return response.data;
   }
+
+  async respondStandupAutoStart(teamId: number, decision: 'start' | 'cancel') {
+    const response = await this.api.post(`/standup/team/${teamId}/auto-start/respond`, { decision });
+    return response.data;
+  }
+
+  async startStandupFocus(teamId: number, payload: { itemId?: number | null; presenterId?: number }) {
+    const response = await this.api.post(`/standup/team/${teamId}/focus`, { ...payload, action: 'start' });
+    return response.data;
+  }
+
+  async stopStandupFocus(teamId: number) {
+    const response = await this.api.post(`/standup/team/${teamId}/focus`, { action: 'stop' });
+    return response.data;
+  }
 }
 
 export default new ApiService();

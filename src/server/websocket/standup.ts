@@ -32,7 +32,11 @@ export type StandupEventAction =
   | 'standup-session-warning'
   | 'standup-session-ended'
   | 'standup-participant-left'
-  | 'standup-participant-joined';
+  | 'standup-participant-joined'
+  | 'standup-focus-started'
+  | 'standup-focus-stopped'
+  | 'standup-auto-start-prompt'
+  | 'standup-auto-start-cancelled';
 
 export interface StandupBroadcastPayload {
   action: StandupEventAction | string;
@@ -68,8 +72,27 @@ interface StandupSession {
   requiredParticipants?: number;
 }
 
-
 const teamStandupSessions = new Map<number, StandupSession>();
+
+interface FocusState {
+  presenterId: number;
+  presenterName?: string;
+  itemId?: number | null;
+  startedAt: number;
+}
+
+interface AutoStartState {
+  pending: boolean;
+  promptActorId?: number;
+  promptActorName?: string;
+  requiredParticipants?: number;
+  currentParticipants?: number;
+  declinedBy?: number;
+  declinedAt?: number;
+}
+
+const teamFocusState = new Map<number, FocusState>();
+const teamAutoStartState = new Map<number, AutoStartState>();
 
 const safeSend = (ws: WebSocket, data: Record<string, unknown>) => {
   if (ws.readyState !== WebSocket.OPEN) {
@@ -193,6 +216,57 @@ const getSessionPayload = (teamId: number, session: StandupSession) => {
   };
 };
 
+const clearFocusState = (teamId: number) => {
+  if (teamFocusState.has(teamId)) {
+    teamFocusState.delete(teamId);
+  }
+};
+
+const broadcastFocusState = (teamId: number, focus: FocusState, actorId?: number) => {
+  teamFocusState.set(teamId, focus);
+  broadcastStandupUpdate(teamId, {
+    action: 'standup-focus-started',
+    actorId: actorId ?? focus.presenterId,
+    metadata: {
+      presenterId: focus.presenterId,
+      presenterName: focus.presenterName,
+      itemId: focus.itemId ?? null,
+      startedAt: focus.startedAt
+    }
+  });
+};
+
+const broadcastFocusStopped = (teamId: number, actor: { userId: number; username?: string; displayName?: string } | null) => {
+  const previous = teamFocusState.get(teamId);
+  if (!previous && !actor) {
+    return;
+  }
+  clearFocusState(teamId);
+  broadcastStandupUpdate(teamId, {
+    action: 'standup-focus-stopped',
+    actorId: actor?.userId ?? previous?.presenterId,
+    metadata: {
+      actorName: actor?.displayName || actor?.username || (previous?.presenterName ?? '成員'),
+      presenterId: previous?.presenterId,
+      itemId: previous?.itemId ?? null
+    }
+  });
+};
+
+const resetAutoStartState = (teamId: number) => {
+  if (teamAutoStartState.has(teamId)) {
+    teamAutoStartState.delete(teamId);
+  }
+};
+
+const getPendingAutoStart = (teamId: number) => {
+  const state = teamAutoStartState.get(teamId);
+  if (state?.pending) {
+    return state;
+  }
+  return null;
+};
+
 const handleSessionTimerTick = (teamId: number) => {
   const session = teamStandupSessions.get(teamId);
   if (!session) {
@@ -223,6 +297,7 @@ const handleSessionTimerTick = (teamId: number) => {
 const ensureStandupSession = (teamId: number, meta: StandupClientMeta) => {
   let session = teamStandupSessions.get(teamId);
   if (!session) {
+    resetAutoStartState(teamId);
     session = {
       startTime: Date.now(),
       startedBy: getActorName(meta),
@@ -249,9 +324,43 @@ const maybeStartStandupSession = (meta: StandupClientMeta) => {
   if (!required) {
     return;
   }
-  if (getTeamPresenceCount(meta.teamId) >= required) {
-    ensureStandupSession(meta.teamId, meta);
+  const current = getTeamPresenceCount(meta.teamId);
+  const hasSession = teamStandupSessions.has(meta.teamId);
+
+  if (current < required) {
+    resetAutoStartState(meta.teamId);
+    return;
   }
+
+  if (hasSession) {
+    resetAutoStartState(meta.teamId);
+    return;
+  }
+
+  if (getPendingAutoStart(meta.teamId)) {
+    return;
+  }
+
+  const actorName = getActorName(meta);
+  const promptState: AutoStartState = {
+    pending: true,
+    promptActorId: meta.userId,
+    promptActorName: actorName,
+    requiredParticipants: required,
+    currentParticipants: current
+  };
+  teamAutoStartState.set(meta.teamId, promptState);
+
+  broadcastStandupUpdate(meta.teamId, {
+    action: 'standup-auto-start-prompt',
+    actorId: meta.userId,
+    metadata: {
+      actorName,
+      requiredParticipants: required,
+      currentParticipants: current,
+      promptUserId: meta.userId
+    }
+  });
 };
 
 export const forceStartStandupSession = async (
@@ -290,20 +399,94 @@ export const forceStopStandupSession = async (
     }
   });
 
+  if (teamFocusState.has(teamId)) {
+    broadcastFocusStopped(teamId, actor);
+  }
+
   clearStandupSession(teamId);
   broadcastSessionStatus(teamId);
   return session;
 };
 
+export const handleAutoStartDecision = async (
+  teamId: number,
+  actor: { userId: number; username?: string; displayName?: string },
+  decision: 'start' | 'cancel'
+) => {
+  if (decision === 'start') {
+    resetAutoStartState(teamId);
+    return forceStartStandupSession(teamId, actor);
+  }
+
+  teamAutoStartState.set(teamId, {
+    pending: false,
+    declinedBy: actor.userId,
+    declinedAt: Date.now()
+  });
+
+  broadcastStandupUpdate(teamId, {
+    action: 'standup-auto-start-cancelled',
+    actorId: actor.userId,
+    metadata: {
+      actorName: actor.displayName || actor.username || `成員#${actor.userId}`
+    }
+  });
+  broadcastSessionStatus(teamId);
+  return null;
+};
+
+export const startStandupFocus = (
+  teamId: number,
+  actor: { userId: number; username?: string; displayName?: string },
+  payload: { itemId?: number | null; presenterId?: number }
+) => {
+  const presenterId = payload.presenterId ?? actor.userId;
+  const focus: FocusState = {
+    presenterId,
+    presenterName: actor.displayName || actor.username,
+    itemId: typeof payload.itemId === 'number' ? payload.itemId : null,
+    startedAt: Date.now()
+  };
+  broadcastFocusState(teamId, focus, actor.userId);
+};
+
+export const stopStandupFocus = (
+  teamId: number,
+  actor: { userId: number; username?: string; displayName?: string }
+) => {
+  if (!teamFocusState.has(teamId)) {
+    return;
+  }
+  broadcastFocusStopped(teamId, actor);
+};
+
 const sendSessionStatusToClient = (ws: WebSocket, teamId: number) => {
   const session = teamStandupSessions.get(teamId);
+  const currentFocus = teamFocusState.get(teamId);
+  const pendingAutoStart = getPendingAutoStart(teamId);
 
   if (session) {
     safeSend(ws, {
       type: 'standup:session-status',
       teamId,
       active: true,
-      ...getSessionPayload(teamId, session)
+      ...getSessionPayload(teamId, session),
+      currentFocus: currentFocus
+        ? {
+          presenterId: currentFocus.presenterId,
+          presenterName: currentFocus.presenterName,
+          itemId: currentFocus.itemId ?? null,
+          startedAt: currentFocus.startedAt
+        }
+        : null,
+      pendingAutoStart: pendingAutoStart
+        ? {
+          actorId: pendingAutoStart.promptActorId,
+          actorName: pendingAutoStart.promptActorName,
+          requiredParticipants: pendingAutoStart.requiredParticipants,
+          currentParticipants: pendingAutoStart.currentParticipants
+        }
+        : null
     });
   } else {
     safeSend(ws, {
@@ -313,7 +496,23 @@ const sendSessionStatusToClient = (ws: WebSocket, teamId: number) => {
       currentParticipants: getTeamPresenceCount(teamId),
       requiredParticipants: teamMemberCounts.get(teamId) ?? null,
       participants: getActiveParticipants(teamId),
-      serverTimestamp: Date.now()
+      serverTimestamp: Date.now(),
+      currentFocus: currentFocus
+        ? {
+          presenterId: currentFocus.presenterId,
+          presenterName: currentFocus.presenterName,
+          itemId: currentFocus.itemId ?? null,
+          startedAt: currentFocus.startedAt
+        }
+        : null,
+      pendingAutoStart: pendingAutoStart
+        ? {
+          actorId: pendingAutoStart.promptActorId,
+          actorName: pendingAutoStart.promptActorName,
+          requiredParticipants: pendingAutoStart.requiredParticipants,
+          currentParticipants: pendingAutoStart.currentParticipants
+        }
+        : null
     });
   }
 };
@@ -327,6 +526,8 @@ const clearStandupSession = (teamId: number) => {
     clearInterval(session.warningTimer);
   }
   teamStandupSessions.delete(teamId);
+  resetAutoStartState(teamId);
+  clearFocusState(teamId);
 };
 
 const broadcastSessionStatus = (teamId: number) => {
@@ -364,6 +565,16 @@ const removeClientFromTeam = (ws: WebSocket) => {
       },
       participants: getActiveParticipants(meta.teamId)
     });
+  }
+
+  const required = meta.teamSize || teamMemberCounts.get(meta.teamId) || 0;
+  if (getTeamPresenceCount(meta.teamId) < required) {
+    resetAutoStartState(meta.teamId);
+  }
+
+  const focus = teamFocusState.get(meta.teamId);
+  if (focus?.presenterId === meta.userId) {
+    broadcastFocusStopped(meta.teamId, meta);
   }
 
   broadcastSessionStatus(meta.teamId);
