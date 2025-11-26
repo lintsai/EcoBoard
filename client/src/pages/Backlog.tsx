@@ -1,6 +1,6 @@
-﻿import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, Search, ChevronDown, ChevronUp } from 'lucide-react';
+﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Plus, Edit2, Trash2, Send, Sparkles, Calendar, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -30,7 +30,7 @@ interface BacklogItem {
   display_name?: string;
 }
 
-function Backlog({ user, teamId }: BacklogProps) {
+function Backlog({ user, teamId }: BacklogProps): JSX.Element {
   const navigate = useNavigate();
   const [backlogItems, setBacklogItems] = useState<BacklogItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -60,8 +60,48 @@ function Backlog({ user, teamId }: BacklogProps) {
   const contentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-
+  const { backlogId } = useParams();
+  const parseInitialBacklogId = () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('backlogId')) {
+      const parsed = Number(params.get('backlogId'));
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    if (backlogId) {
+      const parsed = Number(backlogId);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  };
+  const initialTargetRef = useRef<number | null>(parseInitialBacklogId());
+  const hasFocusedTarget = useRef(false);
+  const lastFocusedIdRef = useRef<number | null>(null);
+  const targetChangeOriginRef = useRef<'initial' | 'user'>('initial');
+  const highlightElement = (element: HTMLElement | null) => {
+    if (!element) return;
+    element.classList.add('highlight-target');
+    setTimeout(() => {
+      element.classList.remove('highlight-target');
+    }, 1800);
+  };
   const isItemOwner = (item: BacklogItem) => typeof currentUserId === 'number' && item.user_id === currentUserId;
+  const updateUrlBacklogId = useCallback((id: number | null, origin: 'user' | 'initial' = 'user') => {
+    targetChangeOriginRef.current = origin;
+    const url = new URL(window.location.href);
+    if (id === null) {
+      url.searchParams.delete('backlogId');
+    } else {
+      url.searchParams.set('backlogId', String(id));
+    }
+    window.history.replaceState({}, '', url.toString());
+  }, []);
+
+  const clearBacklogParam = useCallback(() => {
+    updateUrlBacklogId(null, 'user');
+    initialTargetRef.current = null;
+    hasFocusedTarget.current = false;
+    lastFocusedIdRef.current = null;
+  }, [updateUrlBacklogId]);
 
   const getOwnerLabel = (item: BacklogItem) => {
     if (isItemOwner(item)) {
@@ -264,7 +304,48 @@ function Backlog({ user, teamId }: BacklogProps) {
     }
   }, [currentPage, totalPages]);
 
+  useEffect(() => {
+    const targetBacklogId = initialTargetRef.current;
+    if (!targetBacklogId) {
+      lastFocusedIdRef.current = null;
+      return;
+    }
+
+    const targetIndex = sortedItems.findIndex((item) => item.id === targetBacklogId);
+    if (targetIndex === -1) {
+      return;
+    }
+
+    const targetPage = Math.floor(targetIndex / itemsPerPage) + 1;
+    if (currentPage !== targetPage) {
+      setCurrentPage(targetPage);
+      return;
+    }
+
+    setExpandedItems((prev) => {
+      const next = new Set(prev);
+      next.add(targetBacklogId);
+      return next;
+    });
+
+    if (hasFocusedTarget.current && lastFocusedIdRef.current === targetBacklogId) {
+      return;
+    }
+
+    hasFocusedTarget.current = true;
+    lastFocusedIdRef.current = targetBacklogId;
+
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`backlog-item-${targetBacklogId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        highlightElement(element);
+      }
+    });
+  }, [currentPage, itemsPerPage, sortedItems]);
+
   const handleCreatorFilterChange = (value: string) => {
+    clearBacklogParam();
     if (value === 'all') {
       setSelectedCreator('all');
       return;
@@ -384,17 +465,18 @@ function Backlog({ user, teamId }: BacklogProps) {
     });
   }, []);
 
+
   const toggleItemExpansion = useCallback((itemId: number) => {
-    setExpandedItems(prev => {
-      const next = new Set(prev);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
-    });
-  }, []);
+    const willExpand = !expandedItems.has(itemId);
+    if (willExpand) {
+      updateUrlBacklogId(itemId, 'user');
+      setExpandedItems(new Set([itemId]));
+    } else {
+      updateUrlBacklogId(null, 'user');
+      setExpandedItems(new Set());
+      lastFocusedIdRef.current = null;
+    }
+  }, [expandedItems, updateUrlBacklogId]);
 
   const handleParseTable = async () => {
     if (!tableText.trim()) {
@@ -490,18 +572,17 @@ function Backlog({ user, teamId }: BacklogProps) {
       <div className="main-content">
         <Breadcrumbs />
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
-              <ArrowLeft size={18} />
-              返回儀表板
-            </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Calendar size={28} />
               Backlog 工作規劃
             </h1>
+            <p className="subtitle" style={{ marginBottom: 0 }}>
+              規劃未來要做的工作，並可從這裡快速加入每日任務
+            </p>
           </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn btn-primary"
@@ -524,9 +605,6 @@ function Backlog({ user, teamId }: BacklogProps) {
               <Sparkles size={18} />
               {showBulkImport ? '關閉批次匯入' : 'AI 批次匯入'}
             </button>
-            <div style={{ fontSize: '14px', color: '#666' }}>
-              {user.display_name || user.username}
-            </div>
           </div>
         </div>
 
@@ -639,6 +717,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                     placeholder="補充背景、工作重點、完成定義等資訊"
                     rows={5}
                     style={{ resize: 'vertical' }}
+                    inputMode="text"
                     ref={contentInputRef}
                   />
                 </div>
@@ -734,6 +813,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                       placeholder={`標題 | 內容 | 優先 | 預計日期\\n調整報表流程 | 將新版報表節點整合進儀表板 | 2 | 2025-11-20\\n改善客服腳本 | 產出 3 個常見 QA 範本 | 3 | 2025-11-25`}
                       rows={10}
                       style={{ resize: 'vertical', fontFamily: 'monospace' }}
+                      inputMode="text"
                     />
                   </div>
 
@@ -821,6 +901,7 @@ function Backlog({ user, teamId }: BacklogProps) {
                               onChange={(e) => handleEditParsedItem(index, 'content', e.target.value)}
                               rows={3}
                               style={{ fontSize: '13px', resize: 'vertical' }}
+                              inputMode="text"
                             />
                           </div>
 
@@ -890,92 +971,67 @@ function Backlog({ user, teamId }: BacklogProps) {
         )}
 
         {/* Backlog Items List */}
-        <div className="card">
-          <div style={{ padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <h3 style={{ margin: 0 }}>
-                Backlog 項目（{filteredItems.length}{searchQuery && ` / ${backlogItems.length}`}）
-              </h3>
-              {backlogItems.length > 0 && (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {typeof teamId === 'number' && (
-                    <select
-                      value={selectedCreator === 'all' ? 'all' : String(selectedCreator)}
-                      onChange={(e) => handleCreatorFilterChange(e.target.value)}
-                      style={{
-                        padding: '6px 10px',
-                        fontSize: '13px',
-                        borderRadius: '4px',
-                        border: '1px solid #d1d5db',
-                        backgroundColor: '#fff',
-                        minWidth: '160px'
-                      }}
-                    >
-                      <option value="all">全部建立者</option>
-                      {creatorOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  <div style={{ position: 'relative' }}>
-                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
-                    <input
-                      type="text"
-                      placeholder="搜尋 Backlog 項目或 #ID..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      style={{
-                        padding: '6px 12px 6px 32px',
-                        fontSize: '13px',
-                        borderRadius: '4px',
-                        border: '1px solid #d1d5db',
-                        width: '200px'
-                      }}
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        style={{
-                          position: 'absolute',
-                          right: '8px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          background: 'none',
-                          border: 'none',
-                          color: '#999',
-                          cursor: 'pointer',
-                          fontSize: '18px',
-                          padding: '0 4px'
-                        }}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
+        <div className="card backlog-list-card">
+          <div className="backlog-toolbar">
+            <h3 style={{ margin: 0 }}>
+              Backlog 項目（{filteredItems.length}{searchQuery && ` / ${backlogItems.length}`}）
+            </h3>
+            {backlogItems.length > 0 && (
+              <div className="backlog-filters">
+                {typeof teamId === 'number' && (
                   <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-                    style={{
-                      padding: '6px 10px',
-                      fontSize: '13px',
-                      borderRadius: '4px',
-                      border: '1px solid #667eea',
-                      backgroundColor: '#eef2ff',
-                      color: '#4338ca',
-                      minWidth: '150px'
-                    }}
-                    title="選擇排序方式"
+                    value={selectedCreator === 'all' ? 'all' : String(selectedCreator)}
+                    onChange={(e) => handleCreatorFilterChange(e.target.value)}
                   >
-                    <option value="priority">按優先順序</option>
-                    <option value="estimated_date">按預計日期</option>
-                    <option value="id_desc">按 ID（新到舊）</option>
-                    <option value="id_asc">按 ID（舊到新）</option>
+                    <option value="all">全部建立者</option>
+                    {creatorOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
+                )}
+                <div className="backlog-search">
+                  <input
+                    type="text"
+                    className="backlog-search-input"
+                    placeholder="搜尋 Backlog 項目或 #ID..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      clearBacklogParam();
+                      setSearchQuery(e.target.value);
+                    }}
+                    inputMode="search"
+                    enterKeyHint="search"
+                    autoCapitalize="none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      className="backlog-search-clear"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="清除搜尋"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    clearBacklogParam();
+                    setSortBy(e.target.value as typeof sortBy);
+                  }}
+                  title="選擇排序方式"
+                >
+                  <option value="priority">按優先順序</option>
+                  <option value="estimated_date">按預計日期</option>
+                  <option value="id_desc">按 ID（新到舊）</option>
+                  <option value="id_asc">按 ID（舊到新）</option>
+                </select>
+              </div>
+            )}
+          </div>
 
             {loading && backlogItems.length === 0 ? (
               <p style={{ textAlign: 'center', color: '#666', padding: '30px 0' }}>
@@ -1002,114 +1058,82 @@ function Backlog({ user, teamId }: BacklogProps) {
                       })()
                       : '未設定';
                     const isExpanded = expandedItems.has(item.id);
+                    const estimatedBadgeClass = (() => {
+                      if (!item.estimated_date) return 'muted';
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const itemDate = new Date(item.estimated_date.split('T')[0]);
+                      return itemDate < today ? 'danger' : 'info';
+                    })();
                     return (
                       <div
                         key={item.id}
-                        style={{
-                          padding: '15px',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '8px',
-                          backgroundColor: '#fff',
-                          transition: 'box-shadow 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.boxShadow = 'none';
-                        }}
+                        id={`backlog-item-${item.id}`}
+                        className={`backlog-item-card ${isExpanded ? 'expanded' : ''}`}
                       >
-                        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                          <button
-                            onClick={() => toggleItemExpansion(item.id)}
-                            style={{
-                              border: '1px solid #e5e7eb',
-                              background: '#f8fafc',
-                              borderRadius: '6px',
-                              padding: '6px',
-                              cursor: 'pointer'
-                            }}
-                            aria-label={isExpanded ? '摺疊' : '展開'}
-                          >
-                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                          </button>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
-                              <div style={{ flex: 1 }}>
-                                <h4 style={{ margin: 0, marginBottom: '5px', fontSize: '15px', fontWeight: '600' }}>
-                                  #{item.id} {item.ai_title || item.content.substring(0, 50)}
-                                </h4>
-                                <div style={{ fontSize: '12px', color: '#475569', marginBottom: '4px' }}>
-                                  建立者：{ownerLabel}
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#666', flexWrap: 'wrap' }}>
-                                  {getPriorityBadge(item.priority)}
-                                  <span style={{
-                                    fontSize: '11px',
-                                    ...(() => {
-                                      if (!item.estimated_date) return { color: '#999' };
-                                      const today = new Date();
-                                      today.setHours(0, 0, 0, 0);
-                                      const itemDate = new Date(item.estimated_date.split('T')[0]);
-                                      if (itemDate < today) {
-                                        return { color: 'red', fontWeight: 'bold' };
-                                      }
-                                      return { color: '#0891b2' };
-                                    })()
-                                  }}>
-                                    預計：{estimatedText}
-                                  </span>
-                                  <span>
-                                    建立於 {new Date(item.created_at).toLocaleDateString('zh-TW')}
-                                  </span>
-                                </div>
+                        <button
+                          type="button"
+                          className="backlog-item-toggle"
+                          onClick={() => toggleItemExpansion(item.id)}
+                          aria-expanded={isExpanded}
+                        >
+                          <div className="backlog-item-title">
+                            {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                            <div className="backlog-item-heading">
+                              <div className="backlog-item-name">
+                                <span className="backlog-item-id">#{item.id}</span>
+                                <span style={{ wordBreak: 'break-word' }}>{item.ai_title || item.content.substring(0, 50)}</span>
                               </div>
-                              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                                <button
-                                  onClick={() => handleMoveToToday(item)}
-                                  className="btn btn-success"
-                                  style={{ padding: '6px 12px', fontSize: '13px' }}
-                                  disabled={loading}
-                                  title="加入今日工作"
-                                >
-                                  <Send size={14} />
-                                  加入今日
-                                </button>
-                                <button
-                                  onClick={() => handleEditItem(item)}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: '#667eea',
-                                    cursor: 'pointer',
-                                    padding: '4px'
-                                  }}
-                                  title="編輯這筆 Backlog"
-                                >
-                                  <Edit2 size={16} />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteItem(item)}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: '#dc2626',
-                                    cursor: 'pointer',
-                                    padding: '4px'
-                                  }}
-                                  title="刪除這筆 Backlog"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                              <div className="backlog-item-tags">
+                                <span className="backlog-tag">建立者：{ownerLabel}</span>
+                                <span className={`backlog-tag ${estimatedBadgeClass}`}>
+                                  預計：{estimatedText}
+                                </span>
+                                <span className="backlog-tag">
+                                  建立於 {new Date(item.created_at).toLocaleDateString('zh-TW')}
+                                </span>
                               </div>
                             </div>
-                            {isExpanded && (
-                              <div className="markdown-content" style={{ fontSize: '13px', color: '#666', marginTop: '10px' }}>
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                              </div>
-                            )}
                           </div>
+                          <div className="backlog-item-meta">
+                            {getPriorityBadge(item.priority)}
+                          </div>
+                        </button>
+                        <div className="backlog-item-actions">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveToToday(item)}
+                            className="btn btn-success"
+                            disabled={loading}
+                            title="加入今日工作"
+                          >
+                            <Send size={14} />
+                            加入今日
+                          </button>
+                          <button
+                            type="button"
+                            className="backlog-ghost-button"
+                            onClick={() => handleEditItem(item)}
+                            title="編輯這筆 Backlog"
+                          >
+                            <Edit2 size={16} />
+                            編輯
+                          </button>
+                          <button
+                            type="button"
+                            className="backlog-ghost-button danger"
+                            onClick={() => handleDeleteItem(item)}
+                            title="刪除這筆 Backlog"
+                          >
+                            <Trash2 size={16} />
+                            刪除
+                          </button>
                         </div>
+                        {isExpanded && (
+                          <div className="markdown-content backlog-item-body">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1123,7 +1147,10 @@ function Backlog({ user, teamId }: BacklogProps) {
                       <span>每頁</span>
                       <select
                         value={itemsPerPage}
-                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                        onChange={(e) => {
+                          clearBacklogParam();
+                          setItemsPerPage(Number(e.target.value));
+                        }}
                         style={{
                           padding: '4px 8px',
                           borderRadius: '4px',
@@ -1139,7 +1166,10 @@ function Backlog({ user, teamId }: BacklogProps) {
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button
-                        onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                        onClick={() => {
+                          clearBacklogParam();
+                          setCurrentPage((prev) => Math.max(1, prev - 1));
+                        }}
                         disabled={currentPage === 1}
                         style={{
                           padding: '6px 10px',
@@ -1153,7 +1183,10 @@ function Backlog({ user, teamId }: BacklogProps) {
                         上一頁
                       </button>
                       <button
-                        onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                        onClick={() => {
+                          clearBacklogParam();
+                          setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+                        }}
                         disabled={currentPage === totalPages}
                         style={{
                           padding: '6px 10px',
@@ -1171,7 +1204,6 @@ function Backlog({ user, teamId }: BacklogProps) {
                 </div>
               </>
             )}
-          </div>
         </div>
 
         <div className="card" style={{ marginTop: '20px', background: '#f9fafb' }}>
@@ -1189,6 +1221,3 @@ function Backlog({ user, teamId }: BacklogProps) {
 }
 
 export default Backlog;
-
-
-

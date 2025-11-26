@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, RefreshCw, Trash2, BarChart, TrendingUp, PieChart, Activity, Download, ArrowDownUp, Maximize2 } from 'lucide-react';
+import { Plus, FileText, RefreshCw, Trash2, BarChart, TrendingUp, PieChart, Activity, Download, ArrowDownUp, Maximize2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -191,6 +191,12 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
       setLoading(true);
       const fullReport = await api.getWeeklyReportById(report.id, teamId);
       setSelectedReport(fullReport);
+      setTimeout(() => {
+        if (reportContentRef.current) {
+          reportContentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          reportContentRef.current.focus({ preventScroll: true });
+        }
+      }, 0);
     } catch (error: any) {
       console.error('Load report detail error:', error);
       setError(error.response?.data?.error || '載入報表詳情失敗');
@@ -395,33 +401,30 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
     <div className="app-container">
       <div className="main-content">
         <Breadcrumbs />
-        <div className="header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
-              <ArrowLeft size={18} />
-            </button>
-            <div>
-              <h1 style={{ marginBottom: '4px' }}>週報管理</h1>
-              <p style={{ color: '#6b7280', fontSize: '14px' }}>
-                查看歷史週報或建立新的報表
-              </p>
-            </div>
+        <div className="page-header">
+          <div className="page-title-group">
+            <h1 style={{ marginBottom: '4px' }}>週報管理</h1>
+            <p className="subtitle" style={{ marginBottom: 0 }}>
+              查看歷史週報或建立新的報表
+            </p>
           </div>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              const defaultRange = getDefaultDateRange();
-              setCreateForm({
-                ...createForm,
-                startDate: defaultRange.startDate,
-                endDate: defaultRange.endDate
-              });
-              setShowCreateModal(true);
-            }}
-          >
-            <Plus size={18} />
-            新增報表
-          </button>
+          <div className="page-actions">
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                const defaultRange = getDefaultDateRange();
+                setCreateForm({
+                  ...createForm,
+                  startDate: defaultRange.startDate,
+                  endDate: defaultRange.endDate
+                });
+                setShowCreateModal(true);
+              }}
+            >
+              <Plus size={18} />
+              新增報表
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -437,7 +440,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '24px' }}>
+        <div className="weekly-reports-layout">
           {/* 左側：報表列表 */}
           <div>
             <div className="card" style={{ padding: 0 }}>
@@ -446,7 +449,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                 borderBottom: '1px solid #e5e7eb',
                 backgroundColor: '#f9fafb'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 600 }}>歷史報表</span>
                   <button
                     type="button"
@@ -560,14 +563,16 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'start',
+                  alignItems: 'flex-start',
                   marginBottom: '24px',
                   paddingBottom: '20px',
-                  borderBottom: '2px solid #e5e7eb'
+                  borderBottom: '2px solid #e5e7eb',
+                  flexWrap: 'wrap',
+                  gap: '16px'
                 }}>
                   <div style={{ flex: 1 }}>
                     <h2 style={{ marginBottom: '8px' }}>{selectedReport.report_name}</h2>
-                    <div style={{ display: 'flex', gap: '16px', color: '#6b7280', fontSize: '14px' }}>
+                    <div style={{ display: 'flex', gap: '16px', color: '#6b7280', fontSize: '14px', flexWrap: 'wrap' }}>
                       <span>📅 {formatDate(selectedReport.start_date)} - {formatDate(selectedReport.end_date)}</span>
                       <span>•</span>
                       <span>📊 {reportTypeLabels[selectedReport.report_type]?.label}</span>
@@ -575,7 +580,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                       <span>👤 {selectedReport.generated_by_name}</span>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
                       className="btn btn-secondary"
                       onClick={handleRegenerateReport}
@@ -610,6 +615,7 @@ export function WeeklyReports({ user, teamId }: WeeklyReportsProps) {
                 <div
                   className="markdown-content"
                   ref={reportContentRef}
+                  tabIndex={-1}
                   onClick={handleVisualizationClick}
                   style={{
                     maxHeight: 'calc(100vh - 300px)',

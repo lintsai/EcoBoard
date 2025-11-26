@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar, FileBarChart, History } from 'lucide-react';
+import { Users, CheckSquare, MessageSquare, TrendingUp, Settings, Calendar, FileBarChart, History } from 'lucide-react';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
 
@@ -10,15 +10,9 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-function Dashboard({ user, teamId, onLogout }: DashboardProps) {
+function Dashboard({ user, teamId }: DashboardProps) {
   const navigate = useNavigate();
   const [teamName, setTeamName] = useState('');
-  const threeColumnGrid = {
-    display: 'grid',
-    gap: '24px',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    alignItems: 'stretch'
-  } as const;
   const planningItems = [
     {
       title: '工作項目規劃 (Backlog)',
@@ -132,15 +126,6 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
               {teamName && <> 來到{teamName}團隊</>}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <button className="btn btn-secondary" onClick={() => navigate('/teams')}>
-              切換團隊
-            </button>
-            <button className="btn btn-secondary" onClick={onLogout}>
-              <LogOut size={18} />
-              登出
-            </button>
-          </div>
         </div>
 
         <div style={{ marginTop: '30px' }}>
@@ -148,7 +133,7 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
             <h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>規劃與準備</h2>
             <span style={{ color: '#6b7280', fontSize: '13px' }}>先整理 Backlog，再展開每日節奏</span>
           </div>
-          <div style={threeColumnGrid}>
+          <div className="dashboard-grid">
             {planningItems.map((item) => (
               <div
                 key={item.path}
@@ -202,7 +187,7 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
             <h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>每日流程</h2>
             <span style={{ color: '#6b7280', fontSize: '13px' }}>依每日節奏排序，從打卡、追蹤到收尾</span>
           </div>
-          <div style={threeColumnGrid}>
+          <div className="dashboard-grid">
             {workflowItems.map((item) => (
               <div
                 key={item.path}
@@ -256,7 +241,7 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
             <h2 style={{ margin: 0, color: '#111827', fontSize: '18px' }}>報表與管理</h2>
             <span style={{ color: '#6b7280', fontSize: '13px' }}>匯總績效、產出報表並管理團隊設定</span>
           </div>
-          <div style={threeColumnGrid}>
+          <div className="dashboard-grid">
             {managementItems.map((item) => (
               <div
                 key={item.path}
@@ -321,7 +306,7 @@ function Dashboard({ user, teamId, onLogout }: DashboardProps) {
               <li>建議<strong style={{ color: '#2563eb' }}>週一先整理 Backlog</strong>，將本週需求拆解並填寫預計日期，後續每日打卡時能直接加入今日。</li>
               <li>每日流程依時間順序排列：<strong style={{ color: '#047857' }}>打卡 → 工作項目 → 站立會議 → 更新進度 → 每日總結</strong>，按此節奏可確保資料完整。</li>
               <li>完成後記得使用<strong style={{ color: '#0ea5e9' }}>「已完成項目調閱」</strong>回顧成果，可搭配<strong style={{ color: '#047857' }}>狀態篩選</strong>（已完成/已取消）與<strong style={{ color: '#b91c1c' }}>更新紀錄</strong>還原整個流程。</li>
-              <li>切換團隊請點右上角<strong style={{ color: '#b91c1c' }}>「切換團隊」</strong>按鈕，各團隊資料完全獨立，不會互相干擾。</li>
+              <li>切換團隊請透過麵包屑返回<strong style={{ color: '#2563eb' }}>「團隊列表」</strong>，各團隊資料完全獨立、互不干擾。</li>
             </ul>
           </div>
 

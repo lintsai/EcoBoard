@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, UserPlus, Shield, Clock, Trash2, Loader2, CheckCircle, AlertCircle, Edit2, Save, X } from 'lucide-react';
+import { Users, UserPlus, Shield, Clock, Trash2, Loader2, CheckCircle, AlertCircle, Edit2, Save, X } from 'lucide-react';
 import api from '../services/api';
 import AddMemberModal from '../components/AddMemberModal';
 import Breadcrumbs from '../components/Breadcrumbs';
@@ -136,7 +136,7 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
     try {
       await api.deleteTeam(teamId);
       alert('團隊已刪除');
-      navigate('/dashboard');
+      navigate('/teams');
     } catch (err: any) {
       setError(err.response?.data?.error || '刪除團隊失敗');
     }
@@ -201,13 +201,8 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
     <div className="app-container">
       <div className="main-content">
         <Breadcrumbs />
-        <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
-          <ArrowLeft size={18} />
-          返回
-        </button>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div style={{ flex: 1 }}>
+        <div className="page-header">
+          <div className="page-title-group" style={{ flex: 1, width: '100%' }}>
             {editingTeam ? (
               <div>
                 <input
@@ -234,52 +229,50 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
               </>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '10px', marginLeft: '20px' }}>
-            {isCurrentUserAdmin && (
-              <>
-                {editingTeam ? (
-                  <>
-                    <button className="btn btn-success" onClick={handleUpdateTeam}>
-                      <Save size={18} />
-                      儲存
-                    </button>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setEditingTeam(false);
-                        setTeamName(team?.name || '');
-                        setTeamDescription(team?.description || '');
-                      }}
-                    >
-                      <X size={18} />
-                      取消
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className="btn btn-secondary" onClick={() => setEditingTeam(true)}>
-                      <Edit2 size={18} />
-                      編輯團隊
-                    </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => setShowAddMemberModal(true)}
-                    >
-                      <UserPlus size={18} />
-                      新增成員
-                    </button>
-                    <button
-                      className="btn btn-danger"
-                      onClick={handleDeleteTeam}
-                      title="刪除團隊"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
+          {isCurrentUserAdmin && (
+            <div className="page-actions">
+              {editingTeam ? (
+                <>
+                  <button className="btn btn-success" onClick={handleUpdateTeam}>
+                    <Save size={18} />
+                    儲存
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setEditingTeam(false);
+                      setTeamName(team?.name || '');
+                      setTeamDescription(team?.description || '');
+                    }}
+                  >
+                    <X size={18} />
+                    取消
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn-secondary" onClick={() => setEditingTeam(true)}>
+                    <Edit2 size={18} />
+                    編輯團隊
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setShowAddMemberModal(true)}
+                  >
+                    <UserPlus size={18} />
+                    新增成員
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={handleDeleteTeam}
+                    title="刪除團隊"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {error && (
@@ -350,7 +343,8 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
             <p style={{ color: '#666', marginTop: '15px' }}>團隊暫無成員</p>
           ) : (
             <div style={{ marginTop: '15px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div className="table-responsive">
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
                     <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>成員</th>
@@ -445,7 +439,8 @@ function TeamManagement({ user, teamId, onTeamUpdate }: any) {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           )}
         </div>

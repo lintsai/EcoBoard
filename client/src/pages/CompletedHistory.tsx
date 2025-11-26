@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, History, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
+import { History, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Breadcrumbs from '../components/Breadcrumbs';
@@ -96,7 +96,21 @@ const formatHistoryDateTime = (value: string) => {
 };
 
 function CompletedHistory({ teamId }: CompletedHistoryProps) {
-  const navigate = useNavigate();
+  const { itemId } = useParams();
+  const parseInitialHistoryId = () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('historyId')) {
+      const parsed = Number(params.get('historyId'));
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    if (itemId) {
+      const parsed = Number(itemId);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  };
+  const initialTargetRef = useRef<number | null>(parseInitialHistoryId());
+  const targetHistoryId = initialTargetRef.current;
   const [historyFiltersInput, setHistoryFiltersInput] = useState<HistoryFilterState>(createDefaultFilters);
   const [appliedHistoryFilters, setAppliedHistoryFilters] = useState<HistoryFilterState>(createDefaultFilters);
   const [completedHistory, setCompletedHistory] = useState<CompletedHistoryItem[]>([]);
@@ -121,6 +135,39 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
     limit: historyFiltersInput.limit,
     page: 1
   });
+  const paramInitializedRef = useRef(false);
+  const hasHighlightedTargetRef = useRef(false);
+  const lastFocusedIdRef = useRef<number | null>(null);
+  const lastTeamRef = useRef<number | null>(teamId ?? null);
+  const targetChangeOriginRef = useRef<'initial' | 'user'>('initial');
+  const updateUrlHistoryId = useCallback((id: number | null, origin: 'user' | 'initial' = 'user') => {
+    targetChangeOriginRef.current = origin;
+    const url = new URL(window.location.href);
+    if (id === null) {
+      url.searchParams.delete('historyId');
+    } else {
+      url.searchParams.set('historyId', String(id));
+    }
+    window.history.replaceState({}, '', url.toString());
+  }, []);
+
+  const resetInitialTargetTracking = useCallback(() => {
+    initialTargetRef.current = null;
+    hasHighlightedTargetRef.current = false;
+    lastFocusedIdRef.current = null;
+  }, []);
+
+  const clearHistoryParam = useCallback(() => {
+    updateUrlHistoryId(null, 'user');
+    resetInitialTargetTracking();
+  }, [resetInitialTargetTracking, updateUrlHistoryId]);
+
+  useEffect(() => {
+    hasHighlightedTargetRef.current = false;
+    if (!targetHistoryId) {
+      lastFocusedIdRef.current = null;
+    }
+  }, [targetHistoryId]);
 
   const loadCompletedHistory = async (
     filtersOverride?: HistoryFilterState,
@@ -230,7 +277,77 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
     };
   }, []);
 
+  useEffect(() => {
+    if (lastTeamRef.current !== (teamId ?? null)) {
+      paramInitializedRef.current = false;
+      hasHighlightedTargetRef.current = false;
+      lastTeamRef.current = teamId ?? null;
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    const targetHistoryId = initialTargetRef.current;
+    if (!targetHistoryId) {
+      paramInitializedRef.current = false;
+      hasHighlightedTargetRef.current = false;
+      targetChangeOriginRef.current = 'initial';
+      return;
+    }
+
+    if (paramInitializedRef.current) {
+      return;
+    }
+
+    paramInitializedRef.current = true;
+    const wideFilters: HistoryFilterState = {
+      startDate: '2000-01-01',
+      endDate: '2100-01-01',
+      keyword: '',
+      limit: Math.max(historyFiltersInput.limit, 200)
+    };
+
+    setHistoryFiltersInput((prev) => ({ ...prev, ...wideFilters }));
+    setAppliedHistoryFilters((prev) => ({ ...prev, ...wideFilters }));
+    setStatusFilter('all');
+    setStatusFilterInput('all');
+    setSortBy('id_desc');
+    setSortByInput('id_desc');
+    loadCompletedHistory(wideFilters, 1, 'all', 'id_desc');
+  }, [targetHistoryId, historyFiltersInput.limit, teamId]);
+
+  useEffect(() => {
+    // Initial deep-link: only expand/scroll; don't auto-apply filters or force URL rewrites
+    const targetHistoryId = initialTargetRef.current;
+    if (!targetHistoryId) {
+      return;
+    }
+    if (targetChangeOriginRef.current === 'user') {
+      targetChangeOriginRef.current = 'initial';
+      return;
+    }
+    const targetExists = completedHistory.some((item) => item.id === targetHistoryId);
+    if (!targetExists) return;
+
+    setExpandedItems(new Set([targetHistoryId]));
+
+    if (hasHighlightedTargetRef.current && lastFocusedIdRef.current === targetHistoryId) return;
+    hasHighlightedTargetRef.current = true;
+    lastFocusedIdRef.current = targetHistoryId;
+
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`completed-item-${targetHistoryId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('highlight-target');
+        setTimeout(() => {
+          element.classList.remove('highlight-target');
+        }, 1800);
+      }
+    });
+  }, [completedHistory, expandedItems, targetHistoryId]);
+
   const handleHistoryFilterChange = (field: keyof HistoryFilterState, value: string | number) => {
+    clearHistoryParam();
     setHistoryFiltersInput((prev) => ({
       ...prev,
       [field]: field === 'limit' ? Number(value) : String(value)
@@ -238,6 +355,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   };
 
   const handleApplyHistoryFilters = () => {
+    clearHistoryParam();
     const nextFilters = { ...historyFiltersInput };
     setAppliedHistoryFilters(nextFilters);
     setSortBy(sortByInput);
@@ -247,6 +365,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   };
 
   const handleResetHistoryFilters = () => {
+    clearHistoryParam();
     const nextFilters = createDefaultFilters();
     setHistoryFiltersInput(nextFilters);
     setAppliedHistoryFilters(nextFilters);
@@ -259,15 +378,16 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   };
 
   const toggleItemExpanded = (itemId: number) => {
-    setExpandedItems((prev) => {
-      const next = new Set(prev);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
-    });
+    const willExpand = !expandedItems.has(itemId);
+    if (willExpand) {
+      resetInitialTargetTracking();
+      updateUrlHistoryId(itemId, 'user');
+      setExpandedItems(new Set([itemId]));
+    } else {
+      updateUrlHistoryId(null, 'user');
+      setExpandedItems(new Set());
+      lastFocusedIdRef.current = null;
+    }
   };
 
   const totalPagesDisplay = Math.max(1, paginationInfo.totalPages || 1);
@@ -284,6 +404,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   const currentPageDisplay = Math.min(paginationInfo.page, totalPagesDisplay);
 
   const handlePageChange = (nextPage: number) => {
+    clearHistoryParam();
     if (nextPage < 1) {
       return;
     }
@@ -384,19 +505,9 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
     <div className="app-container">
       <div className="main-content">
         <Breadcrumbs />
-        <button className="btn btn-secondary" onClick={() => navigate('/dashboard')} style={{ marginBottom: '16px' }}>
-          <ArrowLeft size={18} />
-          返回儀表板
-        </button>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-          <div>
-            <h1 style={{ marginBottom: '6px' }}>已完成項目調閱</h1>
-            <p style={{ color: '#475467' }}>查看近期標記完成的工作項目，支援日期、關鍵字與筆數限制，方便回顧團隊成果。</p>
-          </div>
-          <button className="btn btn-secondary" onClick={() => loadCompletedHistory()} disabled={loading}>
-            重新整理
-          </button>
+        <div style={{ marginBottom: '12px' }}>
+          <h1 style={{ marginBottom: '6px' }}>已完成項目調閱</h1>
+          <p style={{ color: '#475467' }}>查看近期標記完成的工作項目，支援日期、關鍵字與筆數限制，方便回顧團隊成果。</p>
         </div>
 
         <div className="card">
@@ -460,7 +571,10 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               <label style={{ fontSize: '12px', color: '#475467' }}>排序方式</label>
               <select
                 value={sortByInput}
-                onChange={(e) => setSortByInput(e.target.value as HistorySort)}
+                onChange={(e) => {
+                  clearHistoryParam();
+                  setSortByInput(e.target.value as HistorySort);
+                }}
                 className="input"
               >
                 <option value="completed_desc">完成時間（新 → 舊）</option>
@@ -473,7 +587,10 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               <label style={{ fontSize: '12px', color: '#475467' }}>狀態篩選</label>
               <select
                 value={statusFilterInput}
-                onChange={(e) => setStatusFilterInput(e.target.value as StatusFilter)}
+                onChange={(e) => {
+                  clearHistoryParam();
+                  setStatusFilterInput(e.target.value as StatusFilter);
+                }}
                 className="input"
               >
                 <option value="all">全部狀態</option>
@@ -482,10 +599,20 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               </select>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-              <button className="btn btn-primary" onClick={handleApplyHistoryFilters} disabled={loading}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleApplyHistoryFilters}
+                disabled={loading}
+              >
                 套用條件
               </button>
-              <button className="btn btn-secondary" onClick={handleResetHistoryFilters} disabled={loading}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleResetHistoryFilters}
+                disabled={loading}
+              >
                 重設
               </button>
             </div>
@@ -512,6 +639,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
+                    type="button"
                     className="btn btn-secondary"
                     style={{ padding: '4px 12px', fontSize: '12px' }}
                     disabled={!canPrev || loading}
@@ -523,6 +651,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                     第 {currentPageDisplay} / {totalPagesDisplay} 頁
                   </span>
                   <button
+                    type="button"
                     className="btn btn-secondary"
                     style={{ padding: '4px 12px', fontSize: '12px' }}
                     disabled={!canNext || loading}
@@ -553,6 +682,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                 return (
                     <div
                       key={`${item.id}-${item.completed_at}`}
+                      id={`completed-item-${item.id}`}
                       style={{
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
@@ -610,25 +740,27 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                                 <span>🎯 預計 {item.estimated_date}</span>
                               )}
                             </div>
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                              <span>
+                            <div className="history-action-group">
+                              <span className="history-action-group__label">
                                 {item.status === 'cancelled' ? '標記取消' : '標記完成'}：{item.completed_by_name || item.completed_by_username || '未知'}
                               </span>
-                              <button
-                                className="btn btn-secondary"
-                                style={{ padding: '6px 12px', fontSize: '12px' }}
-                                onClick={() => handleViewChat(item)}
-                                disabled={!item.session_id}
-                              >
-                                查看AI對談
-                              </button>
-                              <button
-                                className="btn btn-secondary"
-                                style={{ padding: '6px 12px', fontSize: '12px' }}
-                                onClick={() => handleViewUpdates(item)}
-                              >
-                                查看更新資訊
-                              </button>
+                              <div className="history-action-group__buttons">
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  onClick={() => handleViewChat(item)}
+                                  disabled={!item.session_id}
+                                >
+                                  查看AI對談
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  onClick={() => handleViewUpdates(item)}
+                                >
+                                  查看更新資訊
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </>
@@ -670,6 +802,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               onClick={(e) => e.stopPropagation()}
             >
               <button
+                type="button"
                 onClick={closeUpdateModal}
                 style={{
                   position: 'absolute',
@@ -751,7 +884,11 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
         {enlargedTable && (
           <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
             <div className="table-modal-content" onClick={(e) => e.stopPropagation()}>
-              <button className="table-modal-close" onClick={() => setEnlargedTable(null)}>
+              <button
+                type="button"
+                className="table-modal-close"
+                onClick={() => setEnlargedTable(null)}
+              >
                 ×
               </button>
               <div dangerouslySetInnerHTML={{ __html: enlargedTable }} />

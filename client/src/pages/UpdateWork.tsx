@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, CheckCircle, AlertCircle, Loader2, Send, Sparkles, ChevronDown, ChevronRight, ChevronUp, User, X, MessageSquare } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Clock, CheckCircle, AlertCircle, Loader2, Send, Sparkles, ChevronDown, ChevronRight, ChevronUp, User, X, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -50,8 +50,48 @@ interface WorkUpdate {
   display_name: string;
 }
 
-function UpdateWork({ user, teamId }: any) {
+interface UpdateWorkProps {
+  user: any;
+  teamId: number;
+  onLogout?: () => void;
+}
+
+function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   const navigate = useNavigate();
+  const { itemId } = useParams();
+  const parseInitialItemId = () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('workItemId')) {
+      const parsed = Number(params.get('workItemId'));
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    if (itemId) {
+      const parsed = Number(itemId);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  };
+  const initialTargetRef = useRef<number | null>(parseInitialItemId());
+  const targetItemId = initialTargetRef.current;
+  const hasSyncedTargetRef = useRef(false);
+  const lastFocusedIdRef = useRef<number | null>(null);
+  const targetChangeOriginRef = useRef<'initial' | 'user'>('initial');
+  const updateUrlWorkItemId = useCallback((id: number | null, origin: 'user' | 'initial' = 'user') => {
+    targetChangeOriginRef.current = origin;
+    const url = new URL(window.location.href);
+    if (id === null) {
+      url.searchParams.delete('workItemId');
+    } else {
+      url.searchParams.set('workItemId', String(id));
+    }
+    window.history.replaceState({}, '', url.toString());
+  }, []);
+  const clearWorkItemParam = useCallback(() => {
+    updateUrlWorkItemId(null, 'user');
+    initialTargetRef.current = null;
+    hasSyncedTargetRef.current = false;
+    lastFocusedIdRef.current = null;
+  }, [updateUrlWorkItemId]);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [incompleteItems, setIncompleteItems] = useState<WorkItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
@@ -69,7 +109,7 @@ function UpdateWork({ user, teamId }: any) {
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [chatModalTitle, setChatModalTitle] = useState('');
-
+  const [isMobile, setIsMobile] = useState(false);
   const selectedWorkItemDetails =
     [...workItems, ...incompleteItems].find(i => i.id === selectedItem) || null;
   const isPrimaryHandler =
@@ -121,8 +161,85 @@ function UpdateWork({ user, teamId }: any) {
     setChatModalTitle(`#${target.id} AI 對談`);
   };
 
+  const renderWorkItemDetails = (item: WorkItem) => {
+    const status = item.progress_status || 'in_progress';
+    const primaryName =
+      item.handlers?.primary?.display_name ||
+      item.handlers?.primary?.username ||
+      '未指定';
+    const coHandlerNames = item.handlers?.co_handlers?.map((handler) => handler.display_name || handler.username) || [];
+    const normalizedEstimate = normalizeEstimatedDate(item.estimated_date || null);
+    const formattedEstimate = normalizedEstimate
+      ? (() => {
+        const [year, month, day] = normalizedEstimate.split('-');
+        return `${year}/${month}/${day}`;
+      })()
+      : null;
+
+    return (
+      <div className="update-item-detail-card">
+        <div className="update-item-detail-row">
+          <div className="update-item-detail-badges">
+            {getPriorityBadge(item.priority)}
+            <div style={{ transform: 'scale(0.95)', transformOrigin: 'left' }}>
+              {getStatusBadge(status)}
+            </div>
+          </div>
+          <div className="update-item-detail-meta">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => openChatHistory(item)}
+              disabled={!item.session_id}
+              style={{ padding: '6px 10px', fontSize: '12px' }}
+            >
+              <MessageSquare size={14} />
+              查看AI對談
+            </button>
+            <span>建立於 {formatTime(item.created_at)}</span>
+          </div>
+        </div>
+        <div className="update-item-assignments">
+          <div>
+            <strong>主要處理人：</strong>
+            <span>{primaryName}</span>
+          </div>
+          {coHandlerNames.length > 0 && (
+            <div>
+              <strong>共同處理人：</strong>
+              <span>{coHandlerNames.join(', ')}</span>
+            </div>
+          )}
+          {formattedEstimate && (
+            <div>
+              <strong>預計時間：</strong>
+              <span>{formattedEstimate}</span>
+            </div>
+          )}
+        </div>
+        <div className="update-item-summary-block">
+          {item.ai_summary ? (
+            <div className="ai-summary">
+              <div className="ai-summary-header">
+                <Sparkles size={14} />
+                <span>AI 摘要</span>
+              </div>
+              <div className="markdown-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
+              </div>
+            </div>
+          ) : (
+            <div className="markdown-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Sorting function
-  const sortItems = <T extends WorkItem>(items: T[]): T[] => {
+  const sortItems = (items: WorkItem[]): WorkItem[] => {
     const sorted = [...items];
 
     if (sortBy === 'priority') {
@@ -143,11 +260,32 @@ function UpdateWork({ user, teamId }: any) {
     return sorted;
   };
 
+  const highlightElement = (element: HTMLElement | null) => {
+    if (!element) return;
+    element.classList.add('highlight-target');
+    setTimeout(() => {
+      element.classList.remove('highlight-target');
+    }, 1800);
+  };
+
   useEffect(() => {
     checkManagerRole();
+  }, [teamId]);
+
+  useEffect(() => {
     fetchTodayWorkItems();
     fetchIncompleteWorkItems();
-  }, [teamId, viewAllMembers]);
+  }, [teamId, viewAllMembers, isManager]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 960);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     // Add table click handler
@@ -191,11 +329,69 @@ function UpdateWork({ user, teamId }: any) {
     }
   }, [selectedItem]);
 
+  useEffect(() => {
+    const targetItemId = initialTargetRef.current;
+    if (!targetItemId) {
+      hasSyncedTargetRef.current = false;
+      targetChangeOriginRef.current = 'initial';
+      lastFocusedIdRef.current = null;
+      return;
+    }
+
+    hasSyncedTargetRef.current = false;
+
+    const allItems = [...workItems, ...incompleteItems];
+    const targetItem = allItems.find((item) => item.id === targetItemId);
+    if (!targetItem) {
+      return;
+    }
+
+    if (selectedItem !== targetItemId) {
+      setSelectedItem(targetItemId);
+    }
+
+    if (targetChangeOriginRef.current === 'user') {
+      targetChangeOriginRef.current = 'initial';
+      return;
+    }
+
+    if (hasSyncedTargetRef.current && lastFocusedIdRef.current === targetItemId) {
+      return;
+    }
+    hasSyncedTargetRef.current = true;
+    lastFocusedIdRef.current = targetItemId;
+
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`update-item-${targetItemId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        highlightElement(element);
+      }
+    });
+  }, [workItems, incompleteItems, selectedItem]);
+
+  const handleSelectItem = (id: number) => {
+    initialTargetRef.current = null;
+    hasSyncedTargetRef.current = false;
+    lastFocusedIdRef.current = null;
+    updateUrlWorkItemId(id, 'user');
+    setSelectedItem(id);
+    setTimeout(() => {
+      const textarea = document.getElementById('update-content') as HTMLTextAreaElement | null;
+      textarea?.focus();
+    }, 0);
+  };
+
   const checkManagerRole = async () => {
     try {
       const members = await api.getTeamMembers(teamId);
       const currentMember = members.find((m: any) => m.user_id === user.id);
-      setIsManager(currentMember?.role === 'admin');
+      const isAdmin = currentMember?.role === 'admin';
+      setIsManager(isAdmin);
+
+      if (isAdmin && initialTargetRef.current && !viewAllMembers) {
+        setViewAllMembers(true);
+      }
     } catch (err) {
       console.error('檢查權限失敗:', err);
     }
@@ -206,7 +402,8 @@ function UpdateWork({ user, teamId }: any) {
     setError('');
     try {
       // 如果是 Manager 且選擇查看所有成員
-      const data = (isManager && viewAllMembers)
+      const shouldViewAll = isManager && (viewAllMembers || Boolean(initialTargetRef.current));
+      const data = shouldViewAll
         ? await api.getTodayTeamWorkItems(teamId)
         : await api.getTodayWorkItems(teamId);
 
@@ -225,7 +422,8 @@ function UpdateWork({ user, teamId }: any) {
   const fetchIncompleteWorkItems = async () => {
     try {
       // 如果是 Manager 且選擇查看所有成員
-      const data = (isManager && viewAllMembers)
+      const shouldViewAll = isManager && (viewAllMembers || Boolean(initialTargetRef.current));
+      const data = shouldViewAll
         ? await api.getIncompleteTeamWorkItems(teamId)
         : await api.getIncompleteWorkItems(teamId);
 
@@ -394,11 +592,6 @@ function UpdateWork({ user, teamId }: any) {
     <div className="app-container">
       <div className="main-content">
         <Breadcrumbs />
-        <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
-          <ArrowLeft size={18} />
-          返回
-        </button>
-
         {/* Table Modal */}
         {enlargedTable && (
           <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
@@ -414,7 +607,7 @@ function UpdateWork({ user, teamId }: any) {
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1>更新工作進度</h1>
             <p className="subtitle">下班前更新今日工作進度，讓團隊了解您的進展</p>
@@ -425,7 +618,10 @@ function UpdateWork({ user, teamId }: any) {
                 <input
                   type="checkbox"
                   checked={viewAllMembers}
-                  onChange={(e) => setViewAllMembers(e.target.checked)}
+                  onChange={(e) => {
+                    clearWorkItemParam();
+                    setViewAllMembers(e.target.checked);
+                  }}
                   style={{ marginRight: '8px' }}
                 />
                 <span>查看所有成員進度</span>
@@ -456,26 +652,30 @@ function UpdateWork({ user, teamId }: any) {
             <div style={{ textAlign: 'center', marginTop: '20px' }}>
               <button
                 className="btn btn-primary"
-                onClick={() => navigate('/workitems')}
+                onClick={() => {
+                  clearWorkItemParam();
+                  navigate('/workitems');
+                }}
               >
                 前往新增工作項目
               </button>
             </div>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '300px 1fr', gap: isMobile ? '12px' : '20px' }}>
             {/* 左側：工作項目列表 */}
-            <div className="card" style={{ position: 'sticky', top: '20px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+            <div className="card" style={{ position: isMobile ? 'static' : 'sticky', top: isMobile ? undefined : '20px', maxHeight: isMobile ? 'none' : 'calc(100vh - 100px)', overflowY: isMobile ? 'visible' : 'auto' }}>
               <h3>工作項目</h3>
 
               {/* 今日工作項目 */}
               {workItems.length > 0 && (
                 <div style={{ marginTop: '15px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' }}>
                     <h4 style={{ fontSize: '14px', color: '#0066cc', margin: 0 }}>今日項目 ({workItems.length})</h4>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        clearWorkItemParam();
                         setSortBy(sortBy === 'priority' ? 'estimated_date' : 'priority');
                       }}
                       style={{
@@ -496,69 +696,61 @@ function UpdateWork({ user, teamId }: any) {
                     const isSelected = selectedItem === item.id;
                     const primaryHandler = item.handlers?.primary;
                     const coHandlers = item.handlers?.co_handlers || [];
-                    const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
-
+                    const title = item.ai_title || (item.content.length > 50 ? `${item.content.slice(0, 50)}...` : item.content);
+                    const itemDate = new Date(item.checkin_date);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const isTodayItem = itemDate.toDateString() === today.toDateString();
+                    const checkinLabel = isTodayItem
+                      ? '今日'
+                      : itemDate.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+                    const normalizedEstimate = normalizeEstimatedDate(item.estimated_date || null);
+                    const estimatedText = normalizedEstimate
+                      ? (() => {
+                        const [year, month, day] = normalizedEstimate.split('-');
+                        return `${month}/${day}`;
+                      })()
+                      : '未設定';
+                    const estimatedBadgeClass = (() => {
+                      if (!item.estimated_date) return 'muted';
+                      if (['completed', 'cancelled'].includes(item.progress_status || '')) return 'info';
+                      const estimateDate = new Date(item.estimated_date.split('T')[0]);
+                      return estimateDate < today ? 'danger' : 'info';
+                    })();
                     return (
                       <div
                         key={item.id}
-                        onClick={() => setSelectedItem(item.id)}
-                        style={{
-                          padding: '12px',
-                          marginBottom: '8px',
-                          border: isSelected ? '2px solid #0066cc' : '1px solid #e0e0e0',
-                          borderRadius: '8px',
-                          backgroundColor: isSelected ? '#f0f8ff' : '#fff',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s'
-                        }}
+                        id={`update-item-${item.id}`}
+                        className={`update-item-card primary ${isSelected ? 'selected' : ''}`}
                       >
-                        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px', lineHeight: '1.4' }}>
-                          #{item.id} {title}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
-                          {getPriorityBadge(item.priority)}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <User size={12} />
-                            <span style={{ fontWeight: '600', color: '#667eea' }}>
-                              {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
-                            </span>
+                        <button
+                          type="button"
+                          className="update-item-toggle"
+                          onClick={() => handleSelectItem(item.id)}
+                          aria-expanded={isSelected}
+                        >
+                          <div className="update-item-title">
+                            <span className="update-item-name">#{item.id} {title}</span>
+                            <span className="update-item-subtitle">打卡：{checkinLabel}</span>
                           </div>
-                          {coHandlers.length > 0 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <span style={{ color: '#999' }}>+</span>
-                              <span style={{ color: '#6b7280' }}>
-                                {coHandlers.map(h => h.display_name || h.username).join(', ')}
-                              </span>
-                            </div>
-                          )}
-                          <span style={{
-                            fontSize: '11px',
-                            ...(() => {
-                              if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
-                              const today = new Date();
-                              today.setHours(0, 0, 0, 0);
-                              const itemDate = new Date(item.estimated_date.split('T')[0]);
-                              if (itemDate < today) {
-                                return { color: 'red', fontWeight: 'bold' };
-                              }
-                              return { color: '#0891b2' };
-                            })()
-                          }}>
-                            📅 {item.estimated_date
-                              ? (() => {
-                                const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
-                                  ? item.estimated_date.split('T')[0]
-                                  : item.estimated_date;
-                                const [year, month, day] = dateStr.split('-');
-                                return `${parseInt(month)}/${parseInt(day)}`;
-                              })()
-                              : '未設定'}
+                          <div className="update-item-meta">
+                            {getStatusBadge(item.progress_status || 'in_progress')}
+                          </div>
+                        </button>
+                        <div className="update-item-tags">
+                          {getPriorityBadge(item.priority)}
+                          <span className="update-chip">
+                            <User size={12} />
+                            {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
                           </span>
-                          {item.progress_status && (
-                            <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
-                              {getStatusBadge(item.progress_status)}
-                            </div>
+                          {coHandlers.length > 0 && (
+                            <span className="update-chip">
+                              + {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                            </span>
                           )}
+                          <span className={`update-chip ${estimatedBadgeClass}`}>
+                            📅 {estimatedText}
+                          </span>
                         </div>
                       </div>
                     );
@@ -569,11 +761,11 @@ function UpdateWork({ user, teamId }: any) {
               {/* 未完成的過往項目 */}
               {incompleteItems.length > 0 && (
                 <div style={{ marginTop: '20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' }}>
                     <h4 style={{ fontSize: '14px', color: '#f59e0b', margin: 0 }}>
                       未完成項目 ({incompleteItems.length})
                     </h4>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -613,71 +805,57 @@ function UpdateWork({ user, teamId }: any) {
                     const isSelected = selectedItem === item.id;
                     const primaryHandler = item.handlers?.primary;
                     const coHandlers = item.handlers?.co_handlers || [];
-                    const title = item.ai_title || (item.content.length > 50 ? item.content.slice(0, 50) + '...' : item.content);
-                    const itemDate = new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
-
+                    const title = item.ai_title || (item.content.length > 50 ? `${item.content.slice(0, 50)}...` : item.content);
+                    const checkinLabel = new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+                    const normalizedEstimate = normalizeEstimatedDate(item.estimated_date || null);
+                    const estimatedText = normalizedEstimate
+                      ? (() => {
+                        const [year, month, day] = normalizedEstimate.split('-');
+                        return `${month}/${day}`;
+                      })()
+                      : '未設定';
+                    const estimatedBadgeClass = (() => {
+                      if (!item.estimated_date) return 'muted';
+                      if (['completed', 'cancelled'].includes(item.progress_status || '')) return 'info';
+                      const estimateDate = new Date(item.estimated_date.split('T')[0]);
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      return estimateDate < today ? 'danger' : 'info';
+                    })();
                     return (
                       <div
                         key={item.id}
-                        onClick={() => setSelectedItem(item.id)}
-                        style={{
-                          padding: '12px',
-                          marginBottom: '8px',
-                          border: isSelected ? '2px solid #f59e0b' : '1px solid #fef3c7',
-                          borderRadius: '8px',
-                          backgroundColor: isSelected ? '#fffbeb' : '#fefce8',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s'
-                        }}
+                        id={`update-item-${item.id}`}
+                        className={`update-item-card warning ${isSelected ? 'selected' : ''}`}
                       >
-                        <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px', lineHeight: '1.4' }}>
-                          #{item.id} {title}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: '#666' }}>
-                          {getPriorityBadge(item.priority)}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <User size={12} />
-                            <span style={{ fontWeight: '600', color: '#f59e0b' }}>
-                              {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
-                            </span>
+                        <button
+                          type="button"
+                          className="update-item-toggle"
+                          onClick={() => handleSelectItem(item.id)}
+                          aria-expanded={isSelected}
+                        >
+                          <div className="update-item-title">
+                            <span className="update-item-name">#{item.id} {title}</span>
+                            <span className="update-item-subtitle">打卡：{checkinLabel}</span>
                           </div>
-                          {coHandlers.length > 0 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <span style={{ color: '#999' }}>+</span>
-                              <span style={{ color: '#92400e' }}>
-                                {coHandlers.map(h => h.display_name || h.username).join(', ')}
-                              </span>
-                            </div>
-                          )}
-                          <span style={{ color: '#f59e0b' }}>📅 {itemDate}</span>
-                          <span style={{
-                            fontSize: '11px',
-                            ...(() => {
-                              if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
-                              const today = new Date();
-                              today.setHours(0, 0, 0, 0);
-                              const itemDate = new Date(item.estimated_date.split('T')[0]);
-                              if (itemDate < today) {
-                                return { color: 'red', fontWeight: 'bold' };
-                              }
-                              return { color: '#0891b2' };
-                            })()
-                          }}>
-                            📅 {item.estimated_date
-                              ? (() => {
-                                const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
-                                  ? item.estimated_date.split('T')[0]
-                                  : item.estimated_date;
-                                const [year, month, day] = dateStr.split('-');
-                                return `${parseInt(month)}/${parseInt(day)}`;
-                              })()
-                              : '未設定'}
+                          <div className="update-item-meta">
+                            {getStatusBadge(item.progress_status || 'in_progress')}
+                          </div>
+                        </button>
+                        <div className="update-item-tags">
+                          {getPriorityBadge(item.priority)}
+                          <span className="update-chip">
+                            <User size={12} />
+                            {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
                           </span>
-                          {item.progress_status && (
-                            <div style={{ transform: 'scale(0.85)', transformOrigin: 'left' }}>
-                              {getStatusBadge(item.progress_status)}
-                            </div>
+                          {coHandlers.length > 0 && (
+                            <span className="update-chip">
+                              + {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                            </span>
                           )}
+                          <span className={`update-chip ${estimatedBadgeClass}`}>
+                            📅 {estimatedText}
+                          </span>
                         </div>
                       </div>
                     );
@@ -688,148 +866,19 @@ function UpdateWork({ user, teamId }: any) {
 
             {/* 右側：更新表單和歷史記錄 */}
             <div>
-              {/* 工作項目詳細內容 */}
-              {selectedItem && [...workItems, ...incompleteItems].find(item => item.id === selectedItem) && (
+              {selectedWorkItemDetails ? (
                 <div className="card" style={{ marginBottom: '20px' }}>
-                  <h3>工作項目詳情</h3>
-                  {(() => {
-                    const item = [...workItems, ...incompleteItems].find(i => i.id === selectedItem);
-                    if (!item) return null;
-
-                    // Debug: 檢查項目資料
-                    console.log('📝 選中的工作項目:', item);
-
-                    // 取得指派人員名稱
-                    const assignee = item.display_name || item.username ||
-                      (item.user_id === user.id ? (user.display_name || user.username || '我') : null) ||
-                      '未指定';
-
-                    // 取得狀態 - 如果沒有狀態就顯示預設
-                    const status = item.progress_status || 'in_progress';
-
-                    // 判斷是否為未完成的過往項目
-                    const itemDate = new Date(item.checkin_date).toISOString().split('T')[0];
-                    const today = new Date().toISOString().split('T')[0];
-                    const isIncompleteItem = itemDate !== today;
-
-                    return (
-                      <div style={{ marginTop: '15px' }}>
-                        {/* 項目資訊標題列 */}
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '12px',
-                          marginBottom: '15px',
-                          paddingBottom: '12px',
-                          borderBottom: '2px solid #e6e6e6',
-                          flexWrap: 'wrap'
-                        }}>
-                          {getPriorityBadge(item.priority)}
-                          <div>{getStatusBadge(status)}</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', flexWrap: 'wrap' }}>
-                            <button
-                              className="btn btn-secondary"
-                              style={{ padding: '6px 10px', fontSize: '12px' }}
-                              onClick={() => openChatHistory(item)}
-                              disabled={!item.session_id}
-                            >
-                              <MessageSquare size={14} />
-                              查看AI對談
-                            </button>
-                            <span style={{ fontSize: '12px', color: '#999' }}>
-                              建立於 {formatTime(item.created_at)}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* 處理人資訊 */}
-                        <div style={{
-                          marginBottom: '15px',
-                          padding: '10px',
-                          backgroundColor: '#f0f9ff',
-                          borderRadius: '6px',
-                          border: '1px solid #bfdbfe'
-                        }}>
-                          <div style={{ marginBottom: '6px', fontSize: '13px' }}>
-                            <strong style={{ color: '#0066cc' }}>主要處理人：</strong>
-                            {item.handlers?.primary ? (
-                              <span style={{ marginLeft: '6px', color: '#333' }}>
-                                {item.handlers.primary.display_name || item.handlers.primary.username}
-                              </span>
-                            ) : (
-                              <span style={{ marginLeft: '6px', color: '#999' }}>未指定</span>
-                            )}
-                          </div>
-                          {item.handlers?.co_handlers && item.handlers.co_handlers.length > 0 && (
-                            <div style={{ fontSize: '13px', marginBottom: '6px' }}>
-                              <strong style={{ color: '#0066cc' }}>共同處理人：</strong>
-                              <span style={{ marginLeft: '6px', color: '#333' }}>
-                                {item.handlers.co_handlers.map(h => h.display_name || h.username).join(', ')}
-                              </span>
-                            </div>
-                          )}
-                          {(() => {
-                            const normalized = normalizeEstimatedDate(item.estimated_date || null);
-                            if (!normalized) return null;
-                            const [year, month, day] = normalized.split('-');
-                            return (
-                              <div style={{ fontSize: '13px' }}>
-                                <strong style={{ color: '#0066cc' }}>預計處理時間：</strong>
-                                <span style={{ marginLeft: '6px', color: '#0891b2', fontWeight: '600' }}>
-                                  {`${year}/${month}/${day}`}
-                                </span>
-                              </div>
-                            );
-                          })()}
-                        </div>
-
-                        {/* 工作項目內容 */}
-                        {item.ai_summary ? (
-                          <div style={{
-                            padding: '14px',
-                            backgroundColor: '#f8f5ff',
-                            borderRadius: '6px',
-                            borderLeft: '3px solid #7c3aed',
-                            overflowX: 'auto'
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                              <Sparkles size={14} style={{ color: '#7c3aed', marginRight: '6px' }} />
-                              <span style={{ fontSize: '13px', fontWeight: '600', color: '#7c3aed' }}>工作項目內容</span>
-                            </div>
-                            <div className="prose-sm markdown-content" style={{
-                              fontSize: '14px',
-                              lineHeight: '1.7',
-                              color: '#555',
-                              wordWrap: 'break-word',
-                              wordBreak: 'break-word'
-                            }}>
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.ai_summary}</ReactMarkdown>
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{
-                            padding: '14px',
-                            backgroundColor: '#fafafa',
-                            borderRadius: '6px',
-                            border: '1px solid #f0f0f0',
-                            overflowX: 'auto'
-                          }}>
-                            <div className="prose-sm markdown-content" style={{
-                              fontSize: '14px',
-                              lineHeight: '1.7',
-                              wordWrap: 'break-word',
-                              wordBreak: 'break-word'
-                            }}>
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  <h3 style={{ marginBottom: '12px' }}>工作項目詳情</h3>
+                  {renderWorkItemDetails(selectedWorkItemDetails)}
+                </div>
+              ) : (
+                <div className="card" style={{ marginBottom: '20px' }}>
+                  <h3 style={{ marginBottom: '8px' }}>請選擇左側的工作項目</h3>
+                  <p style={{ color: '#6b7280', fontSize: '14px' }}>
+                    點擊左側任一項目即可查看細節並快速更新進度。
+                  </p>
                 </div>
               )}
-
               {/* 更新表單 */}
               <div className="card">
                 <h3>新增進度更新</h3>
@@ -885,6 +934,7 @@ function UpdateWork({ user, teamId }: any) {
                       onChange={(e) => setUpdateContent(e.target.value)}
                       required
                       style={{ resize: 'vertical', minHeight: '120px' }}
+                      inputMode="text"
                     />
                     <div className="form-hint">
                       提示：詳細描述您的進展，包括完成了什麼、遇到什麼問題、需要什麼協助。按 Enter 可換行。

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
 import api from '../services/api';
 
@@ -11,6 +12,8 @@ function Login({ onLogin }: LoginProps) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,6 +23,13 @@ function Login({ onLogin }: LoginProps) {
     try {
       const response = await api.login(username, password);
       onLogin(response.user, response.token);
+      const redirectFromState = (location.state as { from?: string } | null)?.from;
+      const redirectTarget =
+        sessionStorage.getItem('postLoginRedirect') ||
+        redirectFromState ||
+        '/teams';
+      sessionStorage.removeItem('postLoginRedirect');
+      navigate(redirectTarget, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.error || '登入失敗，請稍後再試');
     } finally {

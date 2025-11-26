@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Users, Plus, LogOut } from 'lucide-react';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
@@ -12,6 +12,7 @@ interface TeamSelectProps {
 
 function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [teams, setTeams] = useState<any[]>([]);
   const [discoverableTeams, setDiscoverableTeams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,9 +66,30 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
     }
   };
 
+  const resolveRedirectTarget = () => {
+    const fromState = (location.state as { from?: string } | null)?.from;
+    return (
+      sessionStorage.getItem('postTeamRedirect') ||
+      sessionStorage.getItem('postLoginRedirect') ||
+      fromState ||
+      '/dashboard'
+    );
+  };
+
   const handleSelectTeam = (teamId: number) => {
     onSelectTeam(teamId);
-    navigate('/dashboard');
+    localStorage.setItem('selectedTeam', String(teamId));
+    const target = resolveRedirectTarget();
+    sessionStorage.removeItem('postTeamRedirect');
+    sessionStorage.removeItem('postLoginRedirect');
+    navigate(target);
+  };
+
+  const handleLogout = () => {
+    const confirmed = window.confirm('確定要登出並返回登入頁嗎？');
+    if (confirmed) {
+      onLogout();
+    }
   };
 
   return (
@@ -82,10 +104,6 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
               {user?.displayName ? ` ${user.displayName}，請選擇要進入的團隊。` : ' 請選擇要進入的團隊。'}
             </p>
           </div>
-          <button className="btn btn-secondary" onClick={onLogout}>
-            <LogOut size={18} />
-            登出
-          </button>
         </div>
 
         {loading ? (
@@ -290,6 +308,16 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
             </div>
           </>
         )}
+
+        <div className="logout-panel">
+          <button className="btn btn-danger logout-full-button" onClick={handleLogout}>
+            <LogOut size={18} />
+            登出並離開
+          </button>
+          <p className="logout-hint">
+            登出只會在此顯示，點擊後系統會清除登入資訊並跳回登入頁。
+          </p>
+        </div>
       </div>
     </div>
   );

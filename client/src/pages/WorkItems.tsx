@@ -1,6 +1,25 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ArrowLeft, Send, Trash2, Edit2, Sparkles, Save, X, ChevronDown, ChevronUp, Calendar, Search, Undo2, Loader2, LayoutGrid, AlignJustify } from 'lucide-react';
+import {
+  MessageSquare,
+  Send,
+  Trash2,
+  Edit2,
+  Sparkles,
+  Save,
+  X,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  Search,
+  Undo2,
+  Loader2,
+  LayoutGrid,
+  AlignJustify,
+  AlertCircle,
+  Clock,
+  CheckCircle
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -71,6 +90,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [forceSingleColumn, setForceSingleColumn] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatAutoScrollLocked = useRef(true);
   const useSingleColumn = isCompactLayout || forceSingleColumn;
   const layoutLabel = forceSingleColumn ? '單欄 (手動)' : isCompactLayout ? '單欄 (自動)' : '雙欄';
 
@@ -104,6 +124,54 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       return null;
     }
     return value.includes('T') ? value.split('T')[0] : value;
+  };
+
+  const getEstimatedDateInfo = (value?: string | null) => {
+    const normalized = normalizeEstimatedDate(value || null);
+    if (!normalized) {
+      return {
+        label: '未設定',
+        style: { color: '#9ca3af' }
+      };
+    }
+    const [year, month, day] = normalized.split('-');
+    const label = `${parseInt(month, 10)}/${parseInt(day, 10)}`;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const itemDate = new Date(normalized);
+    const isOverdue = itemDate < today;
+    return {
+      label,
+      style: isOverdue ? { color: '#dc2626', fontWeight: 600 } : { color: '#0891b2' }
+    };
+  };
+
+  const getProgressBadge = (status?: string) => {
+    switch (status) {
+      case 'completed':
+        return {
+          text: '已完成',
+          icon: <CheckCircle size={12} />,
+          color: '#065f46',
+          bgColor: '#d1fae5'
+        };
+      case 'in_progress':
+        return {
+          text: '進行中',
+          icon: <Clock size={12} />,
+          color: '#92400e',
+          bgColor: '#fef3c7'
+        };
+      case 'not_started':
+        return {
+          text: '未開始',
+          icon: <AlertCircle size={12} />,
+          color: '#1d4ed8',
+          bgColor: '#dbeafe'
+        };
+      default:
+        return null;
+    }
   };
 
   // Filter function for work items search
@@ -183,6 +251,18 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       timestamp: new Date().toISOString(),
       author: 'AI 助手'
     }]);
+    chatAutoScrollLocked.current = true;
+  }, [teamId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const scrollOptions: ScrollToOptions = { top: 0, behavior: 'smooth' };
+    window.scrollTo(scrollOptions);
+    document.querySelectorAll('.app-container, .main-content').forEach((el) => {
+      if (el instanceof HTMLElement && typeof el.scrollTo === 'function') {
+        el.scrollTo(scrollOptions);
+      }
+    });
   }, [teamId]);
 
   useEffect(() => {
@@ -214,8 +294,15 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
   }, []);
 
   useEffect(() => {
+    if (chatAutoScrollLocked.current) return;
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const unlockChatAutoScroll = () => {
+    if (chatAutoScrollLocked.current) {
+      chatAutoScrollLocked.current = false;
+    }
+  };
 
   useEffect(() => {
     const updateLayout = () => {
@@ -686,18 +773,17 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
       <div className="main-content">
         <Breadcrumbs />
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
-              <ArrowLeft size={18} />
-              返回
-            </button>
+        <div className="page-header">
+          <div className="page-title-group">
             <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <MessageSquare size={28} />
               AI 工作項目規劃
             </h1>
+            <p className="subtitle" style={{ marginBottom: 0 }}>
+              與 AI 討論今日工作，並可直接引用 Backlog 項目生成卡片
+            </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <div className="page-actions">
             <button className="btn btn-success" onClick={() => navigate('/backlog')}>
               <Calendar size={18} />
               Backlog 規劃
@@ -712,9 +798,6 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
               {useSingleColumn ? <AlignJustify size={18} /> : <LayoutGrid size={18} />}
               <span style={{ fontSize: '12px', color: '#374151', fontWeight: 600 }}>{layoutLabel}</span>
             </button>
-            <div style={{ fontSize: '14px', color: '#666' }}>
-              {user.display_name || user.username}
-            </div>
           </div>
         </div>
 
@@ -852,6 +935,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                   disabled={loading}
                   rows={3}
                   style={{ flex: 1, resize: 'vertical', minHeight: '60px' }}
+                  inputMode="text"
+                  onFocus={unlockChatAutoScroll}
                 />
                 <button
                   onClick={handleSend}
@@ -938,6 +1023,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                       placeholder="搜尋標題、內容或 #ID..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
+                      inputMode="search"
+                      enterKeyHint="search"
+                      autoCapitalize="none"
                       style={{
                         padding: '6px 12px 6px 32px',
                         fontSize: '13px',
@@ -981,6 +1069,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                 ) : (
                   sortItems(filterWorkItems(workItems)).map((item) => {
                     const isExpanded = expandedItems.has(item.id);
+                    const estimatedInfo = getEstimatedDateInfo(item.estimated_date);
+                    const statusBadge = getProgressBadge(item.progress_status);
 
                     return (
                       <div
@@ -996,14 +1086,11 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                       >
                         {/* Header - Always Visible */}
                         <div
+                          className="workitem-header"
                           style={{
                             padding: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
                             cursor: 'pointer',
-                            backgroundColor: isExpanded ? '#f9fafb' : 'transparent',
-                            gap: '8px'
+                            backgroundColor: isExpanded ? '#f9fafb' : 'transparent'
                           }}
                           onClick={(e) => {
                             e.preventDefault();
@@ -1017,71 +1104,64 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                             setExpandedItems(newExpanded);
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                          <div className="workitem-main">
                             <div style={{ flexShrink: 0 }}>
                               {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                             </div>
-                            <h4
-                              style={{
-                                fontWeight: '600',
-                                fontSize: '14px',
-                                margin: 0,
-                                flex: 1,
-                                minWidth: 0,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
-                              }}
-                              title={item.ai_title || item.content}
-                            >
-                              #{item.id} {item.ai_title || item.content}
-                            </h4>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                            <PriorityBadge priority={item.priority} />
-                            <span style={{
-                              fontSize: '11px',
-                              whiteSpace: 'nowrap',
-                              ...(() => {
-                                if (!item.estimated_date) return { color: '#999' };
-                                const today = new Date();
-                                today.setHours(0, 0, 0, 0);
-                                const itemDate = new Date(item.estimated_date.split('T')[0]);
-                                if (itemDate < today) {
-                                  return { color: 'red', fontWeight: 'bold' };
-                                }
-                                return { color: '#0891b2' };
-                              })()
-                            }}>
-                              📅 {item.estimated_date
-                                ? (() => {
-                                  const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
-                                    ? item.estimated_date.split('T')[0]
-                                    : item.estimated_date;
-                                  const [year, month, day] = dateStr.split('-');
-                                  return `${parseInt(month)}/${parseInt(day)}`;
-                                })()
-                                : '未設定'}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteWorkItem(item.id);
-                              }}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: '#dc2626',
-                                cursor: 'pointer',
-                                padding: '4px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                flexShrink: 0
-                              }}
-                              title="刪除"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                            <div className="workitem-body">
+                              <div className="workitem-title" title={item.ai_title || item.content}>
+                                #{item.id} {item.ai_title || item.content}
+                              </div>
+                              <div className="workitem-meta-row">
+                                <div className="workitem-meta">
+                                  <div className="workitem-priority">
+                                    <PriorityBadge priority={item.priority} />
+                                  </div>
+                                  <span className="workitem-date" style={estimatedInfo.style}>
+                                    📅 {estimatedInfo.label}
+                                  </span>
+                                  {statusBadge && (
+                                    <span
+                                      className="workitem-status"
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        padding: '2px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '11px',
+                                        fontWeight: '500',
+                                        color: statusBadge.color,
+                                        backgroundColor: statusBadge.bgColor
+                                      }}
+                                    >
+                                      {statusBadge.icon}
+                                      {statusBadge.text}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="workitem-actions-inline">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteWorkItem(item.id);
+                                    }}
+                                    style={{
+                                      background: 'none',
+                                      border: '1px solid transparent',
+                                      color: '#dc2626',
+                                      cursor: 'pointer',
+                                      padding: '4px',
+                                      display: 'flex',
+                                      alignItems: 'center'
+                                    }}
+                                    title="刪除"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
 
@@ -1642,6 +1722,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                         placeholder="搜尋 Backlog 項目或 #ID..."
                         value={backlogSearchQuery}
                         onChange={(e) => setBacklogSearchQuery(e.target.value)}
+                        inputMode="search"
+                        enterKeyHint="search"
+                        autoCapitalize="none"
                         style={{
                           padding: '6px 12px 6px 32px',
                           fontSize: '13px',
@@ -1686,16 +1769,8 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                     ) : (
                       sortItems(filterBacklogItems(backlogItems)).map((item: any) => {
                         const isExpanded = expandedItems.has(item.id);
-                        const estimatedDate = item.estimated_date
-                          ? (() => {
-                            const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
-                              ? item.estimated_date.split('T')[0]
-                              : item.estimated_date;
-                            const [year, month, day] = dateStr.split('-');
-                            return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
-                          })()
-                          : '未設定';
                         const ownerLabel = getBacklogOwnerLabel(item);
+                        const estimatedInfo = getEstimatedDateInfo(item.estimated_date);
 
                         return (
                           <div
@@ -1711,11 +1786,9 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                           >
                             {/* Header */}
                             <div
+                              className="workitem-header"
                               style={{
                                 padding: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
                                 cursor: 'pointer',
                                 backgroundColor: isExpanded ? '#bae6fd' : 'transparent'
                               }}
@@ -1731,40 +1804,24 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                                 setExpandedItems(newExpanded);
                               }}
                             >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                                {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                    <h4 style={{
-                                      fontWeight: '600',
-                                      fontSize: '14px',
-                                      margin: 0,
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: isExpanded ? 'normal' : 'nowrap',
-                                      flex: 1
-                                    }}>
-                                      #{item.id} {item.ai_title || item.content}
-                                    </h4>
-                                    <PriorityBadge priority={item.priority} />
+                              <div className="workitem-main">
+                                <div style={{ flexShrink: 0 }}>
+                                  {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                </div>
+                                <div className="workitem-body">
+                                  <div className="workitem-title">
+                                    #{item.id} {item.ai_title || item.content}
                                   </div>
-                                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '11px', color: '#0369a1' }}>
-                                    <span style={{ whiteSpace: 'nowrap' }}>👤 {ownerLabel}</span>
-                                    <span style={{
-                                      whiteSpace: 'nowrap',
-                                      ...(() => {
-                                        if (!item.estimated_date) return { color: '#999' };
-                                        const today = new Date();
-                                        today.setHours(0, 0, 0, 0);
-                                        const itemDate = new Date(item.estimated_date.split('T')[0]);
-                                        if (itemDate < today) {
-                                          return { color: 'red', fontWeight: 'bold' };
-                                        }
-                                        return { color: '#0891b2' };
-                                      })()
-                                    }}>
-                                      📅 {estimatedDate}
-                                    </span>
+                                  <div className="workitem-meta-row" style={{ color: '#0369a1' }}>
+                                    <div className="workitem-meta">
+                                      <div className="workitem-priority">
+                                        <PriorityBadge priority={item.priority} />
+                                      </div>
+                                      <span style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>👤 {ownerLabel}</span>
+                                      <span className="workitem-date" style={estimatedInfo.style}>
+                                        📅 {estimatedInfo.label}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
                               </div>

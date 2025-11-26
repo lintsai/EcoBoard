@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type SyntheticEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown, FileText, MessageSquare, Megaphone } from 'lucide-react';
+import { Users, Clock, CheckCircle, AlertCircle, Loader2, Sparkles, TrendingUp, ChevronDown, ChevronUp, UserPlus, ArrowUpDown, FileText, MessageSquare, Megaphone } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -2118,11 +2118,6 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
       <div className="main-content" style={mainContentStyle}>
         {toastStack}
         <Breadcrumbs />
-        <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
-          <ArrowLeft size={18} />
-          返回儀表板
-        </button>
-
         {/* Table Modal */}
         {enlargedTable && (
           <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
@@ -2138,27 +2133,12 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div>
+        <div className="page-header">
+          <div className="page-title-group">
             <h1>站立會議檢閱</h1>
             <p className="subtitle">即時掌握團隊打卡與工作進度，並透過 AI 提供建議</p>
           </div>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button
-              className="btn btn-secondary"
-              onClick={() => loadStandupData()}
-              disabled={loading}
-              title="重新取得最新資料"
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={18} className="spinner" />
-                  載入中...
-                </>
-              ) : (
-                '重新整理'
-              )}
-            </button>
+          <div className="page-actions standup-actions">
             {!isFloatingMode && (
               <button
                 className="btn btn-secondary"
@@ -2211,7 +2191,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
         )}
 
         {/* 指標卡片 */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+        <div className="stat-grid">
           <div className="stat-card">
             <div className="stat-icon" style={{ backgroundColor: '#e3f2fd' }}>
               <Users size={24} style={{ color: '#0066cc' }} />
@@ -2272,7 +2252,7 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
             ref={analysisCardRef}
             style={{ marginBottom: '20px', backgroundColor: '#f0f8ff', borderLeft: '4px solid #0066cc' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '15px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '15px', flexWrap: 'wrap' }}>
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                 <Sparkles size={20} style={{ color: '#0066cc' }} />
                 AI 分析建議
@@ -2517,6 +2497,28 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                             <div style={{ marginTop: '8px' }}>
                               {sortItems(memberWorkItems).map((item: WorkItem) => {
                                 const isItemExpanded = expandedWorkItems.has(item.id);
+                                const statusBadge = getStatusBadge(item.progress_status);
+                                const estimatedDateStyle = (() => {
+                                  if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) {
+                                    return { color: item.estimated_date ? '#0891b2' : '#999' };
+                                  }
+                                  const today = new Date();
+                                  today.setHours(0, 0, 0, 0);
+                                  const itemDate = new Date(item.estimated_date.split('T')[0]);
+                                  if (itemDate < today) {
+                                    return { color: 'red', fontWeight: 'bold' };
+                                  }
+                                  return { color: '#0891b2' };
+                                })();
+                                const estimatedDateLabel = item.estimated_date
+                                  ? (() => {
+                                      const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
+                                        ? item.estimated_date.split('T')[0]
+                                        : item.estimated_date;
+                                      const [year, month, day] = dateStr.split('-');
+                                      return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
+                                    })()
+                                  : '未設定';
 
                                 return (
                                   <div
@@ -2533,11 +2535,9 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                   >
                                     {/* Header - Always Visible */}
                                     <div
+                                      className="workitem-header"
                                       style={{
                                         padding: '10px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
                                         cursor: 'pointer',
                                         backgroundColor: isItemExpanded ? '#f8f9fa' : '#fff'
                                       }}
@@ -2559,41 +2559,23 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                         }
                                       }}
                                     >
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                        {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                        <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                                          #{item.id} {item.ai_title || item.content}
+                                      <div className="workitem-main">
+                                        <div style={{ flexShrink: 0 }}>
+                                          {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                         </div>
-                                        {getPriorityBadge(item.priority)}
-                                        <span style={{
-                                          fontSize: '11px',
-                                          whiteSpace: 'nowrap',
-                                          ...(() => {
-                                            if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
-                                            const today = new Date();
-                                            today.setHours(0, 0, 0, 0);
-                                            const itemDate = new Date(item.estimated_date.split('T')[0]);
-                                            if (itemDate < today) {
-                                              return { color: 'red', fontWeight: 'bold' };
-                                            }
-                                            return { color: '#0891b2' };
-                                          })()
-                                        }}>
-                                          📅 預計時間：
-                                          {item.estimated_date
-                                            ? (() => {
-                                              const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
-                                                ? item.estimated_date.split('T')[0]
-                                                : item.estimated_date;
-                                              const [year, month, day] = dateStr.split('-');
-                                              return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
-                                            })()
-                                            : '未設定'}
-                                        </span>
-                                        {(() => {
-                                          const statusBadge = getStatusBadge(item.progress_status);
-                                          return (
+                                        <div className="workitem-body">
+                                          <div className="workitem-title">
+                                            #{item.id} {item.ai_title || item.content}
+                                          </div>
+                                          <div className="workitem-meta">
+                                            <div className="workitem-priority">
+                                              {getPriorityBadge(item.priority)}
+                                            </div>
+                                            <span className="workitem-date" style={estimatedDateStyle}>
+                                              📅 預計時間：{estimatedDateLabel}
+                                            </span>
                                             <span
+                                              className="workitem-status"
                                               style={{
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
@@ -2609,14 +2591,14 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                               {statusBadge.icon}
                                               {statusBadge.text}
                                             </span>
-                                          );
-                                        })()}
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <div style={{ fontSize: '11px', color: '#999' }}>
-                                          {formatTime(item.created_at).split(' ')[1]}
+                                          </div>
                                         </div>
-                                        <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
+                                      </div>
+                                      <div className="workitem-aside">
+                                        <span className="workitem-time">
+                                          {formatTime(item.created_at).split(' ')[1]}
+                                        </span>
+                                        <div className="reassign-area workitem-buttons">
                                           <button
                                             className="btn btn-secondary"
                                             style={{ fontSize: '11px', padding: '4px 8px' }}
@@ -2829,15 +2811,13 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                       }}
                                     >
                                       <div
+                                        className="workitem-header"
                                         style={{
                                           padding: '10px',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'space-between',
-                                          cursor: 'pointer'
+                                          cursor: 'pointer',
+                                          backgroundColor: isItemExpanded ? '#fff7ed' : '#fff'
                                         }}
                                         onClick={(e) => {
-                                          // Don't toggle if clicking on reassign button area
                                           if ((e.target as HTMLElement).closest('.reassign-area')) {
                                             return;
                                           }
@@ -2854,94 +2834,56 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           }
                                         }}
                                       >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                          {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                          <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                                            #{item.id} {item.ai_title || item.content}
+                                        <div className="workitem-main">
+                                          <div style={{ flexShrink: 0 }}>
+                                            {isItemExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                           </div>
-                                          {getPriorityBadge(item.priority)}
-                                          <span style={{
-                                            fontSize: '11px',
-                                            whiteSpace: 'nowrap',
-                                            ...(() => {
-                                              if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: item.estimated_date ? '#0891b2' : '#999' };
-                                              const today = new Date();
-                                              today.setHours(0, 0, 0, 0);
-                                              const itemDate = new Date(item.estimated_date.split('T')[0]);
-                                              if (itemDate < today) {
-                                                return { color: 'red', fontWeight: 'bold' };
-                                              }
-                                              return { color: '#0891b2' };
-                                            })()
-                                          }}>
-                                            📅 預計時間：
-                                            {item.estimated_date
-                                              ? (() => {
-                                                const dateStr = typeof item.estimated_date === 'string' && item.estimated_date.includes('T')
-                                                  ? item.estimated_date.split('T')[0]
-                                                  : item.estimated_date;
-                                                const [year, month, day] = dateStr.split('-');
-                                                return `${parseInt(month, 10)}/${parseInt(day, 10)}`;
-                                              })()
-                                              : '未設定'}
-                                          </span>
-                                          {(() => {
-                                            const statusBadge = getStatusBadge(item.progress_status);
-                                            return (
-                                              <span
-                                                style={{
-                                                  display: 'inline-flex',
-                                                  alignItems: 'center',
-                                                  gap: '4px',
-                                                  padding: '2px 8px',
-                                                  borderRadius: '12px',
-                                                  fontSize: '11px',
-                                                  fontWeight: '500',
-                                                  color: statusBadge.color,
-                                                  backgroundColor: statusBadge.bgColor
-                                                }}
-                                              >
-                                                {statusBadge.icon}
-                                                {statusBadge.text}
-                                              </span>
-                                            );
-                                          })()}
+                                          <div className="workitem-body">
+                                            <div className="workitem-title">
+                                              #{item.id} {item.ai_title || item.content}
+                                            </div>
+                                            <div className="workitem-meta">
+                                              {renderItemMetaBadges(item)}
+                                            </div>
+                                          </div>
                                         </div>
-                                        <div className="reassign-area" style={{ display: 'flex', gap: '4px' }}>
-                                          <button
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              openChatHistory(item);
-                                            }}
-                                            disabled={!item.session_id}
-                                            title="查看 AI 對談"
-                                          >
-                                            <MessageSquare size={12} />
-                                          </button>
-                                          <button
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              openPriorityModal(item);
-                                            }}
-                                            title="調整優先順序"
-                                          >
-                                            調整優先
-                                          </button>
-                                          <button
-                                            className="btn btn-secondary"
-                                            style={{ fontSize: '11px', padding: '4px 8px' }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              openHandlerModal(item);
-                                            }}
-                                            title="管理共同負責人"
-                                          >
-                                            <UserPlus size={12} />
-                                          </button>
+                                        <div className="workitem-aside">
+                                          <div className="reassign-area workitem-buttons">
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ fontSize: '11px', padding: '4px 8px' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openChatHistory(item);
+                                              }}
+                                              disabled={!item.session_id}
+                                              title="查看 AI 對談"
+                                            >
+                                              <MessageSquare size={12} />
+                                            </button>
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ fontSize: '11px', padding: '4px 8px' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openPriorityModal(item);
+                                              }}
+                                              title="調整優先順序"
+                                            >
+                                              調整優先
+                                            </button>
+                                            <button
+                                              className="btn btn-secondary"
+                                              style={{ fontSize: '11px', padding: '4px 8px' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openHandlerModal(item);
+                                              }}
+                                              title="管理共同負責人"
+                                            >
+                                              <UserPlus size={12} />
+                                            </button>
+                                          </div>
                                         </div>
                                       </div>
 
@@ -3136,21 +3078,20 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           id={getCoHandlerItemDomId(member.user_id, item.id)}
                                           style={{
                                             marginBottom: '6px',
-                                            padding: '8px',
                                             backgroundColor: '#ffffff',
                                             borderRadius: '4px',
                                             border: '1px solid #bfdbfe'
                                           }}
                                         >
                                           <div
+                                            className="workitem-header"
                                             style={{
-                                              display: 'flex',
-                                              justifyContent: 'space-between',
-                                              alignItems: 'center',
-                                              cursor: 'pointer'
+                                              padding: '8px 10px',
+                                              cursor: 'pointer',
+                                              backgroundColor: isItemExpanded ? '#f0f9ff' : '#fff'
                                             }}
                                             onClick={(e) => {
-                                              if ((e.target as HTMLElement).closest('.jump-to-original')) {
+                                              if ((e.target as HTMLElement).closest('.reassign-area')) {
                                                 return;
                                               }
                                               stopEvent(e);
@@ -3160,70 +3101,79 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                               } else {
                                                 newExpanded.add(coHandlerExpandKey);
                                               }
-                                              // 更新共同負責卡片的展開狀態，協辦也啟用聚焦
                                               setExpandedWorkItems(newExpanded);
                                               if (!isItemExpanded) {
                                                 maybeFocusOnItem(item);
                                               }
                                             }}
                                           >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                              {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                              <div style={{ fontSize: '13px' }}>
-                                                #{item.id} {item.ai_title || item.content}
+                                            <div className="workitem-main">
+                                              <div style={{ flexShrink: 0 }}>
+                                                {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                               </div>
-                                              {renderItemMetaBadges(item)}
+                                              <div className="workitem-body">
+                                                <div className="workitem-title">
+                                                  #{item.id} {item.ai_title || item.content}
+                                                </div>
+                                                <div className="workitem-meta">
+                                                  {renderItemMetaBadges(item)}
+                                                </div>
+                                              </div>
                                             </div>
-                                            <button
-                                              className="btn btn-secondary"
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openChatHistory(item);
-                                              }}
-                                              disabled={!item.session_id}
-                                              style={{
-                                                background: 'none',
-                                                border: '1px solid #0066cc',
-                                                color: '#0066cc',
-                                                cursor: 'pointer',
-                                                padding: '2px 6px',
-                                                borderRadius: '4px',
-                                                fontSize: '10px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '2px'
-                                              }}
-                                              title="查看 AI 對談"
-                                            >
-                                              <MessageSquare size={12} />
-                                              AI 對談
-                                            </button>
-                                            <button
-                                              className="jump-to-original"
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (primaryUser) {
-                                                  scrollToOriginalItem(item.id, primaryUser.user_id);
-                                                }
-                                              }}
-                                              style={{
-                                                background: 'none',
-                                                border: '1px solid #0066cc',
-                                                color: '#0066cc',
-                                                cursor: 'pointer',
-                                                padding: '2px 6px',
-                                                borderRadius: '4px',
-                                                fontSize: '10px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '2px'
-                                              }}
-                                              title="檢視原始項目"
-                                            >
-                                              前往原卡片
-                                            </button>
+                                            <div className="workitem-aside">
+                                              <div className="reassign-area workitem-buttons">
+                                                <button
+                                                  className="btn btn-secondary"
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openChatHistory(item);
+                                                  }}
+                                                  disabled={!item.session_id}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #0066cc',
+                                                    color: '#0066cc',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px'
+                                                  }}
+                                                  title="查看 AI 對談"
+                                                >
+                                                  <MessageSquare size={12} />
+                                                  AI 對談
+                                                </button>
+                                                <button
+                                                  className="jump-to-original btn btn-secondary"
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (primaryUser) {
+                                                      scrollToOriginalItem(item.id, primaryUser.user_id);
+                                                    }
+                                                  }}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #0066cc',
+                                                    color: '#0066cc',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px'
+                                                  }}
+                                                  title="檢視原始項目"
+                                                >
+                                                  前往原卡片
+                                                </button>
+                                              </div>
+                                            </div>
                                           </div>
 
                                           {isItemExpanded && (
@@ -3280,21 +3230,20 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           id={getCoHandlerItemDomId(member.user_id, item.id)}
                                           style={{
                                             marginBottom: '6px',
-                                            padding: '8px',
                                             backgroundColor: '#ffffff',
                                             borderRadius: '4px',
                                             border: '1px solid #fed7aa'
                                           }}
                                         >
                                           <div
+                                            className="workitem-header"
                                             style={{
-                                              display: 'flex',
-                                              justifyContent: 'space-between',
-                                              alignItems: 'center',
-                                              cursor: 'pointer'
+                                              padding: '8px 10px',
+                                              cursor: 'pointer',
+                                              backgroundColor: isItemExpanded ? '#fff7ed' : '#fff'
                                             }}
                                             onClick={(e) => {
-                                              if ((e.target as HTMLElement).closest('.jump-to-original')) {
+                                              if ((e.target as HTMLElement).closest('.reassign-area')) {
                                                 return;
                                               }
                                               stopEvent(e);
@@ -3304,71 +3253,78 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                               } else {
                                                 newExpanded.add(coHandlerExpandKey);
                                               }
-                                              // 更新共同負責卡片的展開狀態，協辦也啟用聚焦
                                               setExpandedWorkItems(newExpanded);
                                               if (!isItemExpanded) {
                                                 maybeFocusOnItem(item);
                                               }
                                             }}
                                           >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                                              {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                              <div style={{ fontSize: '13px' }}>
-                                                #{item.id} {item.ai_title || item.content}
+                                            <div className="workitem-main">
+                                              <div style={{ flexShrink: 0 }}>
+                                                {isItemExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                               </div>
-                                              {renderItemMetaBadges(item)}
+                                              <div className="workitem-body">
+                                                <div className="workitem-title">
+                                                  #{item.id} {item.ai_title || item.content}
+                                                </div>
+                                                <div className="workitem-meta">
+                                                  {renderItemMetaBadges(item)}
+                                                </div>
+                                              </div>
                                             </div>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openChatHistory(item);
-                                              }}
-                                              disabled={!item.session_id}
-                                              style={{
-                                                background: 'none',
-                                                border: '1px solid #f59e0b',
-                                                color: '#f59e0b',
-                                                cursor: 'pointer',
-                                                padding: '2px 6px',
-                                                borderRadius: '4px',
-                                                fontSize: '10px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '2px',
-                                                marginLeft: '6px'
-                                              }}
-                                              title="查看 AI 對談"
-                                            >
-                                              <MessageSquare size={12} />
-                                              AI 對談
-                                            </button>
-                                            <button
-                                              className="jump-to-original"
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (primaryUser) {
-                                                  scrollToOriginalItem(item.id, primaryUser.user_id);
-                                                }
-                                              }}
-                                              style={{
-                                                background: 'none',
-                                                border: '1px solid #f59e0b',
-                                                color: '#f59e0b',
-                                                cursor: 'pointer',
-                                                padding: '2px 6px',
-                                                borderRadius: '4px',
-                                                fontSize: '10px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '2px',
-                                                marginLeft: '6px'
-                                              }}
-                                              title="檢視原始項目"
-                                            >
-                                              前往原卡片
-                                            </button>
+                                            <div className="workitem-aside">
+                                              <div className="reassign-area workitem-buttons">
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openChatHistory(item);
+                                                  }}
+                                                  disabled={!item.session_id}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #f59e0b',
+                                                    color: '#f59e0b',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px'
+                                                  }}
+                                                  title="查看 AI 對談"
+                                                >
+                                                  <MessageSquare size={12} />
+                                                  AI 對談
+                                                </button>
+                                                <button
+                                                  className="jump-to-original btn btn-secondary"
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (primaryUser) {
+                                                      scrollToOriginalItem(item.id, primaryUser.user_id);
+                                                    }
+                                                  }}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #f59e0b',
+                                                    color: '#f59e0b',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '2px'
+                                                  }}
+                                                  title="檢視原始項目"
+                                                >
+                                                  前往原卡片
+                                                </button>
+                                              </div>
+                                            </div>
                                           </div>
 
                                           {isItemExpanded && (

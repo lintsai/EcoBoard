@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckSquare, ArrowLeft, FileText, Lightbulb, Loader2 } from 'lucide-react';
+import { CheckSquare, FileText, Lightbulb, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
@@ -12,7 +12,7 @@ interface CheckinProps {
   onLogout: () => void;
 }
 
-function Checkin({ user, teamId, onLogout }: CheckinProps) {
+function Checkin({ user, teamId }: CheckinProps) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
@@ -224,11 +224,6 @@ function Checkin({ user, teamId, onLogout }: CheckinProps) {
     <div className="app-container">
       <div className="main-content">
         <Breadcrumbs />
-        <button className="btn btn-secondary" onClick={() => navigate('/dashboard')} style={{ marginBottom: '20px' }}>
-          <ArrowLeft size={18} />
-          返回儀表板
-        </button>
-
         <div className="header">
           <h1>早上打卡</h1>
         </div>

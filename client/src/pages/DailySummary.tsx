@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, Sparkles, RefreshCw, FileText, Loader2, History, Save, X, Download } from 'lucide-react';
+import { Calendar, Sparkles, RefreshCw, FileText, Loader2, History, Save, X, Download } from 'lucide-react';
 import api from '../services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -245,11 +245,6 @@ function DailySummary({ user, teamId }: any) {
     <div className="app-container">
       <div className="main-content">
         <Breadcrumbs />
-        <button className="btn btn-secondary" onClick={() => navigate('/dashboard')}>
-          <ArrowLeft size={18} />
-          返回
-        </button>
-
         {/* Table Modal */}
         {enlargedTable && (
           <div className="table-modal-overlay" onClick={() => setEnlargedTable(null)}>
@@ -265,10 +260,10 @@ function DailySummary({ user, teamId }: any) {
           </div>
         )}
 
-        <div className="header">
-          <div>
+        <div className="page-header">
+          <div className="page-title-group">
             <h1 style={{ marginBottom: '8px' }}>每日總結</h1>
-            <p style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <p style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 0 }}>
               <Sparkles size={16} />
               AI 自動分析團隊當日工作進展並生成總結報告
             </p>
@@ -277,8 +272,8 @@ function DailySummary({ user, teamId }: any) {
 
         {/* 日期選擇和操作按鈕 */}
         <div className="card" style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ flex: '0 0 auto', position: 'relative' }}>
+          <div className="daily-summary-controls">
+            <div className="daily-summary-date">
               <label htmlFor="summary-date" style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 500 }}>
                 選擇日期
               </label>
@@ -289,24 +284,16 @@ function DailySummary({ user, teamId }: any) {
                 onChange={handleDateChange}
                 max={getTodayDate()}
                 disabled={generating || saving}
-                style={{
-                  width: '200px',
-                  padding: '10px 12px',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '6px',
-                  fontSize: '14px',
-                  fontFamily: 'inherit',
-                  cursor: 'pointer'
-                }}
+                className="input"
+                style={{ width: '100%' }}
               />
             </div>
 
-            <div style={{ flex: '0 0 auto', marginTop: '24px' }}>
+            <div className="daily-summary-actions">
               <button
                 className="btn btn-primary"
                 onClick={handleGenerateSummary}
                 disabled={generating || loading || saving}
-                style={{ marginRight: '10px' }}
               >
                 {generating ? (
                   <>
@@ -325,7 +312,6 @@ function DailySummary({ user, teamId }: any) {
                 className="btn btn-secondary"
                 onClick={handleRefresh}
                 disabled={loading || generating || saving || !!previewSummary}
-                style={{ marginRight: '10px' }}
               >
                 <RefreshCw size={18} />
                 重新載入
@@ -440,7 +426,9 @@ function DailySummary({ user, teamId }: any) {
               marginBottom: '20px',
               backgroundColor: '#fff8e6',
               margin: '-20px -20px 20px -20px',
-              padding: '15px 20px'
+              padding: '15px 20px',
+              flexWrap: 'wrap',
+              gap: '12px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Sparkles size={20} style={{ color: '#ffa500' }} />
@@ -448,7 +436,7 @@ function DailySummary({ user, teamId }: any) {
                   預覽：AI 生成的總結（尚未儲存）
                 </h2>
               </div>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }} data-export-hidden="true">
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }} data-export-hidden="true">
                 <button
                   className="btn btn-secondary"
                   onClick={handleExportSummaryPdf}
@@ -518,7 +506,9 @@ function DailySummary({ user, teamId }: any) {
               alignItems: 'center',
               paddingBottom: '15px',
               borderBottom: '2px solid #e5e7eb',
-              marginBottom: '20px'
+              marginBottom: '20px',
+              flexWrap: 'wrap',
+              gap: '12px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Calendar size={20} style={{ color: '#667eea' }} />
@@ -531,7 +521,7 @@ function DailySummary({ user, teamId }: any) {
                   })}
                 </h2>
               </div>
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {summary.cached && (
                     <span className="badge" style={{ backgroundColor: '#28a745' }}>
@@ -543,25 +533,27 @@ function DailySummary({ user, teamId }: any) {
                     AI 生成
                   </span>
                 </div>
-                <button
-                  className="btn btn-secondary"
-                  onClick={handleExportSummaryPdf}
-                  disabled={exportingSummaryPdf}
-                  data-export-hidden="true"
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  {exportingSummaryPdf ? (
-                    <>
-                      <Loader2 size={16} className="spinner" />
-                      產出中...
-                    </>
-                  ) : (
-                    <>
-                      <Download size={16} />
-                      匯出 PDF
-                    </>
-                  )}
-                </button>
+                <div className="btn-group-responsive">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleExportSummaryPdf}
+                    disabled={exportingSummaryPdf}
+                    data-export-hidden="true"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    {exportingSummaryPdf ? (
+                      <>
+                        <Loader2 size={16} className="spinner" />
+                        產出中...
+                      </>
+                    ) : (
+                      <>
+                        <Download size={16} />
+                        匯出 PDF
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 
