@@ -882,23 +882,52 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     let reconnectDelay = 2000;
 
     const resolveSocketUrl = () => {
-      const override = import.meta.env.VITE_WS_URL;
       const encodedToken = encodeURIComponent(token);
+      const appendQueryParams = (base: string) =>
+        `${base}${base.includes('?') ? '&' : '?'}teamId=${teamId}&token=${encodedToken}`;
+      const ensureStandupPath = (pathname: string) => {
+        const normalized = pathname === '/' ? '' : pathname.replace(/\/$/, '');
+        if (!normalized) {
+          return '/ws/standup';
+        }
+        return normalized.endsWith('/ws/standup') ? normalized : `${normalized}/ws/standup`;
+      };
+
+      const override = import.meta.env.VITE_WS_URL?.trim();
       if (override) {
-        const trimmed = override.endsWith('/') ? override.slice(0, -1) : override;
-        return `${trimmed}/ws/standup?teamId=${teamId}&token=${encodedToken}`;
+        const absoluteOverride = /^https?:\/\//i.test(override) || /^wss?:\/\//i.test(override)
+          ? override
+          : `wss://${override}`;
+        try {
+          const url = new URL(absoluteOverride);
+          if (url.protocol === 'http:') {
+            url.protocol = 'ws:';
+          } else if (url.protocol === 'https:') {
+            url.protocol = 'wss:';
+          }
+          url.pathname = ensureStandupPath(url.pathname || '');
+          url.searchParams.set('teamId', String(teamId));
+          url.searchParams.set('token', token);
+          return url.toString();
+        } catch {
+          const trimmed = absoluteOverride.endsWith('/') ? absoluteOverride.slice(0, -1) : absoluteOverride;
+          const pathWithoutQuery = trimmed.split(/[?#]/)[0];
+          const hasEndpoint = pathWithoutQuery.endsWith('/ws/standup');
+          const base = hasEndpoint ? trimmed : `${trimmed}/ws/standup`;
+          return appendQueryParams(base);
+        }
       }
 
       const apiBase = import.meta.env.VITE_API_URL;
       if (apiBase && apiBase.startsWith('http')) {
         const apiUrl = new URL(apiBase);
         const wsProtocol = apiUrl.protocol === 'https:' ? 'wss' : 'ws';
-        return `${wsProtocol}://${apiUrl.host}/ws/standup?teamId=${teamId}&token=${encodedToken}`;
+        return appendQueryParams(`${wsProtocol}://${apiUrl.host}/ws/standup`);
       }
 
       const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
       const originHost = typeof window !== 'undefined' ? window.location.host : 'localhost';
-      return `${isHttps ? 'wss' : 'ws'}://${originHost}/ws/standup?teamId=${teamId}&token=${encodedToken}`;
+      return appendQueryParams(`${isHttps ? 'wss' : 'ws'}://${originHost}/ws/standup`);
     };
 
     const connect = () => {

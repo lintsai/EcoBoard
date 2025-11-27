@@ -76,6 +76,7 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   const hasSyncedTargetRef = useRef(false);
   const lastFocusedIdRef = useRef<number | null>(null);
   const targetChangeOriginRef = useRef<'initial' | 'user'>('initial');
+  const updateTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const updateUrlWorkItemId = useCallback((id: number | null, origin: 'user' | 'initial' = 'user') => {
     targetChangeOriginRef.current = origin;
     const url = new URL(window.location.href);
@@ -110,6 +111,18 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [chatModalTitle, setChatModalTitle] = useState('');
   const [isMobile, setIsMobile] = useState(false);
+  const focusUpdateTextarea = useCallback(() => {
+    const textarea = updateTextareaRef.current;
+    if (!textarea) return;
+    try {
+      textarea.focus({ preventScroll: !isMobile });
+    } catch {
+      textarea.focus();
+    }
+    if (isMobile) {
+      textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [isMobile]);
   const selectedWorkItemDetails =
     [...workItems, ...incompleteItems].find(i => i.id === selectedItem) || null;
   const isPrimaryHandler =
@@ -330,6 +343,11 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   }, [selectedItem]);
 
   useEffect(() => {
+    if (!selectedItem) return;
+    focusUpdateTextarea();
+  }, [selectedItem, focusUpdateTextarea]);
+
+  useEffect(() => {
     const targetItemId = initialTargetRef.current;
     if (!targetItemId) {
       hasSyncedTargetRef.current = false;
@@ -376,10 +394,7 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
     lastFocusedIdRef.current = null;
     updateUrlWorkItemId(id, 'user');
     setSelectedItem(id);
-    setTimeout(() => {
-      const textarea = document.getElementById('update-content') as HTMLTextAreaElement | null;
-      textarea?.focus();
-    }, 0);
+    focusUpdateTextarea();
   };
 
   const checkManagerRole = async () => {
@@ -717,6 +732,7 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
                       const estimateDate = new Date(item.estimated_date.split('T')[0]);
                       return estimateDate < today ? 'danger' : 'info';
                     })();
+                    const statusBadge = getStatusBadge(item.progress_status || 'in_progress');
                     return (
                       <div
                         key={item.id}
@@ -733,24 +749,26 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
                             <span className="update-item-name">#{item.id} {title}</span>
                             <span className="update-item-subtitle">打卡：{checkinLabel}</span>
                           </div>
-                          <div className="update-item-meta">
-                            {getStatusBadge(item.progress_status || 'in_progress')}
-                          </div>
                         </button>
                         <div className="update-item-tags">
-                          {getPriorityBadge(item.priority)}
-                          <span className="update-chip">
-                            <User size={12} />
-                            {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
-                          </span>
-                          {coHandlers.length > 0 && (
-                            <span className="update-chip">
-                              + {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                          <div className="update-item-tags-row">
+                            {getPriorityBadge(item.priority)}
+                            <span className={`update-chip ${estimatedBadgeClass}`}>
+                              📅 {estimatedText}
                             </span>
-                          )}
-                          <span className={`update-chip ${estimatedBadgeClass}`}>
-                            📅 {estimatedText}
-                          </span>
+                            <span className="status-chip">{statusBadge}</span>
+                          </div>
+                          <div className="update-item-tags-row handlers-row">
+                            <span className="update-chip">
+                              <User size={12} />
+                              {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
+                            </span>
+                            {coHandlers.length > 0 && (
+                              <span className="update-chip">
+                                + {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -822,6 +840,7 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
                       today.setHours(0, 0, 0, 0);
                       return estimateDate < today ? 'danger' : 'info';
                     })();
+                    const statusBadge = getStatusBadge(item.progress_status || 'in_progress');
                     return (
                       <div
                         key={item.id}
@@ -838,24 +857,26 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
                             <span className="update-item-name">#{item.id} {title}</span>
                             <span className="update-item-subtitle">打卡：{checkinLabel}</span>
                           </div>
-                          <div className="update-item-meta">
-                            {getStatusBadge(item.progress_status || 'in_progress')}
-                          </div>
                         </button>
                         <div className="update-item-tags">
-                          {getPriorityBadge(item.priority)}
-                          <span className="update-chip">
-                            <User size={12} />
-                            {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
-                          </span>
-                          {coHandlers.length > 0 && (
-                            <span className="update-chip">
-                              + {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                          <div className="update-item-tags-row">
+                            {getPriorityBadge(item.priority)}
+                            <span className={`update-chip ${estimatedBadgeClass}`}>
+                              📅 {estimatedText}
                             </span>
-                          )}
-                          <span className={`update-chip ${estimatedBadgeClass}`}>
-                            📅 {estimatedText}
-                          </span>
+                            <span className="status-chip">{statusBadge}</span>
+                          </div>
+                          <div className="update-item-tags-row handlers-row">
+                            <span className="update-chip">
+                              <User size={12} />
+                              {primaryHandler ? (primaryHandler.display_name || primaryHandler.username) : '未指定'}
+                            </span>
+                            {coHandlers.length > 0 && (
+                              <span className="update-chip">
+                                + {coHandlers.map(h => h.display_name || h.username).join(', ')}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -927,6 +948,7 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
                     <label htmlFor="update-content">更新內容</label>
                     <textarea
                       id="update-content"
+                      ref={updateTextareaRef}
                       className="form-control"
                       rows={6}
                       placeholder="描述您的工作進展、遇到的問題、下一步計劃等...（Enter 換行，點擊送出按鈕提交）"
