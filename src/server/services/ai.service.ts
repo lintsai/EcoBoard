@@ -39,6 +39,47 @@ const collectReferencedTaskIds = (content: string) => {
   return referencedIds;
 };
 
+interface AppendTaskIndexOptions {
+  teamId?: number | string | null;
+  baseUrl?: string | null;
+}
+
+const DEFAULT_FRONTEND_URL = 'http://localhost:3001';
+
+const sanitizeBaseUrl = (value?: string | null) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return DEFAULT_FRONTEND_URL;
+  return trimmed.replace(/\/$/, '');
+};
+
+const parseNumericValue = (value: any): number | null => {
+  if (value === null || value === undefined) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const extractTeamIdFromItem = (item: any): number | null => {
+  if (!item) return null;
+  const candidates = [
+    item.team_id,
+    item.teamId,
+    item.teamID,
+    item.resolved_team_id,
+    item?.team?.id,
+    item?.team?.team_id,
+    item?.team?.teamId,
+    item?.checkin?.team_id,
+    item?.checkin?.teamId
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseNumericValue(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
 const parseExistingTaskIndex = (content: string) => {
   // Match any heading level that contains 「任務索引」，包含前後可能的 emoji 或附註
   const matches = Array.from(
@@ -73,22 +114,88 @@ const parseExistingTaskIndex = (content: string) => {
   return { start, end, map };
 };
 
-const buildTaskIndexSection = (rows: Map<number, string>) => {
+const resolveItemStatus = (item: any): string =>
+  (item?.current_status || item?.progress_status || item?.status || item?.latest_status || '')
+    .toString()
+    .toLowerCase();
+
+const isCompletedStatus = (status: string) => status === 'completed' || status === 'cancelled';
+
+const findFallbackTeamId = (
+  workItemMeta: Map<number, any>,
+  preferred?: number | string | null
+) => {
+  const preferredId = parseNumericValue(preferred);
+  if (preferredId !== null) {
+    return preferredId;
+  }
+  for (const meta of workItemMeta.values()) {
+    const extracted = extractTeamIdFromItem(meta);
+    if (extracted !== null) {
+      return extracted;
+    }
+  }
+  return null;
+};
+
+const buildLinkCell = (
+  item: any,
+  itemId: number,
+  baseUrl: string,
+  fallbackTeamId: number | null
+) => {
+  const status = resolveItemStatus(item);
+  const isBacklog = Boolean(item?.is_backlog);
+  const isCompleted = isCompletedStatus(status);
+  let path = `/update-work/${itemId}`;
+
+  if (isBacklog) {
+    path = `/backlog/${itemId}`;
+  } else if (isCompleted) {
+    path = `/completed-history/${itemId}`;
+  }
+
+  const teamId = extractTeamIdFromItem(item) ?? fallbackTeamId;
+  const query = teamId !== null ? `?teamId=${teamId}` : '';
+  const url = `${baseUrl}${path}${query}`;
+  return `[${url}](${url})`;
+};
+
+const buildTaskIndexSection = (
+  rows: Map<number, string>,
+  workItemMeta: Map<number, any>,
+  options?: AppendTaskIndexOptions
+) => {
   if (!rows.size) return '';
-  const header = '| #ID | 標題 |\n| --- | --- |\n';
+  const baseCandidate = options?.baseUrl ?? process.env.FRONTEND_URL ?? DEFAULT_FRONTEND_URL;
+  const baseUrl = sanitizeBaseUrl(baseCandidate);
+  const fallbackTeamId = findFallbackTeamId(workItemMeta, options?.teamId);
+  const header = '| #ID | 標題 | 連結 |\n| --- | --- | --- |\n';
   const body = Array.from(rows.entries())
     .sort((a, b) => a[0] - b[0])
-    .map(([id, title]) => `| #${id} | ${title || ''} |`)
+    .map(([id, title]) => {
+      const meta = workItemMeta.get(id);
+      const linkCell = buildLinkCell(meta, id, baseUrl, fallbackTeamId);
+      return `| #${id} | ${title || ''} | ${linkCell} |`;
+    })
     .join('\n');
   return `### 任務索引\n${header}${body}`;
 };
 
-export const appendTaskIndex = (content: string, workItems: any[]) => {
+export const appendTaskIndex = (
+  content: string,
+  workItems: any[],
+  options: AppendTaskIndexOptions = {}
+) => {
   const validIds = new Set<number>();
+  const workItemMeta = new Map<number, any>();
   (workItems || []).forEach((item: any) => {
     const numericId = Number(item?.id);
     if (Number.isFinite(numericId)) {
       validIds.add(numericId);
+      if (!workItemMeta.has(numericId)) {
+        workItemMeta.set(numericId, item);
+      }
     }
   });
 
@@ -121,7 +228,7 @@ export const appendTaskIndex = (content: string, workItems: any[]) => {
 
   if (!mergedRows.size) return content;
 
-  const newSection = buildTaskIndexSection(mergedRows);
+  const newSection = buildTaskIndexSection(mergedRows, workItemMeta, options);
   if (!newSection) return content;
 
   if (existing) {
@@ -995,7 +1102,7 @@ ${JSON.stringify(workItemsDetail, null, 2)}
           analysisText += `\n### 🗂️ 任務索引\n${referencedTasksTable}\n`;
         }
 
-        const analysisWithIndex = appendTaskIndex(analysisText, workItems);
+        const analysisWithIndex = appendTaskIndex(analysisText, workItems, { teamId });
 
         return {
           analysis: analysisWithIndex,
@@ -1461,7 +1568,7 @@ ${JSON.stringify(updates.rows.map((update: any) => ({
     );
 
     const summary = response.data.choices[0].message.content;
-    const summaryWithIndex = appendTaskIndex(summary, workItems.rows || []);
+    const summaryWithIndex = appendTaskIndex(summary, workItems.rows || [], { teamId });
 
     // Save or update summary in database (不在這裡自動儲存，交由前端決定)
     // 如果是強制重新生成，不自動儲存

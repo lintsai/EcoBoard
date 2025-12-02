@@ -1289,7 +1289,9 @@ ${JSON.stringify(data.workItems.map((item: any) => ({
           : '（AI 未返回文字內容，以下為圖形化摘要與任務索引）';
 
       const withVisualization = appendVisualization(baseContent, visualizationAppendix || '');
-      const withTaskIndex = appendTaskIndex(withVisualization, data.workItems || []);
+      const withTaskIndex = appendTaskIndex(withVisualization, data.workItems || [], {
+        teamId: data?.teamId
+      });
 
       return {
         reportName: safeName,
@@ -1332,11 +1334,12 @@ export const generateWeeklyReport = async (params: WeeklyReportParams) => {
   try {
     // 1. 收集數據
     const data = await collectWeeklyData(teamId, startDate, endDate);
+    const dataset = { ...data, teamId };
 
     // 2. AI 產生報表
     const { reportName, reportContent } = await generateReportWithAI(
       reportType,
-      data,
+      dataset,
       startDate,
       endDate
     );
@@ -1375,9 +1378,10 @@ export const regenerateWeeklyReport = async (reportId: number, teamId: number, u
 
     // 2. 重新收集數據並產生報表
     const data = await collectWeeklyData(teamId, existingReport.start_date, existingReport.end_date);
+    const dataset = { ...data, teamId };
     const { reportName, reportContent } = await generateReportWithAI(
       existingReport.report_type,
-      data,
+      dataset,
       existingReport.start_date,
       existingReport.end_date
     );
