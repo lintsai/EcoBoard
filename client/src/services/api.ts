@@ -30,9 +30,19 @@ class ApiService {
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          window.location.href = '/login';
+          const requestUrl = error.config?.url || '';
+          const isLoginRequest = requestUrl.includes('/auth/login');
+
+          if (!isLoginRequest) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+
+            if (typeof window !== 'undefined') {
+              const redirectTarget = window.location.pathname + window.location.search + window.location.hash;
+              sessionStorage.setItem('postLoginRedirect', redirectTarget);
+              window.location.href = '/login';
+            }
+          }
         }
         return Promise.reject(error);
       }
