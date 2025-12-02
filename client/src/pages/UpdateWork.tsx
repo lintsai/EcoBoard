@@ -77,6 +77,8 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   const lastFocusedIdRef = useRef<number | null>(null);
   const targetChangeOriginRef = useRef<'initial' | 'user'>('initial');
   const updateTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const workItemDetailsRef = useRef<HTMLDivElement | null>(null);
+  const lastDetailFocusIdRef = useRef<number | null>(null);
   const updateUrlWorkItemId = useCallback((id: number | null, origin: 'user' | 'initial' = 'user') => {
     targetChangeOriginRef.current = origin;
     const url = new URL(window.location.href);
@@ -111,18 +113,18 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [chatModalTitle, setChatModalTitle] = useState('');
   const [isMobile, setIsMobile] = useState(false);
-  const focusUpdateTextarea = useCallback(() => {
-    const textarea = updateTextareaRef.current;
-    if (!textarea) return;
-    try {
-      textarea.focus({ preventScroll: !isMobile });
-    } catch {
-      textarea.focus();
-    }
-    if (isMobile) {
-      textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [isMobile]);
+  const focusWorkItemDetails = useCallback(() => {
+    const detailsElement = workItemDetailsRef.current;
+    if (!detailsElement) return;
+    requestAnimationFrame(() => {
+      detailsElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try {
+        detailsElement.focus({ preventScroll: true });
+      } catch {
+        detailsElement.focus();
+      }
+    });
+  }, []);
   const selectedWorkItemDetails =
     [...workItems, ...incompleteItems].find(i => i.id === selectedItem) || null;
   const isPrimaryHandler =
@@ -343,9 +345,12 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   }, [selectedItem]);
 
   useEffect(() => {
-    if (!selectedItem) return;
-    focusUpdateTextarea();
-  }, [selectedItem, focusUpdateTextarea]);
+    if (!selectedWorkItemDetails) return;
+    const currentId = selectedWorkItemDetails.id;
+    if (lastDetailFocusIdRef.current === currentId) return;
+    lastDetailFocusIdRef.current = currentId;
+    focusWorkItemDetails();
+  }, [selectedWorkItemDetails, focusWorkItemDetails]);
 
   useEffect(() => {
     const targetItemId = initialTargetRef.current;
@@ -393,8 +398,11 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
     hasSyncedTargetRef.current = false;
     lastFocusedIdRef.current = null;
     updateUrlWorkItemId(id, 'user');
+    if (selectedItem === id) {
+      focusWorkItemDetails();
+      return;
+    }
     setSelectedItem(id);
-    focusUpdateTextarea();
   };
 
   const checkManagerRole = async () => {
@@ -888,8 +896,28 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
             {/* 右側：更新表單和歷史記錄 */}
             <div>
               {selectedWorkItemDetails ? (
-                <div className="card" style={{ marginBottom: '20px' }}>
+                <div
+                  className="card"
+                  ref={workItemDetailsRef}
+                  tabIndex={-1}
+                  style={{ marginBottom: '20px' }}
+                >
                   <h3 style={{ marginBottom: '12px' }}>工作項目詳情</h3>
+                  <div
+                    style={{
+                      marginBottom: '16px',
+                      fontWeight: 600,
+                      fontSize: '15px',
+                      color: '#1f2937',
+                      wordBreak: 'break-word'
+                    }}
+                  >
+                    #{selectedWorkItemDetails.id}{' '}
+                    {selectedWorkItemDetails.ai_title ||
+                      (selectedWorkItemDetails.content.length > 80
+                        ? `${selectedWorkItemDetails.content.slice(0, 80)}...`
+                        : selectedWorkItemDetails.content)}
+                  </div>
                   {renderWorkItemDetails(selectedWorkItemDetails)}
                 </div>
               ) : (

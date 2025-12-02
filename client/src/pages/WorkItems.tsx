@@ -1473,6 +1473,7 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                       const isExpanded = expandedItems.has(item.id);
                       const itemDate = item.checkin_date ? new Date(item.checkin_date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) : '未知';
                       const ownerLabel = getWorkItemOwnerLabel(item);
+                      const displayTitle = item.ai_title || (item.content.length > 50 ? `${item.content.slice(0, 50)}...` : item.content);
 
                       return (
                         <div
@@ -1508,28 +1509,26 @@ function WorkItems({ user, teamId }: WorkItemsProps) {
                               setExpandedItems(newExpanded);
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flex: 1, minWidth: 0 }}>
                               {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                  <h4 style={{
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    margin: 0,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: isExpanded ? 'normal' : 'nowrap',
-                                    flex: 1
-                                  }}>
-                                    #{item.id} {item.ai_title || item.content.substring(0, 50) + '...'}
-                                  </h4>
-                                  <span style={{ fontSize: '12px', color: '#0369a1', whiteSpace: 'nowrap' }}>
-                                    👤 {ownerLabel}
-                                  </span>
-                                  <PriorityBadge priority={item.priority} />
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                                  <div
+                                    className="workitem-title"
+                                    style={{ margin: 0, flex: 1, minWidth: 0, fontSize: '14px', fontWeight: 600 }}
+                                    title={item.ai_title || item.content}
+                                  >
+                                    #{item.id} {displayTitle}
+                                  </div>
                                 </div>
-                                <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-                                  <span style={{
+                                <div style={{ display: 'flex', gap: '10px', fontSize: '12px', color: '#92400e', flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                                    <PriorityBadge priority={item.priority} />
+                                  </div>
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#374151', whiteSpace: 'nowrap' }}>
+                                    👤 {ownerLabel}
+                                  </div>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap',
                                     ...(() => {
                                       if (!item.estimated_date || ['completed', 'cancelled'].includes(item.progress_status || '')) return { color: '#999' };
                                       const today = new Date();

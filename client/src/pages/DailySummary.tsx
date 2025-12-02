@@ -49,13 +49,34 @@ function DailySummary({ user, teamId }: any) {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
   const summaryCardRef = useRef<HTMLDivElement | null>(null);
+  const lastFetchedKeyRef = useRef<string | null>(null);
   const [exportingSummaryPdf, setExportingSummaryPdf] = useState(false);
-
-  useEffect(() => {
-    if (teamId) {
-      fetchDailySummary();
+  const currentSummaryDate = summary?.date;
+  const currentSummaryTeamId = summary?.teamId;
+  const formatSummaryDate = (
+    value?: string,
+    options?: { weekday?: 'long'; full?: boolean }
+  ) => {
+    if (!value) return '未知日期';
+    const parsed = new Date(value);
+    const baseOptions: Intl.DateTimeFormatOptions = options?.full
+      ? {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          weekday: options.weekday || 'long'
+        }
+      : {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          weekday: 'short'
+        };
+    if (isNaN(parsed.getTime())) {
+      return value.split('T')[0];
     }
-  }, [teamId]);
+    return parsed.toLocaleDateString('zh-TW', baseOptions);
+  };
 
   useEffect(() => {
     // Add table click handler
@@ -84,6 +105,65 @@ function DailySummary({ user, teamId }: any) {
       document.removeEventListener('keydown', handleEscKey);
     };
   }, []);
+
+  useEffect(() => {
+    if (!teamId || !selectedDate || previewSummary) {
+      return;
+    }
+    const fetchKey = `${teamId}-${selectedDate}`;
+    const hasMatchingSummary =
+      currentSummaryDate === selectedDate && currentSummaryTeamId === teamId;
+    if (hasMatchingSummary) {
+      lastFetchedKeyRef.current = fetchKey;
+      return;
+    }
+    if (lastFetchedKeyRef.current === fetchKey) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadSavedSummary = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await api.getDailySummaryByDate(teamId, selectedDate);
+        if (!isCancelled) {
+          const normalizedDate = data.summary_date?.includes('T')
+            ? data.summary_date.split('T')[0]
+            : data.summary_date;
+          setSummary({
+            summary: data.summary_content,
+            date: normalizedDate || selectedDate,
+            teamId: data.team_id || teamId,
+            cached: true,
+            createdAt: data.created_at
+          });
+          lastFetchedKeyRef.current = fetchKey;
+        }
+      } catch (err: any) {
+        if (!isCancelled) {
+          if (err.response?.status === 404) {
+            setSummary(null);
+            setError('');
+            lastFetchedKeyRef.current = fetchKey;
+          } else {
+            setError(err.response?.data?.error || '載入每日總結失敗');
+          }
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadSavedSummary();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [teamId, selectedDate, previewSummary, currentSummaryDate, currentSummaryTeamId]);
 
   const fetchDailySummary = async (date?: string) => {
     setLoading(true);
@@ -177,10 +257,8 @@ function DailySummary({ user, teamId }: any) {
       setSelectedDate(newDate);
       // 清除預覽狀態
       setPreviewSummary(null);
-      // 清除當前顯示的總結
+      // 清除當前顯示的總結，等待使用者手動生成
       setSummary(null);
-      // 自動載入新日期的總結
-      fetchDailySummary(newDate);
     } else if (newDate) {
       // 日期沒變，只更新 state（讓日曆可以正常彈出）
       setSelectedDate(newDate);
@@ -374,12 +452,7 @@ function DailySummary({ user, teamId }: any) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <Calendar size={16} style={{ color: '#667eea' }} />
                           <span style={{ fontWeight: 500, fontSize: '15px', color: '#1f2937' }}>
-                            {new Date(item.summary_date).toLocaleDateString('zh-TW', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric',
-                              weekday: 'short'
-                            })}
+                            {formatSummaryDate(item.summary_date)}
                           </span>
                         </div>
                         <div style={{ fontSize: '13px', color: '#6b7280' }}>
@@ -513,12 +586,7 @@ function DailySummary({ user, teamId }: any) {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Calendar size={20} style={{ color: '#667eea' }} />
                 <h2 style={{ margin: 0, fontSize: '20px', color: '#1f2937' }}>
-                  {new Date(summary.date).toLocaleDateString('zh-TW', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    weekday: 'long'
-                  })}
+                  {formatSummaryDate(summary.date, { weekday: 'long', full: true })}
                 </h2>
               </div>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
