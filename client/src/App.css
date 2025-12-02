@@ -226,6 +226,16 @@ body {
   justify-content: center;
 }
 
+.workitem-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workitem-action-label {
+  display: inline;
+}
+
 .redistribution-card__time {
   font-size: 12px;
   padding: 2px 6px;
@@ -250,6 +260,10 @@ body {
   .backlog-filters select,
   .backlog-search {
     width: 100%;
+  }
+
+  .workitem-action-label {
+    display: none;
   }
 
   .stat-grid {

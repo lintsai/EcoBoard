@@ -52,6 +52,17 @@ interface WorkItem {
   };
 }
 
+interface WorkItemUpdateLog {
+  id: number;
+  work_item_id: number;
+  user_id: number;
+  username?: string;
+  display_name?: string;
+  update_content?: string;
+  progress_status?: string;
+  updated_at: string;
+}
+
 interface StandupSessionInfo {
   startTime: number;
   durationMs: number;
@@ -294,6 +305,46 @@ const renderItemMetaBadges = (item: WorkItem) => {
   );
 };
 
+const getProgressUpdateBadge = (status?: string | null) => {
+  const map: Record<string, { label: string; color: string; bg: string }> = {
+    not_started: { label: '未開始', color: '#4b5563', bg: '#e5e7eb' },
+    in_progress: { label: '進行中', color: '#1d4ed8', bg: '#dbeafe' },
+    blocked: { label: '受阻', color: '#b91c1c', bg: '#fee2e2' },
+    completed: { label: '已完成', color: '#047857', bg: '#d1fae5' },
+    cancelled: { label: '已取消', color: '#92400e', bg: '#fef3c7' }
+  };
+  const normalized = status && map[status] ? status : 'in_progress';
+  const config = map[normalized];
+  return (
+    <span
+      style={{
+        fontSize: '11px',
+        fontWeight: 600,
+        color: config.color,
+        backgroundColor: config.bg,
+        padding: '2px 8px',
+        borderRadius: '999px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        lineHeight: 1
+      }}
+    >
+      {config.label}
+    </span>
+  );
+};
+
+const formatUpdateTimestamp = (value: string) => {
+  const date = new Date(value);
+  return date.toLocaleString('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
 const getCoHandlerExpandId = (userId: number) => -(userId * 1000);
 const getCoHandlerItemKey = (userId: number, itemId: number) => `co-handler-${userId}-${itemId}`;
 const getCoHandlerItemDomId = (userId: number, itemId: number) => `cohandler-item-${userId}-${itemId}`;
@@ -323,6 +374,10 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const [selectedPriority, setSelectedPriority] = useState(3);
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [chatModalTitle, setChatModalTitle] = useState('');
+  const [viewingUpdateItem, setViewingUpdateItem] = useState<WorkItem | null>(null);
+  const [updateLogs, setUpdateLogs] = useState<WorkItemUpdateLog[]>([]);
+  const [updatesLoading, setUpdatesLoading] = useState(false);
+  const [updatesError, setUpdatesError] = useState('');
   const [sortBy, setSortBy] = useState<'priority' | 'estimated_date'>('priority');
   const [participantStats, setParticipantStats] = useState({ required: 0, current: 0 });
   const [activeParticipants, setActiveParticipants] = useState<ActiveParticipant[]>([]);
@@ -379,6 +434,12 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
   const isCountdownReady = typeof countdownMs === 'number';
   const isCountdownPositive = isCountdownReady && countdownMs > 0;
   const isCountdownExpired = isCountdownReady && countdownMs <= 0;
+  const isViewingItemFinalized =
+    viewingUpdateItem &&
+    ['completed', 'cancelled'].includes(
+      (viewingUpdateItem.progress_status || '').toLowerCase()
+    );
+  const viewUpdatesActionLabel = isViewingItemFinalized ? '查看已完成紀錄' : '前往更新頁';
 
   const sortItems = (items: WorkItem[]) => {
     const compareByPriority = (a: WorkItem, b: WorkItem) => {
@@ -452,6 +513,46 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
     }
     setChatSessionId(item.session_id);
     setChatModalTitle(`#${item.id} AI 對談`);
+  };
+
+  const handleViewUpdates = async (item: WorkItem) => {
+    setViewingUpdateItem(item);
+    setUpdateLogs([]);
+    setUpdatesError('');
+    setUpdatesLoading(true);
+    try {
+      const logs = await api.getWorkItemUpdates(item.id);
+      setUpdateLogs(Array.isArray(logs) ? logs : []);
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || '載入更新紀錄失敗';
+      setUpdatesError(message);
+    } finally {
+      setUpdatesLoading(false);
+    }
+  };
+
+  const closeUpdateModal = () => {
+    setViewingUpdateItem(null);
+    setUpdateLogs([]);
+    setUpdatesError('');
+    setUpdatesLoading(false);
+  };
+
+  const goToUpdatePage = () => {
+    if (!viewingUpdateItem) {
+      return;
+    }
+    closeUpdateModal();
+    const status = (viewingUpdateItem.progress_status || '').toLowerCase();
+    const isFinalized = status === 'completed' || status === 'cancelled';
+    const targetUrl = isFinalized
+      ? `/completed-history?historyId=${viewingUpdateItem.id}`
+      : `/update-work?workItemId=${viewingUpdateItem.id}`;
+    if (typeof window !== 'undefined') {
+      window.open(targetUrl, '_blank', 'noopener');
+    } else {
+      navigate(targetUrl);
+    }
   };
 
   const persistLogs = useCallback((logs: RealtimeLogEntry[]) => {
@@ -2629,7 +2730,19 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                         </span>
                                         <div className="reassign-area workitem-buttons">
                                           <button
-                                            className="btn btn-secondary"
+                                            className="btn btn-secondary workitem-action-button"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleViewUpdates(item);
+                                            }}
+                                            title="查看更新紀錄"
+                                          >
+                                            <FileText size={12} />
+                                            <span className="workitem-action-label">更新紀錄</span>
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary workitem-action-button"
                                             style={{ fontSize: '11px', padding: '4px 8px' }}
                                             onClick={(e) => {
                                               e.stopPropagation();
@@ -2639,9 +2752,10 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             title="查看 AI 對談"
                                           >
                                             <MessageSquare size={12} />
+                                            <span className="workitem-action-label">AI 對談</span>
                                           </button>
                                           <button
-                                            className="btn btn-secondary"
+                                            className="btn btn-secondary workitem-action-button"
                                             style={{ fontSize: '11px', padding: '4px 8px' }}
                                             onClick={(e) => {
                                               e.stopPropagation();
@@ -2649,7 +2763,8 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             }}
                                             title="調整優先順序"
                                           >
-                                            調整優先
+                                            <ArrowUpDown size={12} />
+                                            <span className="workitem-action-label">調整優先</span>
                                           </button>
                                           <button
                                             className="btn btn-secondary"
@@ -2877,30 +2992,44 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                           </div>
                                         </div>
                                         <div className="workitem-aside">
-                                          <div className="reassign-area workitem-buttons">
-                                            <button
-                                              className="btn btn-secondary"
-                                              style={{ fontSize: '11px', padding: '4px 8px' }}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openChatHistory(item);
-                                              }}
-                                              disabled={!item.session_id}
-                                              title="查看 AI 對談"
-                                            >
-                                              <MessageSquare size={12} />
-                                            </button>
-                                            <button
-                                              className="btn btn-secondary"
-                                              style={{ fontSize: '11px', padding: '4px 8px' }}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openPriorityModal(item);
-                                              }}
-                                              title="調整優先順序"
-                                            >
-                                              調整優先
-                                            </button>
+                                        <div className="reassign-area workitem-buttons">
+                                          <button
+                                            className="btn btn-secondary workitem-action-button"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleViewUpdates(item);
+                                            }}
+                                            title="查看更新紀錄"
+                                          >
+                                            <FileText size={12} />
+                                            <span className="workitem-action-label">更新紀錄</span>
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary workitem-action-button"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openChatHistory(item);
+                                            }}
+                                            disabled={!item.session_id}
+                                            title="查看 AI 對談"
+                                          >
+                                            <MessageSquare size={12} />
+                                            <span className="workitem-action-label">AI 對談</span>
+                                          </button>
+                                          <button
+                                            className="btn btn-secondary workitem-action-button"
+                                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openPriorityModal(item);
+                                            }}
+                                            title="調整優先順序"
+                                          >
+                                            <ArrowUpDown size={12} />
+                                            <span className="workitem-action-label">調整優先</span>
+                                          </button>
                                             <button
                                               className="btn btn-secondary"
                                               style={{ fontSize: '11px', padding: '4px 8px' }}
@@ -3152,7 +3281,28 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             <div className="workitem-aside">
                                               <div className="reassign-area workitem-buttons">
                                                 <button
-                                                  className="btn btn-secondary"
+                                                  className="btn btn-secondary workitem-action-button"
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleViewUpdates(item);
+                                                  }}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #0066cc',
+                                                    color: '#0066cc',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px'
+                                                  }}
+                                                  title="查看更新紀錄"
+                                                >
+                                                  <FileText size={12} />
+                                                  <span className="workitem-action-label">更新紀錄</span>
+                                                </button>
+                                                <button
+                                                  className="btn btn-secondary workitem-action-button"
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
@@ -3166,15 +3316,12 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                                     cursor: 'pointer',
                                                     padding: '2px 6px',
                                                     borderRadius: '4px',
-                                                    fontSize: '10px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '2px'
+                                                    fontSize: '10px'
                                                   }}
                                                   title="查看 AI 對談"
                                                 >
                                                   <MessageSquare size={12} />
-                                                  AI 對談
+                                                  <span className="workitem-action-label">AI 對談</span>
                                                 </button>
                                                 <button
                                                   className="jump-to-original btn btn-secondary"
@@ -3304,6 +3451,28 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                             <div className="workitem-aside">
                                               <div className="reassign-area workitem-buttons">
                                                 <button
+                                                  className="workitem-action-button"
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleViewUpdates(item);
+                                                  }}
+                                                  style={{
+                                                    background: 'none',
+                                                    border: '1px solid #f59e0b',
+                                                    color: '#f59e0b',
+                                                    cursor: 'pointer',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '10px'
+                                                  }}
+                                                  title="查看更新紀錄"
+                                                >
+                                                  <FileText size={12} />
+                                                  <span className="workitem-action-label">更新紀錄</span>
+                                                </button>
+                                                <button
+                                                  className="workitem-action-button"
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
@@ -3317,15 +3486,12 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
                                                     cursor: 'pointer',
                                                     padding: '2px 6px',
                                                     borderRadius: '4px',
-                                                    fontSize: '10px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '2px'
+                                                    fontSize: '10px'
                                                   }}
                                                   title="查看 AI 對談"
                                                 >
                                                   <MessageSquare size={12} />
-                                                  AI 對談
+                                                  <span className="workitem-action-label">AI 對談</span>
                                                 </button>
                                                 <button
                                                   className="jump-to-original btn btn-secondary"
@@ -3691,6 +3857,143 @@ function StandupReview({ user, teamId }: StandupReviewProps) {
             </div>
           )
         }
+        {viewingUpdateItem && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.65)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+              zIndex: 1100
+            }}
+            onClick={closeUpdateModal}
+          >
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '720px',
+                maxHeight: '80vh',
+                overflowY: 'auto',
+                backgroundColor: '#fff',
+                borderRadius: '10px',
+                padding: '24px',
+                position: 'relative'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={closeUpdateModal}
+                style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  border: 'none',
+                  background: 'transparent',
+                  fontSize: '20px',
+                  cursor: 'pointer'
+                }}
+                aria-label="close update modal"
+              >
+                ×
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                <h3 style={{ margin: 0 }}>#{viewingUpdateItem.id} 更新紀錄</h3>
+                {(() => {
+                  const badge = getStatusBadge(viewingUpdateItem.progress_status);
+                  return (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: badge.color,
+                        backgroundColor: badge.bgColor
+                      }}
+                    >
+                      {badge.icon}
+                      {badge.text}
+                    </span>
+                  );
+                })()}
+              </div>
+              <div style={{ fontSize: '13px', color: '#475467', marginBottom: '12px', lineHeight: 1.6 }}>
+                <div>主要負責人：{viewingUpdateItem.handlers?.primary?.display_name || viewingUpdateItem.handlers?.primary?.username || viewingUpdateItem.display_name || viewingUpdateItem.username || '未指定'}</div>
+                {viewingUpdateItem.estimated_date && (
+                  <div>🎯 預計完成：{formatEstimatedDateLabel(viewingUpdateItem.estimated_date)}</div>
+                )}
+              </div>
+              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
+                {updatesLoading ? (
+                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <Loader2 size={28} className="spinner" style={{ margin: '0 auto' }} />
+                    <div style={{ marginTop: '8px', color: '#6b7280', fontSize: '13px' }}>載入更新紀錄中...</div>
+                  </div>
+                ) : updatesError ? (
+                  <div className="alert alert-error">{updatesError}</div>
+                ) : updateLogs.length === 0 ? (
+                  <p style={{ fontSize: '14px', color: '#6b7280' }}>此項目尚未有更新紀錄。</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {updateLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        style={{
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          padding: '12px',
+                          backgroundColor: '#f9fafb'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '13px', color: '#111827' }}>
+                              {log.display_name || log.username || `成員 #${log.user_id}`}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                              更新於 {formatUpdateTimestamp(log.updated_at)}
+                            </div>
+                          </div>
+                          {getProgressUpdateBadge(log.progress_status)}
+                        </div>
+                        {log.update_content && (
+                          <div className="markdown-content" style={{ fontSize: '13px', color: '#1f2937', marginTop: '8px' }}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {log.update_content}
+                            </ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={closeUpdateModal}
+                >
+                  關閉視窗
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={goToUpdatePage}
+                >
+                  {viewUpdatesActionLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <AIChatHistoryModal
           open={Boolean(chatSessionId)}
           sessionId={chatSessionId}
