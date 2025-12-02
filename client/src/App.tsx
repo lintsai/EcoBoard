@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import 'katex/dist/katex.min.css';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -25,12 +25,20 @@ interface User {
   email?: string;
 }
 
+interface TeamAccessState {
+  allowedTeamIds: number[];
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+}
+
 interface AppRoutesProps {
   user: User | null;
   selectedTeam: number | null;
-  onSelectTeam: (teamId: number) => void;
+  onSelectTeam: (teamId: number | null) => void;
   onLogin: (userData: User, token: string) => void;
   onLogout: () => void;
+  teamAccess: TeamAccessState;
 }
 
 function App() {
@@ -46,10 +54,66 @@ function App() {
     const { teamId } = getStoredSelectedTeam();
     return teamId;
   });
+  const [teamAccessState, setTeamAccessState] = useState<TeamAccessState>({
+    allowedTeamIds: [],
+    loading: false,
+    loaded: false,
+    error: ''
+  });
 
   useEffect(() => {
     checkAuth();
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setTeamAccessState({
+        allowedTeamIds: [],
+        loading: false,
+        loaded: false,
+        error: ''
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setTeamAccessState((prev) => ({ ...prev, loading: true, error: '' }));
+
+    const loadTeams = async () => {
+      try {
+        const teams = await api.getTeams();
+        if (cancelled) return;
+        const allowedIds = Array.isArray(teams) ? teams.map((team: any) => team.id) : [];
+        setTeamAccessState({
+          allowedTeamIds: allowedIds,
+          loading: false,
+          loaded: true,
+          error: ''
+        });
+        setSelectedTeam((prev) => {
+          if (prev !== null && !allowedIds.includes(prev)) {
+            clearStoredSelectedTeam();
+            return null;
+          }
+          return prev;
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        const message = error?.response?.data?.error || '載入團隊資訊失敗';
+        setTeamAccessState((prev) => ({
+          ...prev,
+          loading: false,
+          error: message
+        }));
+      }
+    };
+
+    loadTeams();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const applyStoredTeamForUser = (nextUser: User) => {
     const { teamId, ownerId } = getStoredSelectedTeam();
@@ -126,26 +190,87 @@ function App() {
         onSelectTeam={setSelectedTeam}
         onLogin={handleLogin}
         onLogout={handleLogout}
+        teamAccess={teamAccessState}
       />
     </Router>
   );
 }
 
-function AppRoutes({ user, selectedTeam, onSelectTeam, onLogin, onLogout }: AppRoutesProps) {
+function AppRoutes({ user, selectedTeam, onSelectTeam, onLogin, onLogout, teamAccess }: AppRoutesProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const currentFullPath = `${location.pathname}${location.search}${location.hash}`;
+  const teamParamInfo = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get('teamId');
+    if (!raw) {
+      return { hasParam: false, isValid: false, value: null as number | null };
+    }
+    const parsed = Number(raw);
+    if (Number.isNaN(parsed)) {
+      return { hasParam: true, isValid: false, value: null as number | null };
+    }
+    return { hasParam: true, isValid: true, value: parsed };
+  }, [location.search]);
+  const { hasParam: hasTeamParam, isValid: isTeamParamValid, value: requestedTeamId } = teamParamInfo;
+  const isTeamSyncingSelection = Boolean(
+    user &&
+      hasTeamParam &&
+      isTeamParamValid &&
+      (!teamAccess.loaded || selectedTeam !== requestedTeamId)
+  );
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const teamFromUrl = params.get('teamId');
-    if (teamFromUrl && !Number.isNaN(Number(teamFromUrl))) {
-      const parsed = Number(teamFromUrl);
-      if (selectedTeam !== parsed) {
-        onSelectTeam(parsed);
-        storeSelectedTeam(parsed, user?.id);
+    if (!user) return;
+    if (!hasTeamParam) return;
+
+    if (!isTeamParamValid) {
+      const params = new URLSearchParams(location.search);
+      params.delete('teamId');
+      const sanitized = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}${location.hash}`;
+      if (sanitized !== currentFullPath) {
+        navigate(sanitized, { replace: true });
       }
+      return;
     }
-  }, [location.search, onSelectTeam, selectedTeam, user?.id]);
+
+    if (!teamAccess.loaded) {
+      return;
+    }
+
+    const parsed = requestedTeamId as number;
+    const hasAccess = teamAccess.allowedTeamIds.includes(parsed);
+    if (!hasAccess) {
+      alert('您沒有權限查看此團隊，請重新選擇。');
+      const params = new URLSearchParams(location.search);
+      params.delete('teamId');
+      const sanitized = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}${location.hash}`;
+      if (sanitized !== currentFullPath) {
+        navigate(sanitized, { replace: true });
+      }
+      clearStoredSelectedTeam();
+      onSelectTeam(null);
+      return;
+    }
+    if (selectedTeam !== parsed) {
+      onSelectTeam(parsed);
+      storeSelectedTeam(parsed, user?.id);
+    }
+  }, [
+    hasTeamParam,
+    isTeamParamValid,
+    requestedTeamId,
+    teamAccess.allowedTeamIds,
+    teamAccess.loaded,
+    selectedTeam,
+    onSelectTeam,
+    user?.id,
+    location.pathname,
+    location.search,
+    location.hash,
+    navigate,
+    currentFullPath
+  ]);
 
   useEffect(() => {
     if (!user || !selectedTeam) {
@@ -159,10 +284,7 @@ function AppRoutes({ user, selectedTeam, onSelectTeam, onLogin, onLogout }: AppR
     if (currentTeam === String(selectedTeam)) {
       return;
     }
-    const next = withTeamQuery(
-      `${location.pathname}${location.search}${location.hash}`,
-      selectedTeam
-    );
+    const next = withTeamQuery(currentFullPath, selectedTeam);
     navigate(next, { replace: true });
   }, [location.hash, location.pathname, location.search, navigate, selectedTeam, user]);
 
@@ -178,8 +300,6 @@ function AppRoutes({ user, selectedTeam, onSelectTeam, onLogin, onLogout }: AppR
     });
   }, [location.pathname, location.search]);
 
-  const buildTargetPath = () => location.pathname + location.search + location.hash;
-
   const RequireAccess = ({
     render,
     requireTeam = true
@@ -187,11 +307,24 @@ function AppRoutes({ user, selectedTeam, onSelectTeam, onLogin, onLogout }: AppR
     render: () => JSX.Element;
     requireTeam?: boolean;
   }) => {
-    const targetPath = buildTargetPath();
+    const targetPath = currentFullPath;
 
     if (!user) {
       sessionStorage.setItem('postLoginRedirect', targetPath);
       return <Navigate to={buildLoginRedirectPath(targetPath)} state={{ from: targetPath }} replace />;
+    }
+
+    if (requireTeam && isTeamSyncingSelection) {
+      return (
+        <div className="app-container">
+          <div className="main-content">
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <div className="loading" style={{ width: 40, height: 40, margin: '0 auto 12px' }}></div>
+              <p style={{ color: '#6b7280' }}>切換團隊中，請稍候…</p>
+            </div>
+          </div>
+        </div>
+      );
     }
 
     if (requireTeam && !selectedTeam) {

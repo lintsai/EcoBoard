@@ -9,7 +9,7 @@ import { storeSelectedTeam, withTeamQuery } from '../utils/teamSelection';
 interface TeamSelectProps {
   user: any;
   onLogout: () => void;
-  onSelectTeam: (teamId: number) => void;
+  onSelectTeam: (teamId: number | null) => void;
 }
 
 function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {

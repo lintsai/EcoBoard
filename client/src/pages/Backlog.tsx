@@ -33,6 +33,7 @@ interface BacklogItem {
 function Backlog({ user, teamId }: BacklogProps): JSX.Element {
   const navigate = useNavigate();
   const [backlogItems, setBacklogItems] = useState<BacklogItem[]>([]);
+  const [backlogLoaded, setBacklogLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
@@ -75,6 +76,7 @@ function Backlog({ user, teamId }: BacklogProps): JSX.Element {
   };
   const initialTargetRef = useRef<number | null>(parseInitialBacklogId());
   const hasFocusedTarget = useRef(false);
+  const backlogLoadFailedRef = useRef(false);
   const lastFocusedIdRef = useRef<number | null>(null);
   const targetChangeOriginRef = useRef<'initial' | 'user'>('initial');
   const highlightElement = (element: HTMLElement | null) => {
@@ -139,6 +141,8 @@ function Backlog({ user, teamId }: BacklogProps): JSX.Element {
   }, [showAddForm, editingItem]);
 
   const loadBacklogItems = async () => {
+    setBacklogLoaded(false);
+    backlogLoadFailedRef.current = false;
     try {
       setLoading(true);
       const items = teamId
@@ -147,10 +151,12 @@ function Backlog({ user, teamId }: BacklogProps): JSX.Element {
       setBacklogItems(items);
       setExpandedItems(new Set());
     } catch (error) {
+      backlogLoadFailedRef.current = true;
       console.error('Failed to load backlog items:', error);
       alert('載入 Backlog 項目失敗，請稍後再試');
     } finally {
       setLoading(false);
+      setBacklogLoaded(true);
     }
   };
 
@@ -343,6 +349,22 @@ function Backlog({ user, teamId }: BacklogProps): JSX.Element {
       }
     });
   }, [currentPage, itemsPerPage, sortedItems]);
+
+  useEffect(() => {
+    const targetId = initialTargetRef.current;
+    if (!targetId) return;
+    if (!backlogLoaded) return;
+    if (backlogLoadFailedRef.current) return;
+    if (hasFocusedTarget.current) return;
+
+    const exists = sortedItems.some((item) => item.id === targetId);
+    if (exists) {
+      return;
+    }
+
+    alert(`找不到待辦項目 #${targetId}，可能已被移動或您沒有權限查看。`);
+    clearBacklogParam();
+  }, [backlogLoaded, sortedItems, clearBacklogParam]);
 
   const handleCreatorFilterChange = (value: string) => {
     clearBacklogParam();

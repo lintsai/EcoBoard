@@ -79,6 +79,12 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   const updateTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const workItemDetailsRef = useRef<HTMLDivElement | null>(null);
   const lastDetailFocusIdRef = useRef<number | null>(null);
+  const workItemsFetchTokenRef = useRef(0);
+  const incompleteFetchTokenRef = useRef(0);
+  const workItemsFetchedRef = useRef(false);
+  const incompleteItemsFetchedRef = useRef(false);
+  const workItemsFetchFailedRef = useRef(false);
+  const incompleteFetchFailedRef = useRef(false);
   const updateUrlWorkItemId = useCallback((id: number | null, origin: 'user' | 'initial' = 'user') => {
     targetChangeOriginRef.current = origin;
     const url = new URL(window.location.href);
@@ -106,6 +112,7 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isManager, setIsManager] = useState(false);
+  const [managerCheckComplete, setManagerCheckComplete] = useState(false);
   const [viewAllMembers, setViewAllMembers] = useState(false);
   const [showIncomplete, setShowIncomplete] = useState(true);
   const [enlargedTable, setEnlargedTable] = useState<string | null>(null);
@@ -393,6 +400,25 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
     });
   }, [workItems, incompleteItems, selectedItem]);
 
+  useEffect(() => {
+    const deepLinkId = initialTargetRef.current;
+    if (!deepLinkId) return;
+    if (!managerCheckComplete) return;
+    if (!workItemsFetchedRef.current || !incompleteItemsFetchedRef.current) return;
+    if (workItemsFetchFailedRef.current || incompleteFetchFailedRef.current) return;
+    if (lastFocusedIdRef.current === deepLinkId) return;
+
+    const targetExists = [...workItems, ...incompleteItems].some((item) => item.id === deepLinkId);
+    if (targetExists) {
+      return;
+    }
+
+    const message = `找不到編號 #${deepLinkId} 的工作項目，可能不在目前的清單或您沒有權限查看。`;
+    alert(message);
+    setError(message);
+    clearWorkItemParam();
+  }, [workItems, incompleteItems, managerCheckComplete, clearWorkItemParam]);
+
   const handleSelectItem = (id: number) => {
     initialTargetRef.current = null;
     hasSyncedTargetRef.current = false;
@@ -406,6 +432,7 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
   };
 
   const checkManagerRole = async () => {
+    setManagerCheckComplete(false);
     try {
       const members = await api.getTeamMembers(teamId);
       const currentMember = members.find((m: any) => m.user_id === user.id);
@@ -417,10 +444,16 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
       }
     } catch (err) {
       console.error('檢查權限失敗:', err);
+    } finally {
+      setManagerCheckComplete(true);
     }
   };
 
   const fetchTodayWorkItems = async () => {
+    const fetchToken = workItemsFetchTokenRef.current + 1;
+    workItemsFetchTokenRef.current = fetchToken;
+    workItemsFetchedRef.current = false;
+    workItemsFetchFailedRef.current = false;
     setLoading(true);
     setError('');
     try {
@@ -431,18 +464,28 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
         : await api.getTodayWorkItems(teamId);
 
       console.log('📋 載入的工作項目:', data); // Debug log
-      setWorkItems(data);
-      if (data.length > 0 && !selectedItem) {
-        setSelectedItem(data[0].id);
+      if (workItemsFetchTokenRef.current === fetchToken) {
+        setWorkItems(data);
+        if (data.length > 0 && !selectedItem) {
+          setSelectedItem(data[0].id);
+        }
       }
     } catch (err: any) {
+      workItemsFetchFailedRef.current = true;
       setError(err.message || '載入工作項目失敗');
     } finally {
-      setLoading(false);
+      if (workItemsFetchTokenRef.current === fetchToken) {
+        setLoading(false);
+        workItemsFetchedRef.current = true;
+      }
     }
   };
 
   const fetchIncompleteWorkItems = async () => {
+    const fetchToken = incompleteFetchTokenRef.current + 1;
+    incompleteFetchTokenRef.current = fetchToken;
+    incompleteItemsFetchedRef.current = false;
+    incompleteFetchFailedRef.current = false;
     try {
       // 如果是 Manager 且選擇查看所有成員
       const shouldViewAll = isManager && (viewAllMembers || Boolean(initialTargetRef.current));
@@ -453,9 +496,16 @@ function UpdateWork({ user, teamId }: UpdateWorkProps): JSX.Element {
       console.log('🔄 載入的未完成項目:', data); // Debug log
 
       // Backend now filters out today's items automatically
-      setIncompleteItems(data);
+      if (incompleteFetchTokenRef.current === fetchToken) {
+        setIncompleteItems(data);
+      }
     } catch (err: any) {
+      incompleteFetchFailedRef.current = true;
       console.error('載入未完成項目失敗:', err);
+    } finally {
+      if (incompleteFetchTokenRef.current === fetchToken) {
+        incompleteItemsFetchedRef.current = true;
+      }
     }
   };
 
