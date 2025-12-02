@@ -218,6 +218,8 @@ class ApiService {
     startDate?: string;
     endDate?: string;
     keyword?: string;
+    participantId?: number;
+    participant?: string;
     limit?: number;
     page?: number;
     status?: 'completed' | 'cancelled';

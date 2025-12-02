@@ -51,6 +51,7 @@ interface HistoryFilterState {
   startDate: string;
   endDate: string;
   keyword: string;
+  participantId: string;
   limit: number;
 }
 
@@ -77,6 +78,7 @@ const createDefaultFilters = (): HistoryFilterState => {
     startDate: range.startDate,
     endDate: range.endDate,
     keyword: '',
+    participantId: '',
     limit: 30
   };
 };
@@ -153,6 +155,9 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   const [linkedHistoryItem, setLinkedHistoryItem] = useState<CompletedHistoryItem | null>(null);
   const [linkedHistoryLoading, setLinkedHistoryLoading] = useState(false);
   const [linkedHistoryError, setLinkedHistoryError] = useState('');
+  const [teamMembers, setTeamMembers] = useState<Array<{ user_id: number; username: string; display_name?: string | null }>>([]);
+  const [memberOptionsLoading, setMemberOptionsLoading] = useState(false);
+  const [memberOptionsError, setMemberOptionsError] = useState('');
   const hasHighlightedTargetRef = useRef(false);
   const lastFocusedIdRef = useRef<number | null>(null);
   const lastTeamRef = useRef<number | null>(teamId ?? null);
@@ -270,6 +275,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
         startDate: filters.startDate,
         endDate: filters.endDate,
         keyword: filters.keyword || undefined,
+        participantId: filters.participantId ? Number(filters.participantId) : undefined,
         limit: filters.limit,
         page: targetPage,
         status: targetStatus === 'all' ? undefined : targetStatus,
@@ -319,6 +325,39 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
     }
     setCurrentPage(1);
     loadCompletedHistory(appliedHistoryFilters, 1);
+  }, [teamId]);
+
+  useEffect(() => {
+    if (!teamId) {
+      setTeamMembers([]);
+      setMemberOptionsLoading(false);
+      setMemberOptionsError('');
+      return;
+    }
+
+    let cancelled = false;
+    setMemberOptionsLoading(true);
+    setMemberOptionsError('');
+
+    api.getTeamMembers(teamId)
+      .then((members) => {
+        if (cancelled) return;
+        setTeamMembers(Array.isArray(members) ? members : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setTeamMembers([]);
+        setMemberOptionsError(err?.response?.data?.error || '載入團隊成員失敗');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMemberOptionsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [teamId]);
 
   useEffect(() => {
@@ -632,7 +671,14 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '12px',
+              marginBottom: '16px'
+            }}
+          >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontSize: '12px', color: '#475467' }}>開始日期</label>
               <input
@@ -665,6 +711,27 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                 placeholder="搜尋標題、內容、備註或 #ID"
                 className="input"
               />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '1 1 200px' }}>
+              <label style={{ fontSize: '12px', color: '#475467' }}>參與人</label>
+              <select
+                value={historyFiltersInput.participantId}
+                onChange={(e) => handleHistoryFilterChange('participantId', e.target.value)}
+                className="input"
+                disabled={!teamId || memberOptionsLoading}
+              >
+                <option value="">全部參與人</option>
+                {teamMembers.map((member) => (
+                  <option value={member.user_id} key={member.user_id}>
+                    {member.display_name || member.username || `成員 #${member.user_id}`}
+                  </option>
+                ))}
+              </select>
+              {(memberOptionsLoading || memberOptionsError) && (
+                <span style={{ fontSize: '11px', color: memberOptionsError ? '#b91c1c' : '#6b7280' }}>
+                  {memberOptionsError || '載入團隊成員中…'}
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontSize: '12px', color: '#475467' }}>顯示筆數</label>
@@ -709,7 +776,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                 <option value="cancelled">已取消</option>
               </select>
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', gridColumn: '1 / -1', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className="btn btn-primary"

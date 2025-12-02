@@ -45,6 +45,8 @@ interface CompletedHistoryFilters {
   startDate?: string;
   endDate?: string;
   keyword?: string;
+  participantId?: number;
+  participant?: string;
   limit?: number;
   page?: number;
   status?: 'completed' | 'cancelled';
@@ -905,6 +907,36 @@ export const getCompletedWorkHistory = async (
       CONCAT('#', wi.id::text) ILIKE ${keywordParamRef}
     )`);
     params.push(`%${keyword}%`);
+    paramIndex++;
+  }
+
+  if (typeof filters.participant === 'string') {
+    const participant = filters.participant.toLowerCase().trim();
+    if (participant) {
+      const participantParamRef = `$${paramIndex}`;
+      conditions.push(`EXISTS (
+        SELECT 1
+        FROM work_updates pwu
+        INNER JOIN users pu ON pu.id = pwu.user_id
+        WHERE pwu.work_item_id = wi.id
+          AND (
+            LOWER(pu.username) LIKE ${participantParamRef} OR
+            LOWER(COALESCE(pu.display_name, '')) LIKE ${participantParamRef}
+          )
+      )`);
+      params.push(`%${participant}%`);
+      paramIndex++;
+    }
+  }
+
+  if (typeof filters.participantId === 'number' && !Number.isNaN(filters.participantId)) {
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM work_updates pidwu
+      WHERE pidwu.work_item_id = wi.id
+        AND pidwu.user_id = $${paramIndex}
+    )`);
+    params.push(filters.participantId);
     paramIndex++;
   }
 

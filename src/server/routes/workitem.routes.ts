@@ -364,7 +364,9 @@ router.get(
       .optional()
       .isIn(['completed_desc', 'completed_asc', 'id_desc', 'id_asc'])
       .withMessage('排序參數無效'),
-    expressQuery('keyword').optional().isString().withMessage('關鍵字格式錯誤')
+    expressQuery('keyword').optional().isString().withMessage('關鍵字格式錯誤'),
+    expressQuery('participantId').optional().isInt().withMessage('參與人 ID 格式錯誤'),
+    expressQuery('participant').optional().isString().withMessage('參與人格式錯誤')
   ],
   async (req: AuthRequest, res: Response) => {
     try {
@@ -373,7 +375,7 @@ router.get(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { teamId, startDate, endDate, limit, keyword, page, status, sortBy } = req.query;
+      const { teamId, startDate, endDate, limit, keyword, page, status, sortBy, participant, participantId } = req.query;
       const history = await workItemService.getCompletedWorkHistory(req.user!.id, {
         teamId: teamId ? parseInt(teamId as string, 10) : undefined,
         startDate: startDate ? String(startDate) : undefined,
@@ -382,7 +384,9 @@ router.get(
         keyword: keyword ? String(keyword) : undefined,
         page: page ? parseInt(page as string, 10) : undefined,
         status: status ? (status as 'completed' | 'cancelled') : undefined,
-        sortBy: sortBy ? (sortBy as 'completed_desc' | 'completed_asc' | 'id_desc' | 'id_asc') : undefined
+        sortBy: sortBy ? (sortBy as 'completed_desc' | 'completed_asc' | 'id_desc' | 'id_asc') : undefined,
+        participant: participant ? String(participant) : undefined,
+        participantId: participantId ? parseInt(participantId as string, 10) : undefined
       });
 
       preventCache(res);
