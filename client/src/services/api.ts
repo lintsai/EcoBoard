@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { buildLoginRedirectPath } from '../utils/redirect';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -40,7 +41,7 @@ class ApiService {
             if (typeof window !== 'undefined') {
               const redirectTarget = window.location.pathname + window.location.search + window.location.hash;
               sessionStorage.setItem('postLoginRedirect', redirectTarget);
-              window.location.href = '/login';
+              window.location.href = buildLoginRedirectPath(redirectTarget);
             }
           }
         }
@@ -224,6 +225,13 @@ class ApiService {
   }) {
     const response = await this.api.get('/workitems/completed/history', {
       params
+    });
+    return response.data;
+  }
+
+  async getCompletedHistoryItem(historyId: number, teamId?: number) {
+    const response = await this.api.get(`/workitems/completed/history/${historyId}`, {
+      params: teamId ? { teamId } : undefined
     });
     return response.data;
   }

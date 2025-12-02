@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
 import api from '../services/api';
+import { sanitizeRedirectPath } from '../utils/redirect';
 
 interface LoginProps {
   onLogin: (user: any, token: string) => void;
@@ -15,6 +16,16 @@ function Login({ onLogin }: LoginProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const getPostLoginTarget = () => {
+    const params = new URLSearchParams(location.search);
+    const redirectParam = sanitizeRedirectPath(params.get('redirect'));
+    const redirectFromState = sanitizeRedirectPath(
+      (location.state as { from?: string } | null)?.from || null
+    );
+    const stored = sanitizeRedirectPath(sessionStorage.getItem('postLoginRedirect'));
+    return redirectParam || stored || redirectFromState || '/teams';
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -23,11 +34,7 @@ function Login({ onLogin }: LoginProps) {
     try {
       const response = await api.login(username, password);
       onLogin(response.user, response.token);
-      const redirectFromState = (location.state as { from?: string } | null)?.from;
-      const redirectTarget =
-        sessionStorage.getItem('postLoginRedirect') ||
-        redirectFromState ||
-        '/teams';
+      const redirectTarget = getPostLoginTarget();
       sessionStorage.removeItem('postLoginRedirect');
       navigate(redirectTarget, { replace: true });
     } catch (err: any) {

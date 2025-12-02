@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Users, Plus, LogOut } from 'lucide-react';
 import api from '../services/api';
 import Breadcrumbs from '../components/Breadcrumbs';
+import { sanitizeRedirectPath } from '../utils/redirect';
+import { storeSelectedTeam, withTeamQuery } from '../utils/teamSelection';
 
 interface TeamSelectProps {
   user: any;
@@ -66,20 +68,22 @@ function TeamSelect({ user, onLogout, onSelectTeam }: TeamSelectProps) {
     }
   };
 
-  const resolveRedirectTarget = () => {
-    const fromState = (location.state as { from?: string } | null)?.from;
-    return (
-      sessionStorage.getItem('postTeamRedirect') ||
-      sessionStorage.getItem('postLoginRedirect') ||
-      fromState ||
-      '/dashboard'
+  const resolveRedirectTarget = (nextTeamId: number) => {
+    const params = new URLSearchParams(location.search);
+    const redirectParam = sanitizeRedirectPath(params.get('redirect'));
+    const postTeam = sanitizeRedirectPath(sessionStorage.getItem('postTeamRedirect'));
+    const postLogin = sanitizeRedirectPath(sessionStorage.getItem('postLoginRedirect'));
+    const fromState = sanitizeRedirectPath(
+      (location.state as { from?: string } | null)?.from || null
     );
+    const target = redirectParam || postTeam || postLogin || fromState || '/dashboard';
+    return withTeamQuery(target, nextTeamId);
   };
 
   const handleSelectTeam = (teamId: number) => {
     onSelectTeam(teamId);
-    localStorage.setItem('selectedTeam', String(teamId));
-    const target = resolveRedirectTarget();
+    storeSelectedTeam(teamId, user?.id);
+    const target = resolveRedirectTarget(teamId);
     sessionStorage.removeItem('postTeamRedirect');
     sessionStorage.removeItem('postLoginRedirect');
     navigate(target);

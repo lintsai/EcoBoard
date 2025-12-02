@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useParams, useLocation } from 'react-router-dom';
 import { History, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -81,6 +81,17 @@ const createDefaultFilters = (): HistoryFilterState => {
   };
 };
 
+const parseHistoryId = (search: string, routeItemId?: string | null) => {
+  const params = new URLSearchParams(search);
+  const historyParam = params.get('historyId');
+  const parseValue = (value: string | null | undefined) => {
+    if (!value) return null;
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+  return parseValue(historyParam) ?? parseValue(routeItemId);
+};
+
 const formatHistoryDateTime = (value: string) => {
   try {
     return new Date(value).toLocaleString('zh-TW', {
@@ -96,23 +107,27 @@ const formatHistoryDateTime = (value: string) => {
 };
 
 function CompletedHistory({ teamId }: CompletedHistoryProps) {
+  const location = useLocation();
   const { itemId } = useParams();
-  const parseInitialHistoryId = () => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('historyId')) {
-      const parsed = Number(params.get('historyId'));
-      return Number.isNaN(parsed) ? null : parsed;
+  const initialDeepLinkStateRef = useRef<{ resolved: boolean; value: number | null }>({ resolved: false, value: null });
+  if (!initialDeepLinkStateRef.current.resolved) {
+    initialDeepLinkStateRef.current = {
+      resolved: true,
+      value: parseHistoryId(location.search, itemId)
+    };
+  }
+  const initialDeepLinkId = initialDeepLinkStateRef.current.value;
+  const initialTargetRef = useRef<number | null>(initialDeepLinkId);
+  const [deepLinkTargetId, setDeepLinkTargetId] = useState<number | null>(initialDeepLinkId);
+  const buildInitialFilters = () => {
+    const filters = createDefaultFilters();
+    if (initialDeepLinkId) {
+      filters.keyword = `#${initialDeepLinkId}`;
     }
-    if (itemId) {
-      const parsed = Number(itemId);
-      return Number.isNaN(parsed) ? null : parsed;
-    }
-    return null;
+    return filters;
   };
-  const initialTargetRef = useRef<number | null>(parseInitialHistoryId());
-  const targetHistoryId = initialTargetRef.current;
-  const [historyFiltersInput, setHistoryFiltersInput] = useState<HistoryFilterState>(createDefaultFilters);
-  const [appliedHistoryFilters, setAppliedHistoryFilters] = useState<HistoryFilterState>(createDefaultFilters);
+  const [historyFiltersInput, setHistoryFiltersInput] = useState<HistoryFilterState>(buildInitialFilters);
+  const [appliedHistoryFilters, setAppliedHistoryFilters] = useState<HistoryFilterState>(buildInitialFilters);
   const [completedHistory, setCompletedHistory] = useState<CompletedHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -135,7 +150,9 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
     limit: historyFiltersInput.limit,
     page: 1
   });
-  const paramInitializedRef = useRef(false);
+  const [linkedHistoryItem, setLinkedHistoryItem] = useState<CompletedHistoryItem | null>(null);
+  const [linkedHistoryLoading, setLinkedHistoryLoading] = useState(false);
+  const [linkedHistoryError, setLinkedHistoryError] = useState('');
   const hasHighlightedTargetRef = useRef(false);
   const lastFocusedIdRef = useRef<number | null>(null);
   const lastTeamRef = useRef<number | null>(teamId ?? null);
@@ -153,6 +170,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
 
   const resetInitialTargetTracking = useCallback(() => {
     initialTargetRef.current = null;
+    setDeepLinkTargetId(null);
     hasHighlightedTargetRef.current = false;
     lastFocusedIdRef.current = null;
   }, []);
@@ -160,14 +178,65 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
   const clearHistoryParam = useCallback(() => {
     updateUrlHistoryId(null, 'user');
     resetInitialTargetTracking();
+    setLinkedHistoryItem(null);
+    setLinkedHistoryError('');
+    setLinkedHistoryLoading(false);
   }, [resetInitialTargetTracking, updateUrlHistoryId]);
+
+  const targetExistsInList = deepLinkTargetId
+    ? completedHistory.some((item) => item.id === deepLinkTargetId)
+    : false;
 
   useEffect(() => {
     hasHighlightedTargetRef.current = false;
-    if (!targetHistoryId) {
+    if (!deepLinkTargetId) {
       lastFocusedIdRef.current = null;
     }
-  }, [targetHistoryId]);
+  }, [deepLinkTargetId]);
+
+  useEffect(() => {
+    if (!deepLinkTargetId || !teamId) {
+      setLinkedHistoryItem(null);
+      setLinkedHistoryError('');
+      setLinkedHistoryLoading(false);
+      return;
+    }
+
+    if (targetExistsInList) {
+      setLinkedHistoryItem(null);
+      setLinkedHistoryError('');
+      setLinkedHistoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLinkedHistoryLoading(true);
+    setLinkedHistoryError('');
+    api.getCompletedHistoryItem(deepLinkTargetId, teamId)
+      .then((item) => {
+        if (cancelled) return;
+        if (item) {
+          setLinkedHistoryItem(item);
+        } else {
+          setLinkedHistoryItem(null);
+          setLinkedHistoryError('找不到指定完成項目，可能不在此團隊或您沒有權限查看。');
+        }
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setLinkedHistoryItem(null);
+        setLinkedHistoryError(err.response?.data?.error || '載入指定完成項目失敗');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLinkedHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetExistsInList, deepLinkTargetId, teamId]);
 
   const loadCompletedHistory = async (
     filtersOverride?: HistoryFilterState,
@@ -279,63 +348,105 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
 
   useEffect(() => {
     if (lastTeamRef.current !== (teamId ?? null)) {
-      paramInitializedRef.current = false;
       hasHighlightedTargetRef.current = false;
       lastTeamRef.current = teamId ?? null;
     }
   }, [teamId]);
 
+  const appliedFiltersRef = useRef(appliedHistoryFilters);
   useEffect(() => {
-    const targetHistoryId = initialTargetRef.current;
-    if (!targetHistoryId) {
-      paramInitializedRef.current = false;
-      hasHighlightedTargetRef.current = false;
+    appliedFiltersRef.current = appliedHistoryFilters;
+  }, [appliedHistoryFilters]);
+
+  useEffect(() => {
+    const previousTarget = initialTargetRef.current;
+    if (targetChangeOriginRef.current === 'user') {
       targetChangeOriginRef.current = 'initial';
       return;
     }
 
-    if (paramInitializedRef.current) {
+    const nextTarget = parseHistoryId(location.search, itemId);
+    const currentAppliedFilters = appliedFiltersRef.current;
+
+    if (previousTarget === nextTarget) {
       return;
     }
 
-    paramInitializedRef.current = true;
-    const wideFilters: HistoryFilterState = {
-      startDate: '2000-01-01',
-      endDate: '2100-01-01',
-      keyword: '',
-      limit: Math.max(historyFiltersInput.limit, 200)
-    };
+    hasHighlightedTargetRef.current = false;
+    lastFocusedIdRef.current = null;
+    setLinkedHistoryItem(null);
+    setLinkedHistoryError('');
+    setLinkedHistoryLoading(false);
 
-    setHistoryFiltersInput((prev) => ({ ...prev, ...wideFilters }));
-    setAppliedHistoryFilters((prev) => ({ ...prev, ...wideFilters }));
-    setStatusFilter('all');
-    setStatusFilterInput('all');
-    setSortBy('id_desc');
-    setSortByInput('id_desc');
-    loadCompletedHistory(wideFilters, 1, 'all', 'id_desc');
-  }, [targetHistoryId, historyFiltersInput.limit, teamId]);
+    if (!nextTarget) {
+      initialTargetRef.current = null;
+      setDeepLinkTargetId(null);
+      setHistoryFiltersInput((prev) =>
+        previousTarget && prev.keyword.startsWith('#') ? { ...prev, keyword: '' } : prev
+      );
+      if (previousTarget && currentAppliedFilters.keyword.startsWith('#')) {
+        const clearedFilters = { ...currentAppliedFilters, keyword: '' };
+        setAppliedHistoryFilters(clearedFilters);
+        setCurrentPage(1);
+        if (teamId) {
+          loadCompletedHistory(clearedFilters, 1);
+        }
+      }
+      return;
+    }
+
+    initialTargetRef.current = nextTarget;
+    setDeepLinkTargetId(nextTarget);
+
+    const keywordValue = `#${nextTarget}`;
+    setHistoryFiltersInput((prev) =>
+      prev.keyword === keywordValue ? prev : { ...prev, keyword: keywordValue }
+    );
+
+    if (currentAppliedFilters.keyword !== keywordValue) {
+      const filtersToApply = { ...currentAppliedFilters, keyword: keywordValue };
+      setAppliedHistoryFilters(filtersToApply);
+      setCurrentPage(1);
+      if (teamId) {
+        loadCompletedHistory(filtersToApply, 1);
+      }
+      return;
+    }
+
+    if (teamId) {
+      setCurrentPage(1);
+      loadCompletedHistory(currentAppliedFilters, 1);
+    }
+  }, [itemId, location.search, resetInitialTargetTracking, teamId]);
+
+  const linkedItemInjected = Boolean(
+    linkedHistoryItem && !completedHistory.some((item) => item.id === linkedHistoryItem.id)
+  );
+  const visibleHistoryItems = useMemo(
+    () => (linkedItemInjected && linkedHistoryItem ? [linkedHistoryItem, ...completedHistory] : completedHistory),
+    [completedHistory, linkedHistoryItem, linkedItemInjected]
+  );
 
   useEffect(() => {
     // Initial deep-link: only expand/scroll; don't auto-apply filters or force URL rewrites
-    const targetHistoryId = initialTargetRef.current;
-    if (!targetHistoryId) {
+    if (!deepLinkTargetId) {
       return;
     }
     if (targetChangeOriginRef.current === 'user') {
       targetChangeOriginRef.current = 'initial';
       return;
     }
-    const targetExists = completedHistory.some((item) => item.id === targetHistoryId);
+    const targetExists = visibleHistoryItems.some((item) => item.id === deepLinkTargetId);
     if (!targetExists) return;
 
-    setExpandedItems(new Set([targetHistoryId]));
+    setExpandedItems(new Set([deepLinkTargetId]));
 
-    if (hasHighlightedTargetRef.current && lastFocusedIdRef.current === targetHistoryId) return;
+    if (hasHighlightedTargetRef.current && lastFocusedIdRef.current === deepLinkTargetId) return;
     hasHighlightedTargetRef.current = true;
-    lastFocusedIdRef.current = targetHistoryId;
+    lastFocusedIdRef.current = deepLinkTargetId;
 
     requestAnimationFrame(() => {
-      const element = document.getElementById(`completed-item-${targetHistoryId}`);
+      const element = document.getElementById(`completed-item-${deepLinkTargetId}`);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         element.classList.add('highlight-target');
@@ -344,7 +455,7 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
         }, 1800);
       }
     });
-  }, [completedHistory, expandedItems, targetHistoryId]);
+  }, [deepLinkTargetId, expandedItems, visibleHistoryItems]);
 
   const handleHistoryFilterChange = (field: keyof HistoryFilterState, value: string | number) => {
     clearHistoryParam();
@@ -617,6 +728,11 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               </button>
             </div>
           </div>
+          {deepLinkTargetId && (
+            <div className="alert alert-info" style={{ marginBottom: '12px' }}>
+              已自動套用搜尋條件 <strong>#{deepLinkTargetId}</strong>，即使該筆紀錄不在目前的日期或筆數限制內，也會一併顯示在列表頂端供您檢視。
+            </div>
+          )}
 
           <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>
             {!loading && !error && (
@@ -662,6 +778,22 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
                 </div>
               </div>
             )}
+            {linkedHistoryLoading && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '8px 0' }}>
+                <Loader2 size={20} className="spinner" />
+                <span style={{ fontSize: '12px', color: '#6b7280' }}>載入連結指定的完成項目…</span>
+              </div>
+            )}
+            {linkedHistoryError && (
+              <div className="alert alert-error" style={{ marginBottom: '12px' }}>
+                {linkedHistoryError}
+              </div>
+            )}
+            {linkedItemInjected && linkedHistoryItem && (
+              <div className="alert alert-info" style={{ marginBottom: '12px' }}>
+                由於透過連結開啟，額外顯示 #{linkedHistoryItem.id}，即使它不在目前的日期或筆數限制內。
+              </div>
+            )}
             {loading ? (
               <div style={{ textAlign: 'center', padding: '20px' }}>
                 <Loader2 size={32} className="spinner" style={{ margin: '0 auto' }} />
@@ -670,12 +802,12 @@ function CompletedHistory({ teamId }: CompletedHistoryProps) {
               <div className="alert alert-error" style={{ marginBottom: 0 }}>
                 {error}
               </div>
-            ) : completedHistory.length === 0 ? (
+            ) : visibleHistoryItems.length === 0 ? (
               <p style={{ textAlign: 'center', color: '#6b7280', padding: '20px 0' }}>
                 尚無符合條件的完成項目
               </p>
             ) : (
-              completedHistory.map((item) => {
+              visibleHistoryItems.map((item) => {
                 const summary = item.ai_summary || item.ai_title || item.content;
                 const isExpanded = expandedItems.has(item.id);
 

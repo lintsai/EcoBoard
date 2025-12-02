@@ -1022,6 +1022,90 @@ export const getCompletedWorkHistory = async (
   };
 };
 
+export const getCompletedHistoryItemById = async (
+  userId: number,
+  historyId: number,
+  teamId?: number
+) => {
+  const params: any[] = [userId, historyId];
+  let paramIndex = 3;
+  const conditions: string[] = ['wi.id = $2'];
+
+  if (teamId) {
+    conditions.push(`COALESCE(wi.team_id, c.team_id) = $${paramIndex}`);
+    params.push(teamId);
+    paramIndex++;
+  }
+
+  const statusUpdatesCte = `
+    WITH status_updates AS (
+      SELECT DISTINCT ON (wu.work_item_id)
+        wu.work_item_id,
+        wu.updated_at AS status_changed_at,
+        wu.update_content,
+        wu.progress_status,
+        wu.user_id AS updated_by
+      FROM work_updates wu
+      WHERE wu.progress_status IN ('completed', 'cancelled')
+      ORDER BY wu.work_item_id, wu.updated_at DESC
+    )
+  `;
+
+  const baseFromClause = `
+    FROM status_updates su
+    INNER JOIN work_items wi ON wi.id = su.work_item_id
+    LEFT JOIN checkins c ON wi.checkin_id = c.id
+    LEFT JOIN teams t ON COALESCE(wi.team_id, c.team_id) = t.id
+    INNER JOIN team_members tm ON tm.team_id = COALESCE(wi.team_id, c.team_id)
+      AND tm.user_id = $1
+  `;
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  const dataSql = `
+    ${statusUpdatesCte}
+    SELECT
+      wi.id,
+      wi.checkin_id,
+      wi.team_id,
+      wi.user_id,
+      wi.content,
+      wi.item_type,
+      wi.session_id,
+      wi.ai_summary,
+      wi.ai_title,
+      wi.priority,
+      TO_CHAR(wi.estimated_date, 'YYYY-MM-DD') as estimated_date,
+      wi.is_backlog,
+      wi.created_at,
+      wi.updated_at,
+      su.status_changed_at AS completed_at,
+      su.update_content,
+      su.progress_status AS status,
+      su.updated_by AS completed_by,
+      cb.display_name AS completed_by_name,
+      cb.username AS completed_by_username,
+      COALESCE(wi.team_id, c.team_id) AS derived_team_id,
+      t.name AS team_name,
+      primary_handler.display_name AS primary_handler_name,
+      primary_handler.username AS primary_handler_username
+    ${baseFromClause}
+    LEFT JOIN (
+      SELECT wih.work_item_id, u.display_name, u.username
+      FROM work_item_handlers wih
+      INNER JOIN users u ON wih.user_id = u.id
+      WHERE wih.handler_type = 'primary'
+    ) primary_handler ON primary_handler.work_item_id = wi.id
+    LEFT JOIN users cb ON cb.id = su.updated_by
+    ${whereClause}
+    LIMIT 1
+  `;
+
+  const result = await query(dataSql, params);
+  const normalized = normalizeEstimatedDateList(result.rows);
+  return normalized[0] || null;
+};
+
 export const deleteWorkItem = async (itemId: number, userId: number) => {
   // Check if user owns the work item or is a manager
   const workItem = await query(

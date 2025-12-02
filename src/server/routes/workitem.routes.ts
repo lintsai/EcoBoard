@@ -1,5 +1,5 @@
 ﻿import { Router, Response } from 'express';
-import { body, validationResult, query as expressQuery } from 'express-validator';
+import { body, validationResult, query as expressQuery, param as expressParam } from 'express-validator';
 import { authenticate, AuthRequest } from '../middleware/auth.middleware';
 import * as workItemService from '../services/workitem.service';
 import { notifyStandupUpdateForCheckin, notifyStandupUpdateForWorkItem } from '../websocket/standup';
@@ -390,6 +390,37 @@ router.get(
     } catch (error) {
       console.error('Get completed work history error:', error);
       res.status(500).json({ error: '取得已完成工作項目失敗' });
+    }
+  }
+);
+
+router.get(
+  '/completed/history/:historyId',
+  authenticate,
+  [
+    expressParam('historyId').isInt().withMessage('historyId 必須是整數'),
+    expressQuery('teamId').optional().isInt().withMessage('teamId 必須是整數')
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const historyId = parseInt(req.params.historyId, 10);
+      const teamId = req.query.teamId ? parseInt(req.query.teamId as string, 10) : undefined;
+      const item = await workItemService.getCompletedHistoryItemById(req.user!.id, historyId, teamId);
+
+      if (!item) {
+        return res.status(404).json({ error: '完成項目不存在或無權限查看' });
+      }
+
+      preventCache(res);
+      res.json(item);
+    } catch (error) {
+      console.error('Get completed history item error:', error);
+      res.status(500).json({ error: '取得完成項目失敗' });
     }
   }
 );
