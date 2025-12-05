@@ -61,7 +61,10 @@ const SKIP_DB_INIT = (process.env.SKIP_DB_INIT || 'false').toLowerCase() === 'tr
 let DB_READY = false;
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  hsts: false,
+}));
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3001',
   credentials: true
@@ -80,6 +83,16 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/backlog', backlogRoutes);
 app.use('/api/weekly-reports', weeklyReportRoutes);
 app.use('/api/standup', standupRoutes);
+
+// Serve static files from the React app
+const clientBuildPath = path.join(__dirname, '../client/build');
+app.use(express.static(clientBuildPath));
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientBuildPath, 'index.html'));
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
